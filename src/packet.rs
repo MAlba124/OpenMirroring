@@ -3,7 +3,7 @@ use crate::protocol_types::{
     SetSpeedMessage, SetVolumeMessage, VersionMessage, VolumeUpdateMessage,
 };
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum Packet {
     None,
     Play(PlayMessage),
@@ -86,26 +86,36 @@ impl Packet {
 
     pub fn encode(&self) -> Vec<u8> {
         let body = match self {
-            Packet::Play(play_message) => Vec::from(serde_json::to_string(&play_message).unwrap()),
-            Packet::Seek(seek_message) => Vec::from(serde_json::to_string(&seek_message).unwrap()),
+            Packet::Play(play_message) => {
+                serde_json::to_string(&play_message).unwrap().into_bytes()
+            }
+            Packet::Seek(seek_message) => {
+                serde_json::to_string(&seek_message).unwrap().into_bytes()
+            }
             Packet::PlaybackUpdate(playback_update_message) => {
-                Vec::from(serde_json::to_string(&playback_update_message).unwrap())
+                serde_json::to_string(&playback_update_message)
+                    .unwrap()
+                    .into_bytes()
             }
             Packet::VolumeUpdate(volume_update_message) => {
-                Vec::from(serde_json::to_string(&volume_update_message).unwrap())
+                serde_json::to_string(&volume_update_message)
+                    .unwrap()
+                    .into_bytes()
             }
-            Packet::SetVolume(set_volume_message) => {
-                Vec::from(serde_json::to_string(&set_volume_message).unwrap())
-            }
+            Packet::SetVolume(set_volume_message) => serde_json::to_string(&set_volume_message)
+                .unwrap()
+                .into_bytes(),
             Packet::PlaybackError(playback_error_message) => {
-                Vec::from(serde_json::to_string(&playback_error_message).unwrap())
+                serde_json::to_string(&playback_error_message)
+                    .unwrap()
+                    .into_bytes()
             }
-            Packet::SetSpeed(set_speed_message) => {
-                Vec::from(serde_json::to_string(&set_speed_message).unwrap())
-            }
-            Packet::Version(version_message) => {
-                Vec::from(serde_json::to_string(&version_message).unwrap())
-            }
+            Packet::SetSpeed(set_speed_message) => serde_json::to_string(&set_speed_message)
+                .unwrap()
+                .into_bytes(),
+            Packet::Version(version_message) => serde_json::to_string(&version_message)
+                .unwrap()
+                .into_bytes(),
             _ => Vec::new(),
         };
         assert!(body.len() < 32 * 1000);

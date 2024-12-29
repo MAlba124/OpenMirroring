@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 
 use serde::{Deserialize, Serialize};
+use serde_repr::{Deserialize_repr, Serialize_repr};
 
 #[derive(Debug)]
 pub enum Opcode {
@@ -26,7 +27,14 @@ pub struct Header {
     pub opcode: Opcode,
 }
 
-#[allow(dead_code)]
+#[derive(Serialize_repr, Deserialize_repr, PartialEq, Debug, Clone)]
+#[repr(u8)]
+pub enum PlaybackState {
+    Idle = 0,
+    Playing = 1,
+    Paused = 2,
+}
+
 #[derive(Deserialize, Serialize, Debug, Clone)]
 pub struct PlayMessage {
     pub container: String,
@@ -44,16 +52,18 @@ pub struct SeekMessage {
 
 #[derive(Deserialize, Serialize, Debug, Clone)]
 pub struct PlaybackUpdateMessage {
-    pub generation: f64,
+    #[serde(rename = "generationTime")]
+    pub generation: u64,
     pub time: f64,
     pub duration: f64,
-    pub state: f64,
+    pub state: PlaybackState,
     pub speed: f64,
 }
 
 #[derive(Deserialize, Serialize, Debug, Clone)]
 pub struct VolumeUpdateMessage {
-    pub generation: f64,
+    #[serde(rename = "generationTime")]
+    pub generation: u64,
     pub volume: f64,
 }
 
@@ -74,7 +84,16 @@ pub struct PlaybackErrorMessage {
 
 #[derive(Deserialize, Serialize, Debug, Clone)]
 pub struct VersionMessage {
-    pub version: f64,
+    pub version: u64,
+}
+
+impl From<bool> for PlaybackState {
+    fn from(value: bool) -> Self {
+        match value {
+            true => Self::Paused,
+            false => Self::Playing,
+        }
+    }
 }
 
 impl From<String> for PlaybackErrorMessage {

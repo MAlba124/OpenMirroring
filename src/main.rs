@@ -1,15 +1,16 @@
 use std::{
+    collections::HashMap,
     sync::{Arc, Mutex},
-    time::{Duration, Instant, SystemTime, UNIX_EPOCH},
+    time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
 use fcast_iced::{
     protocol_types::{
-        PlayMessage, PlaybackErrorMessage, PlaybackUpdateMessage, SeekMessage, SetSpeedMessage,
-        SetVolumeMessage, VolumeUpdateMessage,
+        PlayMessage, PlaybackErrorMessage, PlaybackState, PlaybackUpdateMessage, SeekMessage,
+        SetSpeedMessage, SetVolumeMessage, VolumeUpdateMessage,
     },
-    session::{Session, SessionMessage},
-    Message,
+    session::{Session, SessionId, SessionMessage},
+    CreateSessionRequest, Message,
 };
 use iced::{
     futures::{channel::mpsc::Sender, SinkExt, Stream},
@@ -18,10 +19,9 @@ use iced::{
 };
 use iced_video_player::{Video, VideoPlayer};
 use log::{debug, error, info};
-use tokio::net::TcpStream;
 use url::Url;
 
-fn create_message_stream() -> impl Stream<Item = Message> {
+fn new_session_stream() -> impl Stream<Item = Message> {
     iced::stream::channel(1, move |mut output: Sender<Message>| async move {
         let listener = tokio::net::TcpListener::bind("127.0.0.1:46899")
             .await
@@ -29,15 +29,19 @@ fn create_message_stream() -> impl Stream<Item = Message> {
 
         info!("Listening on {:?}", listener.local_addr());
 
+        let mut id: SessionId = 0;
+
         loop {
             match listener.accept().await {
                 Ok((net_stream, _)) => {
                     output
-                        .send(Message::CreateSession(Arc::new(Mutex::new(Some(
-                            net_stream,
-                        )))))
+                        .send(Message::CreateSession(CreateSessionRequest {
+                            net_stream_mutex: Arc::new(Mutex::new(Some(net_stream))),
+                            id,
+                        }))
                         .await
                         .unwrap();
+                    id += 1;
                 }
                 Err(e) => panic!("{}", e.to_string()),
             }
@@ -45,39 +49,31 @@ fn create_message_stream() -> impl Stream<Item = Message> {
     })
 }
 
-fn current_time_millis() -> f64 {
+fn current_time_millis() -> u64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap()
-        .as_millis() as f64
+        .as_millis() as u64
 }
 
 struct Fcast {
     video: Option<Video>,
-    session_tx: async_channel::Sender<SessionMessage>,
-    session_rx: async_channel::Receiver<SessionMessage>,
-    n_sessions: usize,
-    last_position_update: Instant,
+    sessions: HashMap<SessionId, tokio::sync::mpsc::Sender<SessionMessage>>,
 }
 
 impl Fcast {
     pub fn new() -> (Self, Task<Message>) {
-        let (session_tx, session_rx) = async_channel::unbounded();
-
         (
             Self {
                 video: None,
-                session_tx,
-                session_rx,
-                last_position_update: Instant::now(),
-                n_sessions: 0,
+                sessions: HashMap::new(),
             },
             Task::none(),
         )
     }
 
-    async fn send_message_to_sessions(
-        tx: async_channel::Sender<SessionMessage>,
+    async fn send_message_to_session(
+        tx: tokio::sync::mpsc::Sender<SessionMessage>,
         msg: SessionMessage,
     ) -> Message {
         debug!("Sending message to sessions: {msg:?}");
@@ -88,38 +84,51 @@ impl Fcast {
         Message::Nothing
     }
 
+    fn send_to_all_sessions(&mut self, msg: SessionMessage) -> Task<Message> {
+        let mut tasks: Vec<Task<Message>> = Vec::new();
+
+        for session in self.sessions.clone() {
+            tasks.push(Task::future(Self::send_message_to_session(
+                session.1,
+                msg.clone(),
+            )));
+        }
+
+        Task::batch(tasks)
+    }
+
     fn playback_state(&mut self) -> Option<PlaybackUpdateMessage> {
         self.video.as_ref().map(|v| PlaybackUpdateMessage {
             generation: current_time_millis(),
             time: v.position().as_secs_f64(),
             duration: v.duration().as_secs_f64(),
-            state: if v.paused() { 2.0 } else { 1.0 },
+            state: v.paused().into(),
             speed: v.speed(),
         })
     }
 
     fn send_playback_state_to_sessions(&mut self) -> Task<Message> {
-        if self.n_sessions < 1 {
+        if self.sessions.is_empty() {
             return Task::none();
         }
 
         match self.playback_state() {
-            Some(state) => Task::future(Self::send_message_to_sessions(
-                self.session_tx.clone(),
-                state.into(),
-            )),
-            None => {
-                error!("Could not get playback state");
-                Task::none()
-            }
+            Some(state) => self.send_to_all_sessions(state.into()),
+            None => self.send_to_all_sessions(
+                PlaybackUpdateMessage {
+                    generation: current_time_millis(),
+                    time: 0.0,
+                    duration: 0.0,
+                    state: PlaybackState::Idle,
+                    speed: 0.0,
+                }
+                .into(),
+            ),
         }
     }
 
     fn send_error_to_sessions(&mut self, e: String) -> Task<Message> {
-        Task::future(Self::send_message_to_sessions(
-            self.session_tx.clone(),
-            PlaybackErrorMessage { message: e }.into(),
-        ))
+        self.send_to_all_sessions(PlaybackErrorMessage { message: e }.into())
     }
 
     fn seek(&mut self, msg: SeekMessage) -> Task<Message> {
@@ -149,6 +158,7 @@ impl Fcast {
         }
     }
 
+    // Currently does not work when streaming over network
     fn set_speed(&mut self, msg: SetSpeedMessage) -> Task<Message> {
         match &mut self.video {
             Some(v) => match v.set_speed(msg.speed) {
@@ -177,6 +187,7 @@ impl Fcast {
     }
 
     fn play(&mut self, msg: PlayMessage) -> Task<Message> {
+        // TODO:
         let resource_location = Url::parse(&msg.url.unwrap()).unwrap();
         match Video::new(&resource_location) {
             Ok(v) => {
@@ -194,32 +205,41 @@ impl Fcast {
     fn end_of_stream_or_stop(&mut self) -> Task<Message> {
         debug!("Playback reached end of stream (EOS) or playback was stopped");
         self.video = None;
-        if self.n_sessions > 0 {
-            Task::future(Self::send_message_to_sessions(
-                self.session_tx.clone(),
+        if !self.sessions.is_empty() {
+            self.send_to_all_sessions(
                 PlaybackUpdateMessage {
                     generation: current_time_millis(),
                     time: 0.0,
                     duration: 0.0,
-                    state: 0.0,
+                    state: PlaybackState::Idle,
                     speed: 0.0,
                 }
                 .into(),
-            ))
+            )
         } else {
             Task::none()
         }
     }
 
-    fn create_session(&mut self, net_stream_mutex: Arc<Mutex<Option<TcpStream>>>) -> Task<Message> {
-        let mut net_stream = net_stream_mutex.lock().unwrap();
+    fn create_session(&mut self, req: CreateSessionRequest) -> Task<Message> {
+        let mut net_stream = req.net_stream_mutex.lock().unwrap();
+        let (tx, rx) = tokio::sync::mpsc::channel(10);
+
+        if self.sessions.insert(req.id, tx).is_some() {
+            error!(
+                "Session ({}) already exists. Removing and adding the new anyways",
+                req.id
+            );
+        }
+
         Task::stream(
             Session::new(
                 net_stream
                     .take()
                     .expect("There should always be a stream here"),
+                req.id,
             )
-            .stream(self.session_rx.clone()),
+            .stream(rx),
         )
     }
 
@@ -229,15 +249,13 @@ impl Fcast {
                 debug!("Setting playback volume to {}", msg.volume);
                 v.set_volume(msg.volume);
 
-                if self.n_sessions > 0 {
-                    Task::future(Self::send_message_to_sessions(
-                        self.session_tx.clone(),
-                        VolumeUpdateMessage {
-                            generation: current_time_millis(),
-                            volume: v.volume(),
-                        }
-                        .into(),
-                    ))
+                let update = VolumeUpdateMessage {
+                    generation: current_time_millis(),
+                    volume: v.volume(),
+                };
+
+                if !self.sessions.is_empty() {
+                    self.send_to_all_sessions(update.into())
                 } else {
                     Task::none()
                 }
@@ -248,25 +266,22 @@ impl Fcast {
 
     fn playback_error(&mut self, e: String) -> Task<Message> {
         error!("Playback error: {e}");
-        if self.n_sessions > 0 {
-            Task::future(Self::send_message_to_sessions(
-                self.session_tx.clone(),
-                PlaybackErrorMessage { message: e }.into(),
-            ))
+        if !self.sessions.is_empty() {
+            self.send_to_all_sessions(PlaybackErrorMessage { message: e }.into())
         } else {
             debug!("No sessions connected to send error to");
             Task::none()
         }
     }
 
-    fn tick(&mut self) -> Task<Message> {
-        let now = Instant::now();
-        if now - self.last_position_update >= Duration::from_secs(1) {
-            self.last_position_update = now;
-            return self.send_playback_state_to_sessions();
+    fn session_destroy(&mut self, id: SessionId) {
+        if self.sessions.remove(&id).is_none() {
+            error!("Session ({id}) does not exist so it can't be destroyed");
         }
+    }
 
-        Task::none()
+    fn tick(&mut self) -> Task<Message> {
+        self.send_playback_state_to_sessions()
     }
 
     pub fn update(&mut self, message: Message) -> Task<Message> {
@@ -277,17 +292,13 @@ impl Fcast {
             Message::Resume => return self.resume(),
             Message::SetSpeed(set_speed_message) => return self.set_speed(set_speed_message),
             Message::Stop => return self.end_of_stream_or_stop(),
-            Message::CreateSession(net_stream_mutex) => {
-                return self.create_session(net_stream_mutex)
-            }
+            Message::CreateSession(req) => return self.create_session(req),
             Message::Seek(seek_message) => return self.seek(seek_message),
             Message::SetVolume(set_volume_message) => return self.set_volume(set_volume_message),
             Message::PlaybackError(e) => return self.playback_error(e),
-            // Message::PlaybackNewFrame => return self.new_frame(),
             Message::Tick => return self.tick(),
+            Message::SessionDestroyed(id) => self.session_destroy(id),
             Message::Nothing => {}
-            Message::SessionCreated => self.n_sessions += 1,
-            Message::SessionDestroyed => self.n_sessions -= 1,
         }
 
         Task::none()
@@ -300,7 +311,6 @@ impl Fcast {
                 .height(iced::Length::Fill)
                 .content_fit(iced::ContentFit::Contain)
                 .on_end_of_stream(Message::EndOfStream)
-                // .on_new_frame(Message::PlaybackNewFrame)
                 .on_error(|e| Message::PlaybackError(e.to_string()))
                 .into(),
             None => center(text("Listening on localhost:46899")).into(),
@@ -309,8 +319,8 @@ impl Fcast {
 
     pub fn subscription(&self) -> Subscription<Message> {
         Subscription::batch([
-            Subscription::run(create_message_stream),
-            iced::time::every(Duration::from_secs(1)).map(|_| Message::Tick)
+            Subscription::run(new_session_stream),
+            iced::time::every(Duration::from_secs(1)).map(|_| Message::Tick),
         ])
     }
 }

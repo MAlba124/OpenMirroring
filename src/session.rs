@@ -14,14 +14,16 @@ use crate::{packet::Packet, protocol_types::Header, Message};
 const HEADER_BUFFER_SIZE: usize = 5;
 
 pub type SessionMessage = Packet;
+pub type SessionId = u64;
 
 pub struct Session {
     net_stream: TcpStream,
+    id: SessionId,
 }
 
 impl Session {
-    pub fn new(net_stream: TcpStream) -> Self {
-        Self { net_stream }
+    pub fn new(net_stream: TcpStream, id: SessionId) -> Self {
+        Self { net_stream, id }
     }
 
     async fn get_next_packet(&mut self) -> Result<Packet, tokio::io::Error> {
@@ -76,11 +78,7 @@ impl Session {
 
     async fn handle_message(&mut self, msg: SessionMessage) -> Result<(), tokio::io::Error> {
         let body = msg.encode();
-        let header = Header::new(
-            crate::protocol_types::Opcode::PlaybackError,
-            body.len() as u32,
-        )
-        .encode();
+        let header = Header::new((&msg).into(), body.len() as u32).encode();
         let mut buffer = header.to_vec();
         buffer.extend_from_slice(&body);
 
@@ -91,11 +89,9 @@ impl Session {
 
     pub fn stream(
         mut self,
-        rx: async_channel::Receiver<SessionMessage>,
+        mut rx: tokio::sync::mpsc::Receiver<SessionMessage>,
     ) -> impl Stream<Item = Message> {
         iced::stream::channel(1, move |mut tx: Sender<Message>| async move {
-            tx.send(Message::SessionCreated).await.unwrap();
-
             loop {
                 tokio::select! {
                     pack_res = self.get_next_packet() => {
@@ -111,17 +107,18 @@ impl Session {
                     }
                     sess_msg = rx.recv() => {
                         match sess_msg {
-                            Ok(msg) => if let Err(e) = self.handle_message(msg).await {
+                            Some(msg) => if let Err(e) = self.handle_message(msg).await {
                                 error!("Error occured handling message from ui: {e}");
                             },
-                            // TODO: Should quit?
-                            Err(e) => error!("Failed to receive message from ui: {e}"),
+                            None => {
+                                warn!("Failed to receive from channel");
+                            }
                         }
                     }
                 }
             }
 
-            tx.send(Message::SessionDestroyed).await.unwrap();
+            tx.send(Message::SessionDestroyed(self.id)).await.unwrap();
         })
     }
 }
