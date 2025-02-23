@@ -1,7 +1,5 @@
 use std::{
-    collections::HashMap,
-    sync::{Arc, Mutex},
-    time::{Duration, SystemTime, UNIX_EPOCH},
+    collections::HashMap, sync::{Arc, Mutex}, time::{Duration, SystemTime, UNIX_EPOCH}
 };
 
 use fcast_iced::{
@@ -12,6 +10,7 @@ use fcast_iced::{
     session::{Session, SessionId, SessionMessage},
     CreateSessionRequest, Message,
 };
+use gst::prelude::{Cast, GstBinExt, ObjectExt};
 use iced::{
     futures::{channel::mpsc::Sender, SinkExt, Stream},
     widget::{center, text},
@@ -20,6 +19,9 @@ use iced::{
 use iced_video_player::{Video, VideoPlayer};
 use log::{debug, error, info};
 use url::Url;
+use gst::prelude::*;
+
+const GST_WEBRTC_MIME_TYPE: &'static str = "video/gstwebrtc";
 
 fn new_session_stream() -> impl Stream<Item = Message> {
     iced::stream::channel(1, move |mut output: Sender<Message>| async move {
@@ -48,6 +50,8 @@ fn new_session_stream() -> impl Stream<Item = Message> {
         }
     })
 }
+
+// TODO: Web socket listener
 
 fn current_time_millis() -> u64 {
     SystemTime::now()
@@ -187,17 +191,58 @@ impl Fcast {
     }
 
     fn play(&mut self, msg: PlayMessage) -> Task<Message> {
-        // TODO:
-        let resource_location = Url::parse(&msg.url.unwrap()).unwrap();
-        match Video::new(&resource_location) {
+        // TODO: Logging errors, content parsing and headers stuff
+        let video = if msg.container == GST_WEBRTC_MIME_TYPE {
+            let pipeline = gst::parse::launch(
+                format!(
+                    // "webrtcsrc signaller::uri=\"{}\" signaller::producer-peer-id=501cb14b-9424-4e7f-b885-29e95091b102 ! videoscale ! videoconvert ! appsink name=iced_video_webrtc drop=true caps=video/x-raw,format=NV12,pixel-aspec-ratio=1/1,framerate=1/1",
+                    // "playbin3 uri=\"gstwebrtc://{}?peer-id=501cb14b-9424-4e7f-b885-29e95091b102\" video-sink=\"videoscale ! videoconvert ! appsink name=iced_video drop=true caps=video/x-raw,format=NV12,pixel-aspect-ratio=1/1,framerate=1/1\"",
+                    // NOTE: change peer-id
+                    "playbin3 uri=\"gstwebrtc://{}?peer-id=7eb4c183-4ce0-47ee-a862-c9115a8cca83\" video-sink=\"videoscale ! videoconvert ! appsink name=iced_video drop=true caps=video/x-raw,format=NV12,pixel-aspect-ratio=1/1\"",
+                    msg.url.unwrap()
+                ).as_str()
+            )
+                .unwrap()
+                .downcast::<gst::Pipeline>()
+                .unwrap();
+
+            pipeline.set_state(gst::State::Playing).unwrap();
+            pipeline.state(gst::ClockTime::from_seconds(5)).0.unwrap();
+
+            // let video_sink: gst::Element = pipeline.property("video-sink");
+            // let pad = video_sink.pads().first().cloned().unwrap();
+            // let pad = pad.dynamic_cast::<gst::GhostPad>().unwrap();
+            // let bin = pad.parent_element().unwrap().downcast::<gst::Bin>().unwrap();
+            // let video_sink = bin.by_name("iced_video").unwrap().downcast::<gst_app::AppSink>().unwrap();
+            let video_sink = pipeline.by_name("iced_video").unwrap().downcast::<gst_app::AppSink>().unwrap();
+
+            Video::from_gst_pipeline(pipeline, video_sink, None)
+        } else {
+            let resource_location = Url::parse(&msg.url.unwrap()).unwrap();
+            debug!(
+                "Video request type={} src={resource_location:?}",
+                msg.container
+            );
+            Video::new(&resource_location)
+        };
+
+        match video {
             Ok(v) => {
-                debug!("Successfully created video src={resource_location:?}");
+                // TODO: Does not really work on live sources
+                // if let Some(speed) = msg.speed {if v.set_speed(speed).is_err() {
+                // return self.send_error_to_sessions("Failed to create playback (set_speed)".into());}}
+                // if let Some(time) = msg.time { if v.seek(Duration::from_secs(time as u64), false).is_err() {
+                // return self.send_error_to_sessions("Failed to create playback (seek)".into());}}
+
+                debug!("Created video");
+
                 self.video = Some(v);
-                self.send_playback_state_to_sessions()
+                Task::none()
+                // self.send_playback_state_to_sessions()
             }
             Err(e) => {
                 error!("Failed to create video: {e}");
-                Task::none()
+                self.send_error_to_sessions("Failed to create playback".into())
             }
         }
     }
@@ -328,7 +373,12 @@ impl Fcast {
 pub fn main() -> iced::Result {
     env_logger::Builder::from_default_env()
         .filter_module("fcast_iced", log::LevelFilter::Debug)
+        .filter_module("iced_video_player", log::LevelFilter::Debug)
         .init();
+
+    gst::init().unwrap();
+    gst_webrtc::plugin_register_static().unwrap();
+    gst_rtp::plugin_register_static().unwrap();
 
     iced::application("FCast", Fcast::update, Fcast::view)
         .subscription(Fcast::subscription)

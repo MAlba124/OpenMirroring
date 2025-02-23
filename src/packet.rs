@@ -118,6 +118,7 @@ impl Packet {
                 .into_bytes(),
             _ => Vec::new(),
         };
+
         assert!(body.len() < 32 * 1000);
         let header = Header::new(self.into(), body.len() as u32).encode();
         let mut pack = header.to_vec();

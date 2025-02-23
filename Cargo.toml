@@ -8,8 +8,14 @@ iced = { version = "0.13.1", features = ["tokio"] }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0.133"
 serde_repr = "0.1.19"
-iced_video_player = { git = "https://github.com/jazzfool/iced_video_player.git" }
+# iced_video_player = { git = "https://github.com/jazzfool/iced_video_player.git", rev = "a8656e8021f7a6c316760fffc84664b92e5abc61" }
+iced_video_player = { path = "../iced_video_player" }
 url = "2.5.4"
 tokio = { version = "1.42.0", features = ["net", "io-util", "macros", "sync"] }
 log = "0.4.22"
 env_logger = "0.11.6"
+gst = { package = "gstreamer", version = "0.23.5" }
+gst-app = { package = "gstreamer-app", version = "0.23.5" }
+gst-webrtc = { package = "gst-plugin-webrtc", git = "https://github.com/GStreamer/gst-plugins-rs", rev = "a34efda2018a6e241bb3372bd767a79f58bdbe6f" }
+gst-rtp = { package = "gst-plugin-rtp", git = "https://github.com/GStreamer/gst-plugins-rs", rev = "a34efda2018a6e241bb3372bd767a79f58bdbe6f" }
+bitflags = "2.8.0"

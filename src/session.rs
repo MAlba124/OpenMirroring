@@ -77,11 +77,7 @@ impl Session {
     }
 
     async fn handle_message(&mut self, msg: SessionMessage) -> Result<(), tokio::io::Error> {
-        let body = msg.encode();
-        let header = Header::new((&msg).into(), body.len() as u32).encode();
-        let mut buffer = header.to_vec();
-        buffer.extend_from_slice(&body);
-
+        let buffer = msg.encode();
         self.net_stream.write_all(&buffer).await?;
 
         Ok(())
