@@ -1,28 +1,3 @@
-[package]
-name = "fcast_iced"
-version = "0.1.0"
-edition = "2021"
-
-[dependencies]
-serde = { version = "1.0", features = ["derive"] }
-serde_json = "1.0.133"
-serde_repr = "0.1.19"
-url = "2.5.4"
-tokio = { version = "1.42.0", features = ["net", "io-util", "macros", "sync", "rt-multi-thread"] }
-log = "0.4.22"
-env_logger = "0.11.6"
-gst = { package = "gstreamer", version = "0.23.5" }
-gst-app = { package = "gstreamer-app", version = "0.23.5" }
-gst-video = { package = "gstreamer-video", version = "0.23.5" }
-gst-webrtc = { package = "gst-plugin-webrtc", git = "https://github.com/GStreamer/gst-plugins-rs", rev = "a34efda2018a6e241bb3372bd767a79f58bdbe6f" }
-gst-rtp = { package = "gst-plugin-rtp", git = "https://github.com/GStreamer/gst-plugins-rs", rev = "a34efda2018a6e241bb3372bd767a79f58bdbe6f" }
-gst-gtk4 = { package = "gst-plugin-gtk4", version = "0.13.4" }
-bitflags = "2.8.0"
-gtk4 = { version = "0.9.6", features = ["v4_16"] }
-async-channel = "2.3.1"
-
-[profile.dev.package."*"]
-opt-level = 3
-
-[profile.dev]
-opt-level = 1
+[workspace]
+resolver = "2"
+members = [ "fcast-lib","receiver", "sender"]
