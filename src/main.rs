@@ -1,14 +1,15 @@
 use fcast_iced::dispatcher::Dispatcher;
-use fcast_iced::models::{PlayMessage, PlaybackState, PlaybackUpdateMessage};
+use fcast_iced::models::{PlaybackState, PlaybackUpdateMessage};
 use fcast_iced::packet::Packet;
 use fcast_iced::session::Session;
-use fcast_iced::{runtime, Event};
+// use fcast_iced::{runtime, video, Event, GuiEvent};
+use fcast_iced::{runtime, Event, GuiEvent};
 use gst::{prelude::*, SeekFlags};
 use log::{debug, error};
 
 use std::cell::RefCell;
 
-use gst::glib::clone;
+use gst::glib::{clone, WeakRef};
 use gtk::prelude::*;
 use gtk::{glib, Application, ApplicationWindow};
 use gtk4 as gtk;
@@ -22,18 +23,6 @@ fn current_time_millis() -> u64 {
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap()
         .as_millis() as u64
-}
-
-#[derive(Debug)]
-enum GuiEvent {
-    Play(PlayMessage),
-    Eos,
-    Pause,
-    Resume,
-    Stop,
-    SetSpeed(f64),
-    Seek(f64),
-    SetVolume(f64),
 }
 
 async fn event_loop(
@@ -96,9 +85,7 @@ async fn event_loop(
     }
 }
 
-fn build_ui(app: &Application) {
-    debug!("Building UI");
-
+fn create_pipeline() -> (gst::Pipeline, gst::Element, gst_gtk4::RenderWidget) {
     let pipeline = gst::Pipeline::new();
     let gtksink = gst::ElementFactory::make("gtk4paintablesink")
         .build()
@@ -122,27 +109,12 @@ fn build_ui(app: &Application) {
 
     let video_view = gst_gtk4::RenderWidget::new(&gtksink);
 
-    let label_view = gtk::Label::new(Some("Listening on localhost:46899"));
+    (pipeline, playbin, video_view)
+}
 
-    let stack = gtk::Stack::new();
-    stack.add_named(&label_view, Some("text_view"));
-    stack.add_named(&video_view, Some("video_view"));
-
-    let window = ApplicationWindow::builder()
-        .application(app)
-        .title("OMReceiver")
-        .child(&stack)
-        .build();
-
-    window.present();
-
-    let (event_tx, event_rx) = async_channel::unbounded::<Event>();
-    let (gui_event_tx, gui_event_rx) = async_channel::unbounded::<GuiEvent>();
-
-    let pipeline_weak = pipeline.downgrade();
-    let event_tx_clone = event_tx.clone();
-    let timeout_id = glib::timeout_add_local(std::time::Duration::from_millis(1000), move || {
-        let event_tx = event_tx_clone.clone();
+fn setup_timeout(pipeline_weak: WeakRef<gst::Pipeline>, event_tx: async_channel::Sender<Event>) -> glib::SourceId {
+    glib::timeout_add_local(std::time::Duration::from_millis(1000), move || {
+        let event_tx = event_tx.clone();
         runtime().block_on(async {
             let Some(pipeline) = pipeline_weak.upgrade() else {
                 return glib::ControlFlow::Break;
@@ -168,7 +140,30 @@ fn build_ui(app: &Application) {
                 .unwrap();
             glib::ControlFlow::Continue
         })
-    });
+    })
+}
+
+fn build_ui(app: &Application) {
+    debug!("Building UI");
+
+    let (pipeline, playbin, video_view) = create_pipeline();
+    let label_view = gtk::Label::new(Some("Listening on localhost:46899"));
+    let stack = gtk::Stack::new();
+    stack.add_named(&label_view, Some("text_view"));
+    stack.add_named(&video_view, Some("video_view"));
+
+    let window = ApplicationWindow::builder()
+        .application(app)
+        .title("OMReceiver")
+        .child(&stack)
+        .build();
+
+    window.present();
+
+    let (event_tx, event_rx) = async_channel::unbounded::<Event>();
+    let (gui_event_tx, gui_event_rx) = async_channel::unbounded::<GuiEvent>();
+
+    let timeout_id = setup_timeout(pipeline.downgrade(), event_tx.clone());
 
     let bus = pipeline.bus().unwrap();
 

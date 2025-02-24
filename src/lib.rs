@@ -40,7 +40,19 @@ pub mod dispatcher;
 pub mod models;
 pub mod packet;
 pub mod session;
-pub mod video;
+// pub mod video;
+
+#[derive(Debug)]
+pub enum GuiEvent {
+    Play(PlayMessage),
+    Eos,
+    Pause,
+    Resume,
+    Stop,
+    SetSpeed(f64),
+    Seek(f64),
+    SetVolume(f64),
+}
 
 #[derive(Debug)]
 pub enum Event {
