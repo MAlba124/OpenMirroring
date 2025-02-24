@@ -33,6 +33,7 @@
             glib
             openssl
             libnice
+            gtk4
           ];
         in
         with pkgs;

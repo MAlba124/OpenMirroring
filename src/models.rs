@@ -5,7 +5,7 @@ use serde_repr::{Deserialize_repr, Serialize_repr};
 
 #[derive(Debug)]
 pub enum Opcode {
-    None,
+    None = 0,
     Play,
     Pause,
     Resume,

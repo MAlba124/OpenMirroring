@@ -1,4 +1,4 @@
-use crate::protocol_types::{
+use crate::models::{
     Header, Opcode, PlayMessage, PlaybackErrorMessage, PlaybackUpdateMessage, SeekMessage,
     SetSpeedMessage, SetVolumeMessage, VersionMessage, VolumeUpdateMessage,
 };
