@@ -1,6 +1,11 @@
 [package]
-name = "sender"
+name = "omsender"
 version = "0.1.0"
 edition = "2021"
 
 [dependencies]
+gtk4 = { workspace = true }
+gst = { workspace = true }
+gst-gtk4 = { workspace = true }
+gst-video = { workspace = true }
+scap-gstreamer = { git = "https://github.com/MAlba124/scap-gstreamer.git", rev = "3463d08a8784b64ff2a6d14990ae89de19ea9189" }
