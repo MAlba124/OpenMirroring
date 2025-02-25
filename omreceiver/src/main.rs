@@ -1,6 +1,6 @@
 use omreceiver::dispatcher::Dispatcher;
-use omreceiver::models::{PlaybackState, PlaybackUpdateMessage};
-use omreceiver::packet::Packet;
+use fcast_lib::models::{PlaybackState, PlaybackUpdateMessage};
+use fcast_lib::packet::Packet;
 use omreceiver::session::Session;
 use omreceiver::{runtime, Event, GuiEvent};
 use gst::{prelude::*, SeekFlags};

@@ -521,6 +521,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "37909eebbb50d72f9059c3b6d82c0463f2ff062c9e95845c43a6c9c0355411be"
 
 [[package]]
+name = "fcast-lib"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "serde_repr",
+]
+
+[[package]]
 name = "field-offset"
 version = "0.3.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2172,6 +2181,7 @@ dependencies = [
  "async-channel",
  "bitflags 2.8.0",
  "env_logger",
+ "fcast-lib",
  "gst-plugin-gtk4",
  "gst-plugin-rtp",
  "gst-plugin-webrtc",
@@ -2180,9 +2190,6 @@ dependencies = [
  "gstreamer-video 0.23.5",
  "gtk4",
  "log",
- "serde",
- "serde_json",
- "serde_repr",
  "tokio",
  "url",
 ]
@@ -2696,6 +2703,10 @@ name = "semver"
 version = "1.0.25"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f79dfe2d285b0488816f30e700a7438c5a73d816b5b7d3ac72fbc48b0d185e03"
+
+[[package]]
+name = "sender"
+version = "0.1.0"
 
 [[package]]
 name = "serde"

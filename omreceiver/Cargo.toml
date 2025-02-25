@@ -4,9 +4,6 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-serde = { version = "1.0", features = ["derive"] }
-serde_json = "1.0.133"
-serde_repr = "0.1.19"
 url = "2.5.4"
 tokio = { version = "1.42.0", features = ["net", "io-util", "macros", "sync", "rt-multi-thread"] }
 log = "0.4.22"
@@ -20,6 +17,7 @@ gst-gtk4 = { package = "gst-plugin-gtk4", version = "0.13.4" }
 bitflags = "2.8.0"
 gtk4 = { version = "0.9.6", features = ["v4_16"] }
 async-channel = "2.3.1"
+fcast-lib = { path = "../fcast-lib" }
 
 [profile.dev.package."*"]
 opt-level = 3

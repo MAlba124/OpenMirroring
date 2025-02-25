@@ -5,7 +5,9 @@ use tokio::{
     net::TcpStream,
 };
 
-use crate::{models::Header, packet::Packet, Event};
+use crate::Event;
+use fcast_lib::models::Header;
+use fcast_lib::packet::Packet;
 
 pub type SessionId = u64;
 

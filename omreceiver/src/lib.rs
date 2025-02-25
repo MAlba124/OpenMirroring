@@ -1,44 +1,9 @@
-// use std::sync::{Arc, Mutex};
-
-// use protocol_types::{PlayMessage, SeekMessage, SetSpeedMessage, SetVolumeMessage};
-// use session::SessionId;
-// use tokio::net::TcpStream;
-
-// pub mod packet;
-// pub mod protocol_types;
-// pub mod session;
-
-// #[derive(Debug, Clone)]
-// pub struct CreateSessionRequest {
-//     pub net_stream_mutex: Arc<Mutex<Option<TcpStream>>>,
-//     pub id: SessionId,
-// }
-
-// #[derive(Debug, Clone)]
-// pub enum Message {
-//     EndOfStream,
-//     Pause,
-//     Play(PlayMessage),
-//     Resume,
-//     SetSpeed(SetSpeedMessage),
-//     Seek(SeekMessage),
-//     SetVolume(SetVolumeMessage),
-//     Stop,
-//     CreateSession(CreateSessionRequest),
-//     PlaybackError(String),
-//     Tick,
-//     Nothing,
-//     SessionDestroyed(SessionId),
-// }
-
-use models::{PlayMessage, PlaybackState, SeekMessage, SetSpeedMessage, SetVolumeMessage};
+use fcast_lib::models::{PlayMessage, PlaybackState, SeekMessage, SetSpeedMessage, SetVolumeMessage};
 use session::SessionId;
 use std::sync::{Arc, Mutex, OnceLock};
 use tokio::{net::TcpStream, runtime::Runtime};
 
 pub mod dispatcher;
-pub mod models;
-pub mod packet;
 pub mod session;
 // pub mod video;
 
