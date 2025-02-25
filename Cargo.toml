@@ -1,3 +1,11 @@
 [workspace]
 resolver = "2"
 members = [ "fcast-lib","omreceiver", "omsender"]
+
+[workspace.dependencies]
+gst-video = { package = "gstreamer-video", version = "0.23.5" }
+gst-webrtc = { package = "gst-plugin-webrtc", git = "https://github.com/GStreamer/gst-plugins-rs", rev = "a34efda2018a6e241bb3372bd767a79f58bdbe6f" }
+gst-rtp = { package = "gst-plugin-rtp", git = "https://github.com/GStreamer/gst-plugins-rs", rev = "a34efda2018a6e241bb3372bd767a79f58bdbe6f" }
+gst-gtk4 = { package = "gst-plugin-gtk4", version = "0.13.4" }
+gst = { package = "gstreamer", version = "0.23.5" }
+gtk4 = { version = "0.9.6", features = ["v4_16"] }

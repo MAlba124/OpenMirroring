@@ -1081,7 +1081,7 @@ dependencies = [
  "gst-plugin-webrtc-signalling",
  "gst-plugin-webrtc-signalling-protocol",
  "gstreamer 0.24.0",
- "gstreamer-app 0.24.0",
+ "gstreamer-app",
  "gstreamer-audio",
  "gstreamer-base 0.24.0",
  "gstreamer-net",
@@ -1195,21 +1195,6 @@ dependencies = [
 
 [[package]]
 name = "gstreamer-app"
-version = "0.23.5"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2e9a883eb21aebcf1289158225c05f7aea5da6ecf71fa7f0ff1ce4d25baf004e"
-dependencies = [
- "futures-core",
- "futures-sink",
- "glib 0.20.9",
- "gstreamer 0.23.5",
- "gstreamer-app-sys 0.23.5",
- "gstreamer-base 0.23.5",
- "libc",
-]
-
-[[package]]
-name = "gstreamer-app"
 version = "0.24.0"
 source = "git+https://gitlab.freedesktop.org/gstreamer/gstreamer-rs?branch=main#cf15ac04156810ec508955d7df7458d5e96da855"
 dependencies = [
@@ -1217,22 +1202,9 @@ dependencies = [
  "futures-sink",
  "glib 0.21.0",
  "gstreamer 0.24.0",
- "gstreamer-app-sys 0.24.0",
+ "gstreamer-app-sys",
  "gstreamer-base 0.24.0",
  "libc",
-]
-
-[[package]]
-name = "gstreamer-app-sys"
-version = "0.23.5"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "94f7ef838306fe51852d503a14dc79ac42de005a59008a05098de3ecdaf05455"
-dependencies = [
- "glib-sys 0.20.9",
- "gstreamer-base-sys 0.23.5",
- "gstreamer-sys 0.23.5",
- "libc",
- "system-deps",
 ]
 
 [[package]]
@@ -1454,7 +1426,7 @@ version = "0.24.0"
 source = "git+https://gitlab.freedesktop.org/gstreamer/gstreamer-rs?branch=main#cf15ac04156810ec508955d7df7458d5e96da855"
 dependencies = [
  "gstreamer 0.24.0",
- "gstreamer-app 0.24.0",
+ "gstreamer-app",
  "gstreamer-video 0.24.0",
  "thiserror 2.0.11",
 ]
@@ -2179,19 +2151,16 @@ name = "omreceiver"
 version = "0.1.0"
 dependencies = [
  "async-channel",
- "bitflags 2.8.0",
  "env_logger",
  "fcast-lib",
  "gst-plugin-gtk4",
  "gst-plugin-rtp",
  "gst-plugin-webrtc",
  "gstreamer 0.23.5",
- "gstreamer-app 0.23.5",
  "gstreamer-video 0.23.5",
  "gtk4",
  "log",
  "tokio",
- "url",
 ]
 
 [[package]]

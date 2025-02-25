@@ -4,18 +4,15 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-url = "2.5.4"
 tokio = { version = "1.42.0", features = ["net", "io-util", "macros", "sync", "rt-multi-thread"] }
 log = "0.4.22"
 env_logger = "0.11.6"
-gst = { package = "gstreamer", version = "0.23.5" }
-gst-app = { package = "gstreamer-app", version = "0.23.5" }
-gst-video = { package = "gstreamer-video", version = "0.23.5" }
-gst-webrtc = { package = "gst-plugin-webrtc", git = "https://github.com/GStreamer/gst-plugins-rs", rev = "a34efda2018a6e241bb3372bd767a79f58bdbe6f" }
-gst-rtp = { package = "gst-plugin-rtp", git = "https://github.com/GStreamer/gst-plugins-rs", rev = "a34efda2018a6e241bb3372bd767a79f58bdbe6f" }
-gst-gtk4 = { package = "gst-plugin-gtk4", version = "0.13.4" }
-bitflags = "2.8.0"
-gtk4 = { version = "0.9.6", features = ["v4_16"] }
+gst = { workspace = true }
+gst-video = { workspace = true }
+gst-webrtc = { workspace = true }
+gst-rtp = { workspace = true }
+gst-gtk4 = { workspace = true }
+gtk4 = { workspace = true }
 async-channel = "2.3.1"
 fcast-lib = { path = "../fcast-lib" }
 
