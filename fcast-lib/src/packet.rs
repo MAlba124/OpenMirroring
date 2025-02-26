@@ -60,6 +60,12 @@ impl From<VolumeUpdateMessage> for Packet {
     }
 }
 
+impl From<PlayMessage> for Packet {
+    fn from(value: PlayMessage) -> Self {
+        Packet::Play(value)
+    }
+}
+
 impl Packet {
     pub const fn pong() -> Self {
         Self::Pong

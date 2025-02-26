@@ -1,20 +1,21 @@
 [package]
-name = "omreceiver"
+name = "om-receiver"
 version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-tokio = { version = "1.42.0", features = ["net", "io-util", "macros", "sync", "rt-multi-thread"] }
-log = "0.4.22"
-env_logger = "0.11.6"
+tokio = { workspace = true }
+log = { workspace = true }
+env_logger = { workspace = true }
 gst = { workspace = true }
 gst-video = { workspace = true }
 gst-webrtc = { workspace = true }
 gst-rtp = { workspace = true }
 gst-gtk4 = { workspace = true }
 gtk4 = { workspace = true }
-async-channel = "2.3.1"
+async-channel = { workspace = true }
 fcast-lib = { path = "../fcast-lib" }
+om-common = { path = "../om-common" }
 
 [profile.dev.package."*"]
 opt-level = 3

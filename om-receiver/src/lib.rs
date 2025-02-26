@@ -1,7 +1,7 @@
 use fcast_lib::models::{PlayMessage, PlaybackState, SeekMessage, SetSpeedMessage, SetVolumeMessage};
 use session::SessionId;
-use std::sync::{Arc, Mutex, OnceLock};
-use tokio::{net::TcpStream, runtime::Runtime};
+use std::sync::{Arc, Mutex};
+use tokio::net::TcpStream;
 
 pub mod dispatcher;
 pub mod session;
@@ -39,9 +39,4 @@ pub enum Event {
         state: PlaybackState,
         speed: f64,
     },
-}
-
-pub fn runtime() -> &'static Runtime {
-    static RUNTIME: OnceLock<Runtime> = OnceLock::new();
-    RUNTIME.get_or_init(|| Runtime::new().unwrap())
 }

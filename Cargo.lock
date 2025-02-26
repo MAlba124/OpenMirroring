@@ -2524,7 +2524,14 @@ dependencies = [
 ]
 
 [[package]]
-name = "omreceiver"
+name = "om-common"
+version = "0.1.0"
+dependencies = [
+ "tokio",
+]
+
+[[package]]
+name = "om-receiver"
 version = "0.1.0"
 dependencies = [
  "async-channel",
@@ -2537,18 +2544,35 @@ dependencies = [
  "gstreamer-video 0.23.5",
  "gtk4",
  "log",
+ "om-common",
  "tokio",
 ]
 
 [[package]]
-name = "omsender"
+name = "om-sender"
 version = "0.1.0"
 dependencies = [
+ "anyhow",
+ "async-channel",
+ "async-tungstenite",
+ "env_logger",
+ "fcast-lib",
+ "futures",
  "gst-plugin-gtk4",
+ "gst-plugin-rtp",
+ "gst-plugin-webrtc",
  "gstreamer 0.23.5",
  "gstreamer-video 0.23.5",
  "gtk4",
+ "log",
+ "om-common",
+ "pin-project-lite",
  "scap-gstreamer",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.11",
+ "tokio",
+ "uuid",
 ]
 
 [[package]]

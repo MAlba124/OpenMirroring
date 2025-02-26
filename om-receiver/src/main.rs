@@ -1,10 +1,11 @@
-use omreceiver::dispatcher::Dispatcher;
+use om_receiver::dispatcher::Dispatcher;
 use fcast_lib::models::{PlaybackState, PlaybackUpdateMessage};
 use fcast_lib::packet::Packet;
-use omreceiver::session::Session;
-use omreceiver::{runtime, Event, GuiEvent};
+use om_receiver::session::Session;
+use om_receiver::{Event, GuiEvent};
 use gst::{prelude::*, SeekFlags};
 use log::{debug, error};
+use om_common::runtime;
 
 use std::cell::RefCell;
 
@@ -356,7 +357,7 @@ fn build_ui(app: &Application) {
 
 fn main() -> glib::ExitCode {
     env_logger::Builder::from_default_env()
-        .filter_module("fcast_iced", log::LevelFilter::Debug)
+        .filter_module("om_receiver", log::LevelFilter::Debug)
         .init();
 
     gst::init().unwrap();
