@@ -4,17 +4,30 @@ use gst::prelude::*;
 use gtk::prelude::*;
 use gtk::{glib, Application, ApplicationWindow};
 use gtk4 as gtk;
-use log::{debug, info};
+use log::{debug, error, info};
 use om_sender::signaller::run_server;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
 
 use std::cell::RefCell;
 
+const GST_WEBRTC_MIME_TYPE: &str = "application/x-gst-webrtc";
+
+type ProducerId = String;
+
 #[derive(Debug)]
 enum Message {
     Play(String),
     Quit,
+    Stop,
+}
+
+#[derive(Debug)]
+enum Event {
+    ProducerConnected(ProducerId),
+    Start,
+    Stop,
+    SelectInput,
 }
 
 const HEADER_BUFFER_SIZE: usize = 5;
@@ -57,11 +70,19 @@ async fn session(rx: async_channel::Receiver<Message>) {
                     match msg {
                         Message::Play(url) => {
                             let packet = Packet::from(
-                                models::PlayMessage { container: "todo".to_owned(), url: Some(url), content: None, time: None, speed: None, headers: None }
+                                models::PlayMessage {
+                                    container: GST_WEBRTC_MIME_TYPE.to_owned(),
+                                    url: Some(url),
+                                    content: None,
+                                    time: None,
+                                    speed: None,
+                                    headers: None
+                                }
                             );
                             send_packet(&mut stream, packet).await.unwrap();
                         }
                         Message::Quit => break,
+                        Message::Stop => send_packet(&mut stream, Packet::Stop).await.unwrap(),
                     }
                 }
                 Err(err) => panic!("{err}"),
@@ -144,27 +165,52 @@ fn build_ui(app: &Application) {
     let gst_widget = gst_gtk4::RenderWidget::new(&gtksink);
     vbox.append(&gst_widget);
 
-    let label = gtk::Label::new(Some("Position: 00:00:00"));
-    vbox.append(&label);
-
     let (tx, rx) = async_channel::unbounded::<Message>();
 
-    let button = gtk::Button::builder().label("Test").build();
-    // let tx_clone = tx.clone();
-    button.connect_clicked(move |_| {
+    let (event_tx, event_rx) = async_channel::bounded::<Event>(100);
+
+    let select_button = gtk::Button::builder().label("Select input").build();
+    let event_tx_clone = event_tx.clone();
+    select_button.connect_clicked(move |_| {
         glib::spawn_future_local(glib::clone!(
-            // #[strong]
-            // tx_clone,
+            #[strong]
+            event_tx_clone,
             async move {
-                // tx_clone.send(Message::Play("file://".to_owned())).await.unwrap();
+                event_tx_clone.send(Event::SelectInput).await.unwrap();
             }
         ));
     });
-    vbox.append(&button);
+    vbox.append(&select_button);
+
+    let start_button = gtk::Button::builder().label("Start casting").build();
+    let event_tx_clone = event_tx.clone();
+    start_button.connect_clicked(move |_| {
+        glib::spawn_future_local(glib::clone!(
+            #[strong]
+            event_tx_clone,
+            async move {
+                event_tx_clone.send(Event::Start).await.unwrap();
+            }
+        ));
+    });
+    vbox.append(&start_button);
+
+    let stop_button = gtk::Button::builder().label("Stop casting").build();
+    let event_tx_clone = event_tx.clone();
+    stop_button.connect_clicked(move |_| {
+        glib::spawn_future_local(glib::clone!(
+            #[strong]
+            event_tx_clone,
+            async move {
+                event_tx_clone.send(Event::Stop).await.unwrap();
+            }
+        ));
+    });
+    vbox.append(&stop_button);
 
     let window = ApplicationWindow::builder()
         .application(app)
-        .title("My GTK App")
+        .title("OMSender")
         .child(&vbox)
         .build();
 
@@ -172,20 +218,13 @@ fn build_ui(app: &Application) {
 
     let pipeline_weak = pipeline.downgrade();
     let timeout_id = glib::timeout_add_local(std::time::Duration::from_millis(500), move || {
-        let Some(pipeline) = pipeline_weak.upgrade() else {
+        let Some(_pipeline) = pipeline_weak.upgrade() else {
             return glib::ControlFlow::Break;
         };
-
-        let position = pipeline.query_position::<gst::ClockTime>();
-        label.set_text(&format!("Position: {:.0}", position.display()));
         glib::ControlFlow::Continue
     });
 
     let bus = pipeline.bus().unwrap();
-
-    pipeline
-        .set_state(gst::State::Playing)
-        .expect("Unable to set the pipeline to the `Playing` state");
 
     let app_weak = app.downgrade();
     let bus_watch = bus
@@ -199,7 +238,7 @@ fn build_ui(app: &Application) {
             match msg.view() {
                 MessageView::Eos(..) => app.quit(),
                 MessageView::Error(err) => {
-                    println!(
+                    error!(
                         "Error from {:?}: {} ({:?})",
                         err.src().map(|s| s.path_string()),
                         err.error(),
@@ -214,17 +253,50 @@ fn build_ui(app: &Application) {
         })
         .expect("Failed to add bus watch");
 
-    let tx_clone = tx.clone();
+    // let tx_clone = tx.clone();
+    let event_tx_clone = event_tx.clone();
     om_common::runtime().spawn(async move {
         debug!("Waiting for the producer to connect...");
         let peer_id = prod_peer_rx.await.unwrap();
         debug!("Producer connected peer_id={peer_id}");
-        tx_clone
-            .send(Message::Play(format!(
-                "gstwebrtc://127.0.0.1:8443?peer-id={peer_id}"
-            )))
+        event_tx_clone
+            .send(Event::ProducerConnected(peer_id))
             .await
             .unwrap();
+    });
+
+    let pipeline_weak = pipeline.downgrade();
+    let tx_clone = tx.clone();
+    glib::spawn_future_local(async move {
+        let mut producer_id = None;
+        while let Ok(event) = event_rx.recv().await {
+            let Some(pipeline) = pipeline_weak.upgrade() else {
+                panic!("Pipeline = bozo");
+            };
+            match event {
+                Event::ProducerConnected(id) => producer_id = Some(id),
+                Event::SelectInput => {
+                    pipeline
+                        .set_state(gst::State::Playing)
+                        .expect("Unable to set the pipeline to the `Playing` state");
+                }
+                Event::Start => {
+                    let Some(ref producer_id) = producer_id else {
+                        error!("No producer available for casting");
+                        continue;
+                    };
+                    tx_clone
+                        .send(Message::Play(format!(
+                            "gstwebrtc://127.0.0.1:8443?peer-id={producer_id}"
+                        )))
+                        .await
+                        .unwrap();
+                }
+                Event::Stop => {
+                    tx_clone.send(Message::Stop).await.unwrap();
+                }
+            }
+        }
     });
 
     let timeout_id = RefCell::new(Some(timeout_id));
@@ -270,7 +342,7 @@ fn main() -> glib::ExitCode {
     gst_webrtc::plugin_register_static().unwrap();
 
     let app = Application::builder()
-        .application_id("org.example.helloworld")
+        .application_id("com.github.malba124.OpenMirroring.om-sender")
         .build();
 
     app.connect_activate(build_ui);

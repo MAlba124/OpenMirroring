@@ -7,13 +7,13 @@ use anyhow::Error;
 use async_tungstenite::tungstenite::{Message as WsMessage, Utf8Bytes};
 use futures::channel::mpsc;
 use futures::prelude::*;
+use log::{debug, error, info, trace, warn};
 use serde::Deserialize;
 use std::collections::HashMap;
 use std::pin::Pin;
 use std::sync::{Arc, Mutex};
 use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::task;
-use log::{debug, error, info, trace, warn};
 
 use super::protocol::OutgoingMessage;
 

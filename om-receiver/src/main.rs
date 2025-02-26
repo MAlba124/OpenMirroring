@@ -369,7 +369,7 @@ fn main() -> glib::ExitCode {
     gst_gtk4::plugin_register_static().unwrap();
 
     let app = Application::builder()
-        .application_id("org.example.HelloWorld") // TODO: change
+        .application_id("com.github.malba124.OpenMirroring.om-receiver")
         .build();
 
     app.connect_activate(build_ui);
