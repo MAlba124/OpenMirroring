@@ -57,7 +57,7 @@ async fn send_packet(stream: &mut TcpStream, packet: Packet) -> Result<(), tokio
     Ok(())
 }
 
-async fn session(rx: async_channel::Receiver<Message>) {
+async fn session(mut rx: tokio::sync::mpsc::Receiver<Message>) {
     let mut stream = TcpStream::connect("127.0.0.1:46899").await.unwrap();
     loop {
         tokio::select! {
@@ -65,7 +65,7 @@ async fn session(rx: async_channel::Receiver<Message>) {
                 debug!("{packet:?}");
             }
             msg = rx.recv() => match msg {
-                Ok(msg) => {
+                Some(msg) => {
                     debug!("{msg:?}");
                     match msg {
                         Message::Play(url) => {
@@ -85,7 +85,7 @@ async fn session(rx: async_channel::Receiver<Message>) {
                         Message::Stop => send_packet(&mut stream, Packet::Stop).await.unwrap(),
                     }
                 }
-                Err(err) => panic!("{err}"),
+                None => panic!("rx closed"), // TODO
             }
         }
     }
@@ -115,12 +115,10 @@ fn build_ui(app: &Application) {
     //     .build()
     //     .unwrap();
 
-    // let sink = gst::Bin::default();
     let preview_convert = gst::ElementFactory::make("videoconvert")
         .name("preview_convert")
         .build()
         .unwrap();
-
     let webrtcsink = gst::ElementFactory::make("webrtcsink")
         .property("signalling-server-host", "127.0.0.1")
         .property("signalling-server-port", 8443u32)
@@ -148,6 +146,7 @@ fn build_ui(app: &Application) {
             &webrtcsink,
         ])
         .unwrap();
+
     gst::Element::link_many([&src, &tee]).unwrap();
     gst::Element::link_many([&preview_queue, &preview_convert, &gtksink]).unwrap();
     gst::Element::link_many([&webrtcsink_queue, &webrtcsink_convert, &webrtcsink]).unwrap();
@@ -165,9 +164,9 @@ fn build_ui(app: &Application) {
     let gst_widget = gst_gtk4::RenderWidget::new(&gtksink);
     vbox.append(&gst_widget);
 
-    let (tx, rx) = async_channel::unbounded::<Message>();
+    let (tx, rx) = tokio::sync::mpsc::channel::<Message>(100);
 
-    let (event_tx, event_rx) = async_channel::bounded::<Event>(100);
+    let (event_tx, mut event_rx) = tokio::sync::mpsc::channel::<Event>(100);
 
     let select_button = gtk::Button::builder().label("Select input").build();
     let event_tx_clone = event_tx.clone();
@@ -253,7 +252,6 @@ fn build_ui(app: &Application) {
         })
         .expect("Failed to add bus watch");
 
-    // let tx_clone = tx.clone();
     let event_tx_clone = event_tx.clone();
     om_common::runtime().spawn(async move {
         debug!("Waiting for the producer to connect...");
@@ -269,7 +267,7 @@ fn build_ui(app: &Application) {
     let tx_clone = tx.clone();
     glib::spawn_future_local(async move {
         let mut producer_id = None;
-        while let Ok(event) = event_rx.recv().await {
+        while let Some(event) = event_rx.recv().await {
             let Some(pipeline) = pipeline_weak.upgrade() else {
                 panic!("Pipeline = bozo");
             };

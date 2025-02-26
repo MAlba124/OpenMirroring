@@ -1,4 +1,3 @@
-use async_channel::Sender;
 use log::{debug, error, warn};
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
@@ -13,14 +12,14 @@ pub type SessionId = u64;
 
 pub struct Session {
     stream: TcpStream,
-    event_tx: Sender<Event>,
+    event_tx: tokio::sync::mpsc::Sender<Event>,
     id: SessionId,
 }
 
 const HEADER_BUFFER_SIZE: usize = 5;
 
 impl Session {
-    pub fn new(stream: TcpStream, event_tx: Sender<Event>, id: SessionId) -> Self {
+    pub fn new(stream: TcpStream, event_tx: tokio::sync::mpsc::Sender<Event>, id: SessionId) -> Self {
         Self {
             stream,
             event_tx,

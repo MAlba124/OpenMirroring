@@ -11,7 +11,6 @@ gst-gtk4 = { package = "gst-plugin-gtk4", version = "0.13.4" }
 gst = { package = "gstreamer", version = "0.23.5" }
 gtk4 = { version = "0.9.6", features = ["v4_16"] }
 tokio = { version = "1.42.0", features = ["net", "io-util", "macros", "sync", "rt-multi-thread", "time"] }
-async-channel = "2.3.1"
 log = "0.4.22"
 env_logger = "0.11.6"
 serde = { version = "1.0", features = ["derive"] }

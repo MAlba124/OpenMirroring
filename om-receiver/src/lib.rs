@@ -7,7 +7,6 @@ use tokio::net::TcpStream;
 
 pub mod dispatcher;
 pub mod session;
-// pub mod video;
 
 #[derive(Debug)]
 pub enum GuiEvent {
@@ -34,7 +33,6 @@ pub enum Event {
     SetSpeed(SetSpeedMessage),
     Seek(SeekMessage),
     SetVolume(SetVolumeMessage),
-    // Playback(PlaybackEvent),
     PlaybackUpdate {
         time: f64,
         duration: f64,

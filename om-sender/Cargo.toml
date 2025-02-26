@@ -9,7 +9,6 @@ gst = { workspace = true }
 gst-gtk4 = { workspace = true }
 gst-video = { workspace = true }
 tokio = { workspace = true }
-async-channel = { workspace = true }
 log = { workspace = true }
 env_logger = { workspace = true }
 serde = { workspace = true }

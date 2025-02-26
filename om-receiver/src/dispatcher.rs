@@ -1,6 +1,5 @@
 use std::sync::{Arc, Mutex};
 
-use async_channel::Sender;
 use log::info;
 use tokio::net::{TcpListener, ToSocketAddrs};
 
@@ -8,11 +7,11 @@ use crate::{session::SessionId, Event};
 
 pub struct Dispatcher {
     listener: TcpListener,
-    event_tx: Sender<Event>,
+    event_tx: tokio::sync::mpsc::Sender<Event>,
 }
 
 impl Dispatcher {
-    pub async fn new<A>(addr: A, event_tx: Sender<Event>) -> tokio::io::Result<Self>
+    pub async fn new<A>(addr: A, event_tx: tokio::sync::mpsc::Sender<Event>) -> tokio::io::Result<Self>
     where
         A: ToSocketAddrs,
     {

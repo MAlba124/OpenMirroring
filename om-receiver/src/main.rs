@@ -14,10 +14,6 @@ use gtk::prelude::*;
 use gtk::{glib, Application, ApplicationWindow};
 use gtk4 as gtk;
 
-// #[derive(Debug)]
-// enum PlaybackEvent {
-// }
-
 fn current_time_millis() -> u64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -26,13 +22,13 @@ fn current_time_millis() -> u64 {
 }
 
 async fn event_loop(
-    rx: async_channel::Receiver<Event>,
-    tx: async_channel::Sender<Event>,
-    gui_tx: async_channel::Sender<GuiEvent>,
+    mut rx: tokio::sync::mpsc::Receiver::<Event>,
+    tx: tokio::sync::mpsc::Sender::<Event>,
+    gui_tx: tokio::sync::mpsc::Sender::<GuiEvent>
 ) {
     let (updates_tx, _) = tokio::sync::broadcast::channel(100);
 
-    while let Ok(event) = rx.recv().await {
+    while let Some(event) = rx.recv().await {
         debug!("Got event: {event:?}");
         match event {
             Event::CreateSessionRequest {
@@ -114,7 +110,7 @@ fn create_pipeline() -> (gst::Pipeline, gst::Element, gst_gtk4::RenderWidget) {
 
 fn setup_timeout(
     pipeline_weak: WeakRef<gst::Pipeline>,
-    event_tx: async_channel::Sender<Event>,
+    event_tx: tokio::sync::mpsc::Sender<Event>,
 ) -> glib::SourceId {
     glib::timeout_add_local(std::time::Duration::from_millis(1000), move || {
         let event_tx = event_tx.clone();
@@ -163,8 +159,8 @@ fn build_ui(app: &Application) {
 
     window.present();
 
-    let (event_tx, event_rx) = async_channel::unbounded::<Event>();
-    let (gui_event_tx, gui_event_rx) = async_channel::unbounded::<GuiEvent>();
+    let (event_tx, event_rx) = tokio::sync::mpsc::channel::<Event>(100);
+    let (gui_event_tx, mut gui_event_rx) = tokio::sync::mpsc::channel::<GuiEvent>(100);
 
     let timeout_id = setup_timeout(pipeline.downgrade(), event_tx.clone());
 
@@ -232,17 +228,23 @@ fn build_ui(app: &Application) {
         }
     ));
 
-    runtime().spawn(clone!(
-        #[strong]
-        event_rx,
-        #[strong]
-        event_tx,
-        #[strong]
-        gui_event_tx,
+    // runtime().spawn(clone!(
+    //     #[strong]
+    //     event_rx,
+    //     #[strong]
+    //     event_tx,
+    //     #[strong]
+    //     gui_event_tx,
+    //     async move {
+    //         event_loop(event_rx, event_tx, gui_event_tx).await;
+    //     }
+    // ));
+
+    runtime().spawn(
         async move {
             event_loop(event_rx, event_tx, gui_event_tx).await;
         }
-    ));
+    );
 
     let stack_clone = stack.clone();
     let video_view_clone = video_view.clone();
@@ -250,7 +252,7 @@ fn build_ui(app: &Application) {
     let playbin_clone = playbin.clone();
     let pipeline_weak = pipeline.downgrade();
     glib::spawn_future_local(async move {
-        while let Ok(event) = gui_event_rx.recv().await {
+        while let Some(event) = gui_event_rx.recv().await {
             let Some(pipeline) = pipeline_weak.upgrade() else {
                 panic!("Pipeline = bozo");
             };

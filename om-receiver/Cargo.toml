@@ -13,7 +13,6 @@ gst-webrtc = { workspace = true }
 gst-rtp = { workspace = true }
 gst-gtk4 = { workspace = true }
 gtk4 = { workspace = true }
-async-channel = { workspace = true }
 fcast-lib = { path = "../fcast-lib" }
 om-common = { path = "../om-common" }
 

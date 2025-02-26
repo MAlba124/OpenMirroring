@@ -2534,7 +2534,6 @@ dependencies = [
 name = "om-receiver"
 version = "0.1.0"
 dependencies = [
- "async-channel",
  "env_logger",
  "fcast-lib",
  "gst-plugin-gtk4",
@@ -2553,7 +2552,6 @@ name = "om-sender"
 version = "0.1.0"
 dependencies = [
  "anyhow",
- "async-channel",
  "async-tungstenite",
  "env_logger",
  "fcast-lib",
