@@ -260,7 +260,7 @@ fn build_ui(app: &Application) {
                     pipeline
                         .set_state(gst::State::Ready)
                         .expect("Unable to set the pipeline to the `Ready` state");
-                    playbin_clone.set_property("uri", &_play_message.url.unwrap());
+                    playbin_clone.set_property("uri", _play_message.url.unwrap());
                     pipeline
                         .set_state(gst::State::Playing)
                         .expect("Unable to set the pipeline to the `Playing` state");

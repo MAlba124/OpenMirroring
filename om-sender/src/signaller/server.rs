@@ -7,13 +7,12 @@ use anyhow::Error;
 use async_tungstenite::tungstenite::{Message as WsMessage, Utf8Bytes};
 use futures::channel::mpsc;
 use futures::prelude::*;
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 use std::collections::HashMap;
 use std::pin::Pin;
 use std::sync::{Arc, Mutex};
 use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::task;
-// use tracing::{debug, error, info, instrument, trace, warn};
 use log::{debug, error, info, trace, warn};
 
 use super::protocol::OutgoingMessage;
@@ -38,14 +37,9 @@ pub struct Server {
 pub enum ServerError {
     #[error("error during handshake {0}")]
     Handshake(#[from] async_tungstenite::tungstenite::Error),
-    // #[error("error during TLS handshake {0}")]
-    // TLSHandshake(#[from] tokio_native_tls::native_tls::Error),
-    // #[error("timeout during TLS handshake {0}")]
-    // TLSHandshakeTimeout(#[from] tokio::time::error::Elapsed),
 }
 
 impl Server {
-    // #[instrument(level = "debug", skip(factory))]
     pub fn spawn<
         I: for<'a> Deserialize<'a>,
         Factory: FnOnce(Pin<Box<dyn Stream<Item = (String, Option<I>)> + Send>>) -> St,
@@ -116,26 +110,22 @@ impl Server {
         Self { state }
     }
 
-    // #[instrument(level = "debug", skip(state))]
     fn remove_peer(state: Arc<Mutex<State>>, peer_id: &str) {
         if let Some(mut peer) = state.lock().unwrap().peers.remove(peer_id) {
             let peer_id = peer_id.to_string();
             task::spawn(async move {
                 peer.sender.close_channel();
                 if let Err(err) = peer.send_task_handle.await {
-                    error!("Error while joining send task: {err}");
-                    // trace!(peer_id = %peer_id, "Error while joining send task: {}", err);
+                    error!("Error while joining send task: {err} peer_id={peer_id}");
                 }
 
                 if let Err(err) = peer.receive_task_handle.await {
-                    error!("Error while joining receive task: {err}");
-                    // trace!(peer_id = %peer_id, "Error while joining receive task: {}", err);
+                    error!("Error while joining receive task: {err} peer_id={peer_id}");
                 }
             });
         }
     }
 
-    // #[instrument(level = "debug", skip(self, stream))]
     pub async fn accept_async<S: AsyncRead + AsyncWrite + Unpin + Send + 'static>(
         &mut self,
         stream: S,
@@ -150,7 +140,6 @@ impl Server {
 
         let this_id = uuid::Uuid::new_v4().to_string();
         info!("New WebSocket connection: this_id={this_id}");
-        // info!(this_id = %this_id, "New WebSocket connection");
 
         // 1000 is completely arbitrary, we simply don't want infinite piling
         // up of messages as with unbounded
@@ -169,7 +158,6 @@ impl Server {
                 {
                     Ok(Some(msg)) => {
                         trace!("sending {msg} this_id={this_id_clone}");
-                        // trace!(this_id = %this_id_clone, "sending {}", msg);
                         res = ws_sink.send(WsMessage::text(msg)).await;
                     }
                     Ok(None) => {
@@ -177,20 +165,17 @@ impl Server {
                     }
                     Err(_) => {
                         trace!("timeout, sending ping this_id={this_id_clone}");
-                        // trace!(this_id = %this_id_clone, "timeout, sending ping");
                         res = ws_sink.send(WsMessage::Ping(Default::default())).await;
                     }
                 }
 
                 if let Err(ref err) = res {
                     error!("Quitting send loop: {err} this_id={this_id_clone}");
-                    // error!(this_id = %this_id_clone, "Quitting send loop: {err}");
                     break;
                 }
             }
 
             debug!("Done sending this_id={this_id_clone}");
-            // debug!(this_id = %this_id_clone, "Done sending");
 
             let _ = ws_sink.close().await;
 
@@ -216,7 +201,6 @@ impl Server {
                     .await
                 {
                     warn!("Error handling message: {err:?} this={this_id_clone}");
-                    // warn!(this = %this_id_clone, "Error handling message: {:?}", err);
                 }
             }
             while let Some(msg) = ws_stream.next().await {
@@ -226,23 +210,19 @@ impl Server {
                         if let Some(tx) = tx.as_mut() {
                             if let Err(err) = tx.send((this_id_clone.clone(), Some(msg))).await {
                                 warn!("Error handling message: {err:?} this={this_id_clone}");
-                                // warn!(this = %this_id_clone, "Error handling message: {:?}", err);
                             }
                         }
                     }
                     Ok(WsMessage::Close(reason)) => {
                         info!("connection closed: {reason:?} this_id={this_id_clone}");
-                        // info!(this_id = %this_id_clone, "connection closed: {:?}", reason);
                         break;
                     }
                     Ok(WsMessage::Pong(_)) => {
                         continue;
                     }
-                    // Ok(_) => warn!(this_id = %this_id_clone, "Unsupported message type"),
                     Ok(_) => warn!("Unsupported message type this_id={this_id_clone}"),
                     Err(err) => {
                         warn!("recv error: {err} this_id={this_id_clone}");
-                        // warn!(this_id = %this_id_clone, "recv error: {}", err);
                         break;
                     }
                 }

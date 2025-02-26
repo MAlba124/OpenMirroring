@@ -150,11 +150,11 @@ fn build_ui(app: &Application) {
     let (tx, rx) = async_channel::unbounded::<Message>();
 
     let button = gtk::Button::builder().label("Test").build();
-    let tx_clone = tx.clone();
+    // let tx_clone = tx.clone();
     button.connect_clicked(move |_| {
         glib::spawn_future_local(glib::clone!(
-            #[strong]
-            tx_clone,
+            // #[strong]
+            // tx_clone,
             async move {
                 // tx_clone.send(Message::Play("file://".to_owned())).await.unwrap();
             }
