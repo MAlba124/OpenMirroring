@@ -326,7 +326,9 @@ impl Handler {
         ));
 
         // info!(id = %session_id, producer_id = %producer_id, consumer_id = %consumer_id, "started a session");
-        info!("started a session id={session_id} producer_id={producer_id} consumer_id={consumer_id}");
+        info!(
+            "started a session id={session_id} producer_id={producer_id} consumer_id={consumer_id}"
+        );
 
         Ok(())
     }

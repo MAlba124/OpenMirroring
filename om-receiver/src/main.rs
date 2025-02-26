@@ -1,11 +1,11 @@
-use om_receiver::dispatcher::Dispatcher;
 use fcast_lib::models::{PlaybackState, PlaybackUpdateMessage};
 use fcast_lib::packet::Packet;
-use om_receiver::session::Session;
-use om_receiver::{Event, GuiEvent};
 use gst::{prelude::*, SeekFlags};
 use log::{debug, error};
 use om_common::runtime;
+use om_receiver::dispatcher::Dispatcher;
+use om_receiver::session::Session;
+use om_receiver::{Event, GuiEvent};
 
 use std::cell::RefCell;
 
@@ -112,7 +112,10 @@ fn create_pipeline() -> (gst::Pipeline, gst::Element, gst_gtk4::RenderWidget) {
     (pipeline, playbin, video_view)
 }
 
-fn setup_timeout(pipeline_weak: WeakRef<gst::Pipeline>, event_tx: async_channel::Sender<Event>) -> glib::SourceId {
+fn setup_timeout(
+    pipeline_weak: WeakRef<gst::Pipeline>,
+    event_tx: async_channel::Sender<Event>,
+) -> glib::SourceId {
     glib::timeout_add_local(std::time::Duration::from_millis(1000), move || {
         let event_tx = event_tx.clone();
         runtime().block_on(async {

@@ -87,7 +87,7 @@ impl Server {
                             prod_peer_tx.send(peer_id.clone()).unwrap();
                         }
                     }
-                    _ => ()
+                    _ => (),
                 }
 
                 match serde_json::to_string(&msg) {

@@ -4,10 +4,10 @@ use gst::prelude::*;
 use gtk::prelude::*;
 use gtk::{glib, Application, ApplicationWindow};
 use gtk4 as gtk;
+use log::{debug, info};
 use om_sender::signaller::run_server;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
-use log::{debug, info};
 
 use std::cell::RefCell;
 
@@ -77,9 +77,7 @@ fn build_ui(app: &Application) {
     let (prod_peer_tx, prod_peer_rx) = tokio::sync::oneshot::channel();
     om_common::runtime().spawn(run_server(prod_peer_tx));
 
-    let tee = gst::ElementFactory::make("tee")
-        .build()
-        .unwrap();
+    let tee = gst::ElementFactory::make("tee").build().unwrap();
     let gtksink = gst::ElementFactory::make("gtk4paintablesink")
         .name("gtksink")
         .build()
@@ -117,12 +115,18 @@ fn build_ui(app: &Application) {
         .unwrap();
 
     let pipeline = gst::Pipeline::new();
-    pipeline.add_many([
-        &src, &tee, &preview_queue,
-        &preview_convert, &gtksink,
-        &webrtcsink_queue, &webrtcsink_convert,
-        &webrtcsink
-    ]).unwrap();
+    pipeline
+        .add_many([
+            &src,
+            &tee,
+            &preview_queue,
+            &preview_convert,
+            &gtksink,
+            &webrtcsink_queue,
+            &webrtcsink_convert,
+            &webrtcsink,
+        ])
+        .unwrap();
     gst::Element::link_many([&src, &tee]).unwrap();
     gst::Element::link_many([&preview_queue, &preview_convert, &gtksink]).unwrap();
     gst::Element::link_many([&webrtcsink_queue, &webrtcsink_convert, &webrtcsink]).unwrap();
@@ -148,14 +152,13 @@ fn build_ui(app: &Application) {
     let button = gtk::Button::builder().label("Test").build();
     let tx_clone = tx.clone();
     button.connect_clicked(move |_| {
-        glib::spawn_future_local(
-            glib::clone!(
-                #[strong] tx_clone,
-                async move {
-                    // tx_clone.send(Message::Play("file://".to_owned())).await.unwrap();
-                }
-            )
-        );
+        glib::spawn_future_local(glib::clone!(
+            #[strong]
+            tx_clone,
+            async move {
+                // tx_clone.send(Message::Play("file://".to_owned())).await.unwrap();
+            }
+        ));
     });
     vbox.append(&button);
 
@@ -216,7 +219,10 @@ fn build_ui(app: &Application) {
         debug!("Waiting for the producer to connect...");
         let peer_id = prod_peer_rx.await.unwrap();
         debug!("Producer connected peer_id={peer_id}");
-        tx_clone.send(Message::Play(format!("gstwebrtc://127.0.0.1:8443?peer-id={peer_id}")))
+        tx_clone
+            .send(Message::Play(format!(
+                "gstwebrtc://127.0.0.1:8443?peer-id={peer_id}"
+            )))
             .await
             .unwrap();
     });

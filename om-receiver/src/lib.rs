@@ -1,4 +1,6 @@
-use fcast_lib::models::{PlayMessage, PlaybackState, SeekMessage, SetSpeedMessage, SetVolumeMessage};
+use fcast_lib::models::{
+    PlayMessage, PlaybackState, SeekMessage, SetSpeedMessage, SetVolumeMessage,
+};
 use session::SessionId;
 use std::sync::{Arc, Mutex};
 use tokio::net::TcpStream;
