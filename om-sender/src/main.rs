@@ -4,7 +4,7 @@ use gst::prelude::*;
 use gtk::prelude::*;
 use gtk::{glib, Application, ApplicationWindow};
 use gtk4 as gtk;
-use log::{debug, error, info};
+use log::{debug, error, info, warn};
 use om_sender::signaller::run_server;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
@@ -28,6 +28,8 @@ enum Event {
     Start,
     Stop,
     SelectInput,
+    EnablePreview,
+    DisablePreview,
 }
 
 const HEADER_BUFFER_SIZE: usize = 5;
@@ -62,7 +64,15 @@ async fn session(mut rx: tokio::sync::mpsc::Receiver<Message>) {
     loop {
         tokio::select! {
             packet = read_packet_from_stream(&mut stream) => {
-                debug!("{packet:?}");
+                match packet {
+                    Ok(packet) => match packet {
+                        Packet::Ping => {
+                            send_packet(&mut stream, Packet::Pong).await.unwrap();
+                        }
+                        _ => warn!("Unhandled packet: {packet:?}"),
+                    },
+                    Err(err) => panic!("{err}"),
+                }
             }
             msg = rx.recv() => match msg {
                 Some(msg) => {
@@ -107,13 +117,13 @@ fn build_ui(app: &Application) {
         .name("preview_queue")
         .build()
         .unwrap();
-    let src = gst::ElementFactory::make("scapsrc")
-        .property("perform-internal-preroll", true)
-        .build()
-        .unwrap();
-    // let src = gst::ElementFactory::make("videotestsrc")
+    // let src = gst::ElementFactory::make("scapsrc")
+    //     .property("perform-internal-preroll", true)
     //     .build()
     //     .unwrap();
+    let src = gst::ElementFactory::make("videotestsrc")
+        .build()
+        .unwrap();
 
     let preview_convert = gst::ElementFactory::make("videoconvert")
         .name("preview_convert")
@@ -161,11 +171,20 @@ fn build_ui(app: &Application) {
 
     let vbox = gtk::Box::new(gtk::Orientation::Vertical, 0);
 
+    let preview_stack = gtk::Stack::new();
+    let preview_disabled_label = gtk::Label::new(Some("Preview disabled"));
+    let no_preview_label = gtk::Label::new(Some("Preview not available"));
     let gst_widget = gst_gtk4::RenderWidget::new(&gtksink);
-    vbox.append(&gst_widget);
+
+    preview_stack.add_child(&no_preview_label);
+    preview_stack.add_child(&gst_widget);
+    preview_stack.add_child(&preview_disabled_label);
+
+    vbox.append(&preview_stack);
+
+    // vbox.append(&gst_widget);
 
     let (tx, rx) = tokio::sync::mpsc::channel::<Message>(100);
-
     let (event_tx, mut event_rx) = tokio::sync::mpsc::channel::<Event>(100);
 
     let select_button = gtk::Button::builder().label("Select input").build();
@@ -206,6 +225,29 @@ fn build_ui(app: &Application) {
         ));
     });
     vbox.append(&stop_button);
+
+    let enable_preview = gtk::CheckButton::builder()
+        .active(true)
+        .label("Enable preview")
+        .build();
+
+    let event_tx_clone = event_tx.clone();
+    enable_preview.connect_toggled(move |btn| {
+        let new = btn.property::<bool>("active");
+        glib::spawn_future_local(
+            glib::clone!(
+                #[strong] event_tx_clone,
+                async move {
+                    match new {
+                        true => event_tx_clone.send(Event::EnablePreview).await.unwrap(),
+                        false => event_tx_clone.send(Event::DisablePreview).await.unwrap(),
+                    }
+                }
+            )
+        );
+    });
+
+    vbox.append(&enable_preview);
 
     let window = ApplicationWindow::builder()
         .application(app)
@@ -265,6 +307,9 @@ fn build_ui(app: &Application) {
 
     let pipeline_weak = pipeline.downgrade();
     let tx_clone = tx.clone();
+    let preview_stack_clone = preview_stack.clone();
+    let gst_widget_clone = gst_widget.clone();
+    let preview_disabled_label_clone = preview_disabled_label.clone();
     glib::spawn_future_local(async move {
         let mut producer_id = None;
         while let Some(event) = event_rx.recv().await {
@@ -277,6 +322,7 @@ fn build_ui(app: &Application) {
                     pipeline
                         .set_state(gst::State::Playing)
                         .expect("Unable to set the pipeline to the `Playing` state");
+                    preview_stack_clone.set_visible_child(&gst_widget_clone);
                 }
                 Event::Start => {
                     let Some(ref producer_id) = producer_id else {
@@ -292,6 +338,12 @@ fn build_ui(app: &Application) {
                 }
                 Event::Stop => {
                     tx_clone.send(Message::Stop).await.unwrap();
+                }
+                Event::EnablePreview => {
+                    preview_stack_clone.set_visible_child(&gst_widget_clone);
+                }
+                Event::DisablePreview => {
+                    preview_stack_clone.set_visible_child(&preview_disabled_label_clone);
                 }
             }
         }
