@@ -7,6 +7,7 @@ use std::{
     thread::JoinHandle,
 };
 
+use log::error;
 use xcb::{x, Xid};
 
 use crate::{capturer::Options, frame::Frame, targets::linux::get_default_x_display, Target};
