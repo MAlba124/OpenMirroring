@@ -1,5 +1,6 @@
 {
   inputs = {
+    nixpkgs.url = "github:NixOS/nixpkgs/nixos-24.11";
     flake-utils.url = "github:numtide/flake-utils";
   };
   outputs = { self, nixpkgs, flake-utils }:
@@ -13,6 +14,8 @@
             pkg-config
             clang
             dig
+            rustc
+            cargo
           ];
           buildInputs = with pkgs; [
             libGL
@@ -32,7 +35,8 @@
             gst_all_1.gst-plugins-bad
             gst_all_1.gst-plugins-ugly
             glib
-            openssl
+            # openssl
+            libressl
             libnice
             gtk4
           ];
