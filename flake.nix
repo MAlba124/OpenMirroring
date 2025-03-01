@@ -2,20 +2,29 @@
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-24.11";
     flake-utils.url = "github:numtide/flake-utils";
+    rust-overlay = {
+      url = "github:oxalica/rust-overlay";
+      inputs = {
+        nixpkgs.follows = "nixpkgs";
+        flake-utils.follows = "flake-utils";
+      };
+    };
   };
-  outputs = { self, nixpkgs, flake-utils }:
+  outputs = { self, nixpkgs, flake-utils, rust-overlay }:
     flake-utils.lib.eachDefaultSystem
       (system:
         let
+          overlays = [ (import rust-overlay) ];
           pkgs = import nixpkgs {
-            inherit system;
+            inherit system overlays;
           };
+        in
+        let
           nativeBuildInputs = with pkgs; [
             pkg-config
             clang
             dig
-            rustc
-            cargo
+            rust-bin.stable.latest.default
           ];
           buildInputs = with pkgs; [
             libGL
@@ -35,7 +44,6 @@
             gst_all_1.gst-plugins-bad
             gst_all_1.gst-plugins-ugly
             glib
-            # openssl
             libressl
             libnice
             gtk4
