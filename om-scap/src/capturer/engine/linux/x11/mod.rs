@@ -84,10 +84,10 @@ fn draw_cursor(
     let mut cursor_idx: u32 = ((y - cursor_y) * cursor_image.width() as i32) as u32;
     let mut image_idx: u32 = ((y - win_y) * win_width * stride as i32) as u32;
 
-    for y in 0..h {
+    for _ in 0..h {
         cursor_idx += c_off;
         image_idx += i_off as u32 * stride;
-        for x in 0..w {
+        for _ in 0..w {
             let cursor_pix = cursor_image.cursor_image()[cursor_idx as usize];
             let r = (cursor_pix & 0xFF) as u8;
             let g = ((cursor_pix >> 8) & 0xFF) as u8;
