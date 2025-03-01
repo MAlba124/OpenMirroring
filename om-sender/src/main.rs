@@ -384,7 +384,7 @@ fn main() -> glib::ExitCode {
         .init();
 
     gst::init().unwrap();
-    scapgst::plugin_register_static().unwrap();
+    scap_gstreamer::plugin_register_static().unwrap();
     gst_gtk4::plugin_register_static().unwrap();
     gst_rtp::plugin_register_static().unwrap();
     gst_webrtc::plugin_register_static().unwrap();

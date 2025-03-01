@@ -15,7 +15,7 @@ serde = { workspace = true }
 serde_json = { workspace = true }
 gst-webrtc = { workspace = true }
 gst-rtp = { workspace = true }
-scap-gstreamer = { git = "https://github.com/MAlba124/scap-gstreamer.git", rev = "3463d08a8784b64ff2a6d14990ae89de19ea9189" }
+scap-gstreamer = { package = "om-scap-gstreamer", path = "../om-scap-gstreamer" }
 om-common = { path = "../om-common" }
 fcast-lib = { path = "../fcast-lib" }
 async-tungstenite = { version = "0.29", features = ["tokio-runtime"] }

@@ -1,0 +1,25 @@
+[package]
+name = "om-scap-gstreamer"
+version = "0.1.0"
+authors = ["Marcus L. Hanestad <marlhan@proton.me>"]
+repository = "https://github.com/malba124/scap-gstreamer"
+license = "MIT OR Apache-2.0"
+edition = "2021"
+description = "Scap screencast plugin for GStreamer"
+
+[dependencies]
+gst = { workspace = true }
+gst_base = { package = "gstreamer-base", version = "0.23.5" }
+gst-video = { workspace = true }
+scap = { package = "om-scap", path = "../om-scap" }
+
+[build-dependencies]
+gst-plugin-version-helper = "0.8.2"
+
+[dev-dependencies]
+ctrlc = "3.4.5"
+
+[lib]
+name = "scapgst"
+crate-type = ["cdylib", "rlib"]
+path = "src/lib.rs"

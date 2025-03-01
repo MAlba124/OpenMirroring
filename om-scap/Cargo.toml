@@ -1,0 +1,41 @@
+[package]
+name = "om-scap"
+description = "Modern, high-performance screen capture library for Rust. Cross-platform."
+version = "0.0.8"
+edition = "2021"
+rust-version = "1.71"
+license = "MIT"
+authors = [
+	"Siddharth <siddharth99c@gmail.com>",
+	"Pranav <pranav2000joglekar@gmail.com>",
+]
+readme = "README.md"
+repository = "https://github.com/helmerapp/scap"
+documentation = "https://docs.rs/scap"
+keywords = ["screen", "recording", "video", "capture", "media"]
+categories = ["graphics", "multimedia", "multimedia::video"]
+
+[dependencies]
+sysinfo = "0.30.0"
+
+[target.'cfg(target_os = "windows")'.dependencies]
+windows-capture = "1.3.6"
+windows = { version = "0.58", features = [
+	"Win32_Foundation",
+	"Win32_Graphics_Gdi",
+	"Win32_UI_HiDpi",
+	"Win32_UI_WindowsAndMessaging",
+] }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+tao-core-video-sys = "0.2.0"
+core-graphics-helmer-fork = "0.24.0"
+screencapturekit = "0.2.8"
+screencapturekit-sys = "0.2.8"
+cocoa = "0.25.0"
+objc = "0.2.7"
+
+[target.'cfg(target_os = "linux")'.dependencies]
+pipewire = "0.8.0"
+dbus = "0.9.7"
+rand = "0.8.5"
