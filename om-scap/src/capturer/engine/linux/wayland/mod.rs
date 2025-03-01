@@ -89,7 +89,9 @@ fn state_changed_callback(
     match new {
         StreamState::Error(e) => {
             eprintln!("pipewire: State changed to error({e})");
-            user_data.stream_state_changed_to_error.store(true, std::sync::atomic::Ordering::SeqCst);
+            user_data
+                .stream_state_changed_to_error
+                .store(true, std::sync::atomic::Ordering::SeqCst);
         }
         _ => {}
     }
@@ -352,7 +354,14 @@ impl WaylandCapturer {
         let stream_state_changed_to_error_clone = Arc::clone(&stream_state_changed_to_error);
         let (ready_sender, ready_recv) = sync_channel(1);
         let capturer_join_handle = std::thread::spawn(move || {
-            let res = pipewire_capturer(options, tx, &ready_sender, stream_id, capturer_state_clone, stream_state_changed_to_error_clone);
+            let res = pipewire_capturer(
+                options,
+                tx,
+                &ready_sender,
+                stream_id,
+                capturer_state_clone,
+                stream_state_changed_to_error_clone,
+            );
             if res.is_err() {
                 ready_sender.send(false)?;
             }
@@ -374,17 +383,21 @@ impl WaylandCapturer {
 
 impl LinuxCapturerImpl for WaylandCapturer {
     fn start_capture(&mut self) {
-        self.capturer_state.store(1, std::sync::atomic::Ordering::SeqCst);
+        self.capturer_state
+            .store(1, std::sync::atomic::Ordering::SeqCst);
     }
 
     fn stop_capture(&mut self) {
-        self.capturer_state.store(2, std::sync::atomic::Ordering::SeqCst);
+        self.capturer_state
+            .store(2, std::sync::atomic::Ordering::SeqCst);
         if let Some(handle) = self.capturer_join_handle.take() {
             if let Err(e) = handle.join().unwrap() {
                 eprintln!("Error occured capturing: {e}");
             }
         }
-        self.capturer_state.store(0, std::sync::atomic::Ordering::SeqCst);
-        self.stream_state_changed_to_error.store(false, std::sync::atomic::Ordering::SeqCst);
+        self.capturer_state
+            .store(0, std::sync::atomic::Ordering::SeqCst);
+        self.stream_state_changed_to_error
+            .store(false, std::sync::atomic::Ordering::SeqCst);
     }
 }

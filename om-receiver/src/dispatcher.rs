@@ -11,7 +11,10 @@ pub struct Dispatcher {
 }
 
 impl Dispatcher {
-    pub async fn new<A>(addr: A, event_tx: tokio::sync::mpsc::Sender<Event>) -> tokio::io::Result<Self>
+    pub async fn new<A>(
+        addr: A,
+        event_tx: tokio::sync::mpsc::Sender<Event>,
+    ) -> tokio::io::Result<Self>
     where
         A: ToSocketAddrs,
     {

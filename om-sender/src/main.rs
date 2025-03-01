@@ -121,9 +121,7 @@ fn build_ui(app: &Application) {
     //     .property("perform-internal-preroll", true)
     //     .build()
     //     .unwrap();
-    let src = gst::ElementFactory::make("videotestsrc")
-        .build()
-        .unwrap();
+    let src = gst::ElementFactory::make("videotestsrc").build().unwrap();
 
     let preview_convert = gst::ElementFactory::make("videoconvert")
         .name("preview_convert")
@@ -232,17 +230,16 @@ fn build_ui(app: &Application) {
     let event_tx_clone = event_tx.clone();
     enable_preview.connect_toggled(move |btn| {
         let new = btn.property::<bool>("active");
-        glib::spawn_future_local(
-            glib::clone!(
-                #[strong] event_tx_clone,
-                async move {
-                    match new {
-                        true => event_tx_clone.send(Event::EnablePreview).await.unwrap(),
-                        false => event_tx_clone.send(Event::DisablePreview).await.unwrap(),
-                    }
+        glib::spawn_future_local(glib::clone!(
+            #[strong]
+            event_tx_clone,
+            async move {
+                match new {
+                    true => event_tx_clone.send(Event::EnablePreview).await.unwrap(),
+                    false => event_tx_clone.send(Event::DisablePreview).await.unwrap(),
                 }
-            )
-        );
+            }
+        ));
     });
 
     vbox.append(&enable_preview);

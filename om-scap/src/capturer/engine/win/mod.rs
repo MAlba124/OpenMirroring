@@ -6,6 +6,7 @@ use crate::{
 use std::cmp;
 use std::sync::mpsc;
 use std::time::{SystemTime, UNIX_EPOCH};
+use windows_capture::capture::Context;
 use windows_capture::{
     capture::{CaptureControl, GraphicsCaptureApiHandler},
     frame::Frame as WCFrame,
@@ -14,7 +15,6 @@ use windows_capture::{
     settings::{ColorFormat, CursorCaptureSettings, DrawBorderSettings, Settings as WCSettings},
     window::Window as WCWindow,
 };
-use windows_capture::capture::Context;
 
 #[derive(Debug)]
 struct Capturer {

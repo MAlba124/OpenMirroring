@@ -19,7 +19,11 @@ pub struct Session {
 const HEADER_BUFFER_SIZE: usize = 5;
 
 impl Session {
-    pub fn new(stream: TcpStream, event_tx: tokio::sync::mpsc::Sender<Event>, id: SessionId) -> Self {
+    pub fn new(
+        stream: TcpStream,
+        event_tx: tokio::sync::mpsc::Sender<Event>,
+        id: SessionId,
+    ) -> Self {
         Self {
             stream,
             event_tx,

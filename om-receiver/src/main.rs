@@ -23,9 +23,9 @@ fn current_time_millis() -> u64 {
 }
 
 async fn event_loop(
-    mut rx: tokio::sync::mpsc::Receiver::<Event>,
-    tx: tokio::sync::mpsc::Sender::<Event>,
-    gui_tx: tokio::sync::mpsc::Sender::<GuiEvent>
+    mut rx: tokio::sync::mpsc::Receiver<Event>,
+    tx: tokio::sync::mpsc::Sender<Event>,
+    gui_tx: tokio::sync::mpsc::Sender<GuiEvent>,
 ) {
     let (updates_tx, _) = tokio::sync::broadcast::channel(100);
 
@@ -251,11 +251,9 @@ fn build_ui(app: &Application) {
     //     }
     // ));
 
-    runtime().spawn(
-        async move {
-            event_loop(event_rx, event_tx, gui_event_tx).await;
-        }
-    );
+    runtime().spawn(async move {
+        event_loop(event_rx, event_tx, gui_event_tx).await;
+    });
 
     let stack_clone = stack.clone();
     let video_view_clone = video_view.clone();
