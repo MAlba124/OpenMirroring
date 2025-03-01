@@ -63,17 +63,7 @@ pub fn get_all_targets() -> Vec<Target> {
     return linux::get_all_targets();
 }
 
-pub fn get_scale_factor(target: &Target) -> f64 {
-    #[cfg(target_os = "macos")]
-    return mac::get_scale_factor(target);
-
-    #[cfg(target_os = "windows")]
-    return win::get_scale_factor(target);
-
-    #[cfg(target_os = "linux")]
-    return 1.0;
-}
-
+#[allow(dead_code)]
 pub fn get_main_display() -> Display {
     #[cfg(target_os = "macos")]
     return mac::get_main_display();
@@ -83,15 +73,4 @@ pub fn get_main_display() -> Display {
 
     #[cfg(target_os = "linux")]
     return linux::get_main_display();
-}
-
-pub fn get_target_dimensions(target: &Target) -> (u64, u64) {
-    #[cfg(target_os = "macos")]
-    return mac::get_target_dimensions(target);
-
-    #[cfg(target_os = "windows")]
-    return win::get_target_dimensions(target);
-
-    #[cfg(target_os = "linux")]
-    return linux::get_target_dimensions(target);
 }

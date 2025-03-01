@@ -14,6 +14,7 @@ pub fn has_permission() -> bool {
 }
 
 /// Prompts user to grant screen capturing permission to current process
+#[allow(dead_code)]
 pub fn request_permission() -> bool {
     #[cfg(target_os = "macos")]
     return mac::request_permission();

@@ -227,10 +227,3 @@ pub fn get_main_display() -> Display {
         panic!("Unsupported platform. Could not detect Wayland or X11 displays")
     }
 }
-
-pub fn get_target_dimensions(target: &Target) -> (u64, u64) {
-    match target {
-        Target::Window(_w) => (0, 0), // TODO
-        Target::Display(d) => (d.width as u64, d.height as u64),
-    }
-}

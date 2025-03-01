@@ -20,6 +20,7 @@ pub type ChannelItem = (
 #[cfg(not(target_os = "macos"))]
 pub type ChannelItem = Frame;
 
+#[allow(unused_variables)]
 pub fn get_output_frame_size(options: &Options) -> [u32; 2] {
     #[cfg(target_os = "macos")]
     {

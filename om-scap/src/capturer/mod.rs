@@ -25,6 +25,7 @@ pub enum Resolution {
     Captured,
 }
 
+#[allow(dead_code)]
 impl Resolution {
     fn value(&self, aspect_ratio: f32) -> [u32; 2] {
         match *self {
@@ -159,6 +160,7 @@ impl Capturer {
     }
 }
 
+#[allow(dead_code)]
 pub struct RawCapturer<'a> {
     capturer: &'a Capturer,
 }
