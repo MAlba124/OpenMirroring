@@ -9,6 +9,7 @@ use std::{
     time::Duration,
 };
 
+use log::error;
 use pipewire as pw;
 use pw::{
     context::Context,
@@ -88,7 +89,7 @@ fn state_changed_callback(
 ) {
     match new {
         StreamState::Error(e) => {
-            eprintln!("pipewire: State changed to error({e})");
+            error!("State changed to error({e})");
             user_data
                 .stream_state_changed_to_error
                 .store(true, std::sync::atomic::Ordering::SeqCst);
@@ -166,11 +167,11 @@ fn process_callback(stream: &StreamRef, user_data: &mut ListenerUserData) {
                 })),
                 _ => panic!("Unsupported frame format received"),
             } {
-                eprintln!("{e}");
+                error!("{e}");
             }
         }
     } else {
-        eprintln!("Out of buffers");
+        error!("Out of buffers");
     }
 
     unsafe { stream.queue_raw_buffer(buffer) };
@@ -392,7 +393,7 @@ impl LinuxCapturerImpl for WaylandCapturer {
             .store(2, std::sync::atomic::Ordering::SeqCst);
         if let Some(handle) = self.capturer_join_handle.take() {
             if let Err(e) = handle.join().unwrap() {
-                eprintln!("Error occured capturing: {e}");
+                error!("Error occured capturing: {e}");
             }
         }
         self.capturer_state

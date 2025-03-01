@@ -244,7 +244,7 @@ impl LinuxCapturerImpl for X11Capturer {
         self.capturer_state.store(2, Ordering::Release);
         if let Some(handle) = self.capturer_join_handle.take() {
             if let Err(e) = handle.join().expect("Failed to join capturer thread") {
-                eprintln!("Error occured capturing: {e}");
+                error!("Error occured capturing: {e}");
             }
         }
     }

@@ -109,7 +109,7 @@ impl GraphicsCaptureApiHandler for Capturer {
     }
 
     fn on_closed(&mut self) -> Result<(), Self::Error> {
-        println!("Closed");
+        debug!("Closed");
         Ok(())
     }
 }

@@ -1,5 +1,6 @@
 use std::{env, sync::mpsc};
 
+use log::debug;
 use wayland::WaylandCapturer;
 use x11::X11Capturer;
 
@@ -24,12 +25,12 @@ type Type = mpsc::Sender<Frame>;
 impl LinuxCapturer {
     pub fn new(options: &Options, tx: Type) -> Self {
         if env::var("WAYLAND_DISPLAY").is_ok() {
-            println!("[DEBUG] On wayland");
+            debug!("On wayland");
             return Self {
                 imp: Box::new(WaylandCapturer::new(options, tx)),
             };
         } else if env::var("DISPLAY").is_ok() {
-            println!("[DEBUG] On X11");
+            debug!("On X11");
             return Self {
                 imp: Box::new(X11Capturer::new(options, tx).unwrap()),
             };
