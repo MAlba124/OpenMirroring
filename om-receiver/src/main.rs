@@ -1,13 +1,14 @@
 use fcast_lib::models::{PlaybackState, PlaybackUpdateMessage};
 use fcast_lib::packet::Packet;
 use gst::{prelude::*, SeekFlags};
-use log::{debug, error};
+use log::{debug, error, warn};
 use om_common::runtime;
 use om_receiver::dispatcher::Dispatcher;
 use om_receiver::session::Session;
 use om_receiver::{Event, GuiEvent};
 
 use std::cell::RefCell;
+use std::net::Ipv4Addr;
 
 use gst::glib::{clone, WeakRef};
 use gtk::prelude::*;
@@ -145,8 +146,18 @@ fn setup_timeout(
 fn build_ui(app: &Application) {
     debug!("Building UI");
 
+    let mut ips: Vec<Ipv4Addr> = Vec::new();
+    for iface in pnet_datalink::interfaces() {
+        for ip in iface.ips {
+            match ip {
+                ipnetwork::IpNetwork::V4(v4) => ips.push(v4.ip()),
+                ipnetwork::IpNetwork::V6(_) => warn!("Found IPv6 address, ignoring"),
+            }
+        }
+    }
+
     let (pipeline, playbin, video_view) = create_pipeline();
-    let label_view = gtk::Label::new(Some("Listening on localhost:46899"));
+    let label_view = gtk::Label::new(Some(&format!("Listening on {ips:?} :46899")));
     let stack = gtk::Stack::new();
     stack.add_named(&label_view, Some("text_view"));
     stack.add_named(&video_view, Some("video_view"));
@@ -219,7 +230,7 @@ fn build_ui(app: &Application) {
         #[strong]
         event_tx,
         async move {
-            Dispatcher::new("127.0.0.1:46899", event_tx)
+            Dispatcher::new("0.0.0.0:46899", event_tx)
                 .await
                 .unwrap()
                 .run()

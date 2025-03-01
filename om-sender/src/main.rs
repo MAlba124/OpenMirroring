@@ -182,8 +182,6 @@ fn build_ui(app: &Application) {
 
     vbox.append(&preview_stack);
 
-    // vbox.append(&gst_widget);
-
     let (tx, rx) = tokio::sync::mpsc::channel::<Message>(100);
     let (event_tx, mut event_rx) = tokio::sync::mpsc::channel::<Event>(100);
 
