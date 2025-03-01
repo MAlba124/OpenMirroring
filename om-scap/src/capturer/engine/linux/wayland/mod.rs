@@ -3,6 +3,7 @@ use std::{
     sync::{
         atomic::{AtomicBool, AtomicU8},
         mpsc::{sync_channel, Sender, SyncSender},
+        Arc,
     },
     thread::JoinHandle,
     time::Duration,
@@ -41,13 +42,14 @@ use super::{error::LinCapError, LinuxCapturerImpl};
 mod portal;
 
 // TODO: Move to wayland capturer with Arc<>
-static CAPTURER_STATE: AtomicU8 = AtomicU8::new(0);
-static STREAM_STATE_CHANGED_TO_ERROR: AtomicBool = AtomicBool::new(false);
+// static CAPTURER_STATE: AtomicU8 = AtomicU8::new(0);
+// static STREAM_STATE_CHANGED_TO_ERROR: AtomicBool = AtomicBool::new(false);
 
 #[derive(Clone)]
 struct ListenerUserData {
     pub tx: Sender<Frame>,
     pub format: spa::param::video::VideoInfoRaw,
+    pub stream_state_changed_to_error: Arc<AtomicBool>,
 }
 
 fn param_changed_callback(
@@ -80,14 +82,14 @@ fn param_changed_callback(
 
 fn state_changed_callback(
     _stream: &StreamRef,
-    _user_data: &mut ListenerUserData,
+    user_data: &mut ListenerUserData,
     _old: StreamState,
     new: StreamState,
 ) {
     match new {
         StreamState::Error(e) => {
             eprintln!("pipewire: State changed to error({e})");
-            STREAM_STATE_CHANGED_TO_ERROR.store(true, std::sync::atomic::Ordering::Relaxed);
+            user_data.stream_state_changed_to_error.store(true, std::sync::atomic::Ordering::SeqCst);
         }
         _ => {}
     }
@@ -178,6 +180,8 @@ fn pipewire_capturer(
     tx: Sender<Frame>,
     ready_sender: &SyncSender<bool>,
     stream_id: u32,
+    capturer_state: Arc<AtomicU8>,
+    stream_state_changed_to_error: Arc<AtomicBool>,
 ) -> Result<(), LinCapError> {
     pw::init();
 
@@ -188,6 +192,7 @@ fn pipewire_capturer(
     let user_data = ListenerUserData {
         tx,
         format: Default::default(),
+        stream_state_changed_to_error: Arc::clone(&stream_state_changed_to_error),
     };
 
     let stream = pw::stream::Stream::new(
@@ -300,16 +305,16 @@ fn pipewire_capturer(
 
     ready_sender.send(true)?;
 
-    while CAPTURER_STATE.load(std::sync::atomic::Ordering::Relaxed) == 0 {
+    while capturer_state.load(std::sync::atomic::Ordering::SeqCst) == 0 {
         std::thread::sleep(Duration::from_millis(10));
     }
 
     let pw_loop = mainloop.loop_();
 
     // User has called Capturer::start() and we start the main loop
-    while CAPTURER_STATE.load(std::sync::atomic::Ordering::Relaxed) == 1
+    while capturer_state.load(std::sync::atomic::Ordering::SeqCst) == 1
         && /* If the stream state got changed to `Error`, we exit. TODO: tell user that we exited */
-          !STREAM_STATE_CHANGED_TO_ERROR.load(std::sync::atomic::Ordering::Relaxed)
+          !stream_state_changed_to_error.load(std::sync::atomic::Ordering::SeqCst)
     {
         pw_loop.iterate(Duration::from_millis(100));
     }
@@ -319,14 +324,19 @@ fn pipewire_capturer(
 
 pub struct WaylandCapturer {
     capturer_join_handle: Option<JoinHandle<Result<(), LinCapError>>>,
+    capturer_state: Arc<AtomicU8>,
+    stream_state_changed_to_error: Arc<AtomicBool>,
     // The pipewire stream is deleted when the connection is dropped.
     // That's why we keep it alive
-    _connection: std::sync::Arc<std::sync::Mutex<dbus::blocking::Connection>>,
+    _connection: Arc<std::sync::Mutex<dbus::blocking::Connection>>,
 }
 
 impl WaylandCapturer {
     // TODO: Error handling
     pub fn new(options: &Options, tx: Sender<Frame>) -> Self {
+        let capturer_state = Arc::new(AtomicU8::new(0));
+        let stream_state_changed_to_error = Arc::new(AtomicBool::new(false));
+
         let connection =
             dbus::blocking::Connection::new_session().expect("Failed to create dbus connection");
         let stream_id = ScreenCastPortal::new(&connection)
@@ -338,9 +348,11 @@ impl WaylandCapturer {
 
         // TODO: Fix this hack
         let options = options.clone();
+        let capturer_state_clone = Arc::clone(&capturer_state);
+        let stream_state_changed_to_error_clone = Arc::clone(&stream_state_changed_to_error);
         let (ready_sender, ready_recv) = sync_channel(1);
         let capturer_join_handle = std::thread::spawn(move || {
-            let res = pipewire_capturer(options, tx, &ready_sender, stream_id);
+            let res = pipewire_capturer(options, tx, &ready_sender, stream_id, capturer_state_clone, stream_state_changed_to_error_clone);
             if res.is_err() {
                 ready_sender.send(false)?;
             }
@@ -354,23 +366,25 @@ impl WaylandCapturer {
         Self {
             capturer_join_handle: Some(capturer_join_handle),
             _connection: std::sync::Arc::new(std::sync::Mutex::new(connection)),
+            capturer_state,
+            stream_state_changed_to_error,
         }
     }
 }
 
 impl LinuxCapturerImpl for WaylandCapturer {
     fn start_capture(&mut self) {
-        CAPTURER_STATE.store(1, std::sync::atomic::Ordering::Relaxed);
+        self.capturer_state.store(1, std::sync::atomic::Ordering::SeqCst);
     }
 
     fn stop_capture(&mut self) {
-        CAPTURER_STATE.store(2, std::sync::atomic::Ordering::Relaxed);
+        self.capturer_state.store(2, std::sync::atomic::Ordering::SeqCst);
         if let Some(handle) = self.capturer_join_handle.take() {
-            if let Err(e) = handle.join().expect("Failed to join capturer thread") {
+            if let Err(e) = handle.join().unwrap() {
                 eprintln!("Error occured capturing: {e}");
             }
         }
-        CAPTURER_STATE.store(0, std::sync::atomic::Ordering::Relaxed);
-        STREAM_STATE_CHANGED_TO_ERROR.store(false, std::sync::atomic::Ordering::Relaxed);
+        self.capturer_state.store(0, std::sync::atomic::Ordering::SeqCst);
+        self.stream_state_changed_to_error.store(false, std::sync::atomic::Ordering::SeqCst);
     }
 }
