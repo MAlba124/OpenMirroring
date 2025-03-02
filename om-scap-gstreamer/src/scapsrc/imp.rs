@@ -59,7 +59,6 @@ struct Settings {
     pub show_cursor: bool,
     pub fps: u32,
     pub perform_internal_preroll: bool,
-    // pub sel_target_cb: Option<glib::Closure>,
 }
 
 impl Default for Settings {
@@ -68,7 +67,6 @@ impl Default for Settings {
             show_cursor: DEFAULT_SHOW_CURSOR,
             fps: DEFAULT_FPS,
             perform_internal_preroll: DEFAULT_PERFORM_INTERNAL_PREROLL,
-            // sel_target_cb: None,
         }
     }
 }
@@ -174,11 +172,6 @@ impl ObjectImpl for ScapSrc {
                     .default_value(DEFAULT_PERFORM_INTERNAL_PREROLL)
                     .mutable_ready()
                     .build(),
-                // glib::ParamSpecBoxed::builder::<Option<glib::Closure>>("select-target-cb")
-                //     .nick("Select target callback")
-                //     .blurb("Function that accepts a list of targets and returns the target that should be captured")
-                //     .mutable_ready()
-                //     .build(),
             ]
         });
 
@@ -237,14 +230,6 @@ impl ObjectImpl for ScapSrc {
 
                 settings.perform_internal_preroll = new_perf_internal_preroll;
             }
-            // "select-target-cb" => {
-            //     let mut settings = self.settings.lock().unwrap();
-            //     let new_cb = value.get().expect("type checked upstream");
-
-            //     gst::info!(CAT, imp = self, "Changing select-target-cb");
-
-            //     settings.sel_target_cb = new_cb;
-            // }
             _ => unimplemented!(),
         }
     }
@@ -263,12 +248,19 @@ impl ObjectImpl for ScapSrc {
                 let settings = self.settings.lock().unwrap();
                 settings.perform_internal_preroll.to_value()
             }
-            // "select-target-cb" => {
-            //     let settings = self.settings.lock().unwrap();
-            //     settings.sel_target_cb.to_value()
-            // }
             _ => unimplemented!(),
         }
+    }
+
+    fn signals() -> &'static [glib::subclass::Signal] {
+        static SIGNALS: LazyLock<Vec<glib::subclass::Signal>> = LazyLock::new(|| {
+            vec![glib::subclass::Signal::builder("select-source")
+                .param_types([Vec::<String>::static_type()])
+                .return_type::<u64>()
+                .build()]
+        });
+
+        SIGNALS.as_ref()
     }
 }
 
@@ -359,19 +351,25 @@ impl BaseSrcImpl for ScapSrc {
             capturer.stop_capture();
         }
 
-        // TODO: Use settings.sel_target_cb to select the target
-        // let targets = scap::get_all_targets();
-        // if targets.is_empty() {
-        //     return Err(gst::error_msg!(gst::LibraryError::Init, [
-        //         "No targets available"
-        //     ]));
-        // }
+        let targets = scap::get_all_targets();
+        if targets.is_empty() {
+            gst::error!(CAT, imp = self, "No capture sources available");
+            return Err(gst::error_msg!(
+                gst::LibraryError::Init,
+                ["No capture sources available"]
+            ));
+        }
+
+        let source_idx = self.obj().emit_by_name::<u64>(
+            "select-source",
+            &[&targets.iter().map(|t| t.title()).collect::<Vec<String>>()],
+        );
 
         let mut new_capturer = Capturer::build(scap::capturer::Options {
             fps: settings.fps,
             show_cursor: settings.show_cursor,
             show_highlight: true,
-            target: None,
+            target: Some(targets[source_idx as usize].clone()),
             crop_area: None,
             output_type: scap::frame::FrameType::BGR0,
             output_resolution: scap::capturer::Resolution::Captured,

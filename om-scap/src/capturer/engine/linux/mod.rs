@@ -6,7 +6,7 @@ use x11::X11Capturer;
 
 use crate::{capturer::Options, frame::Frame};
 
-mod error;
+pub(crate) mod error;
 
 mod wayland;
 mod x11;

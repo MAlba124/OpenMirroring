@@ -10,7 +10,12 @@ use std::{
 use log::error;
 use xcb::{x, Xid};
 
-use crate::{capturer::Options, frame::Frame, targets::linux::get_default_x_display, Target};
+use crate::{
+    capturer::Options,
+    frame::Frame,
+    targets::{linux::get_default_x_display, LinuxDisplay, LinuxWindow},
+    Target,
+};
 
 use super::{error::LinCapError, LinuxCapturerImpl};
 
@@ -120,20 +125,28 @@ fn draw_cursor(
 fn grab(conn: &xcb::Connection, target: &Target, show_cursor: bool) -> Result<Frame, xcb::Error> {
     let (x, y, width, height, window, is_win) = match &target {
         Target::Window(win) => {
+            let LinuxWindow::X11 { raw_handle } = win.raw else {
+                unreachable!();
+            };
             let geom_cookie = conn.send_request(&x::GetGeometry {
-                drawable: x::Drawable::Window(win.raw_handle),
+                drawable: x::Drawable::Window(raw_handle),
             });
             let geom = conn.wait_for_reply(geom_cookie)?;
-            (0, 0, geom.width(), geom.height(), win.raw_handle, true)
+            (0, 0, geom.width(), geom.height(), raw_handle, true)
         }
-        Target::Display(disp) => (
-            disp.x_offset,
-            disp.y_offset,
-            disp.width,
-            disp.height,
-            disp.raw_handle,
-            false,
-        ),
+        Target::Display(disp) => {
+            let LinuxDisplay::X11 {
+                raw_handle,
+                width,
+                height,
+                x_offset,
+                y_offset,
+            } = disp.raw
+            else {
+                unreachable!();
+            };
+            (x_offset, y_offset, width, height, raw_handle, false)
+        }
     };
 
     let img_cookie = conn.send_request(&x::GetImage {

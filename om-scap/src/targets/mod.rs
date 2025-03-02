@@ -1,3 +1,8 @@
+use std::{
+    fmt::Debug,
+    sync::{Arc, Mutex},
+};
+
 #[cfg(target_os = "macos")]
 mod mac;
 
@@ -6,6 +11,39 @@ mod win;
 
 #[cfg(target_os = "linux")]
 pub(crate) mod linux;
+
+#[cfg(target_os = "linux")]
+#[derive(Debug, Clone)]
+pub(crate) enum LinuxWindow {
+    #[allow(dead_code)]
+    Wayland,
+    X11 {
+        raw_handle: xcb::x::Window,
+    },
+}
+
+#[cfg(target_os = "linux")]
+#[derive(Clone)]
+pub(crate) enum LinuxDisplay {
+    Wayland {
+        connection: Arc<Mutex<dbus::blocking::Connection>>,
+    },
+    X11 {
+        raw_handle: xcb::x::Window,
+        width: u16,
+        height: u16,
+        x_offset: i16,
+        y_offset: i16,
+    },
+}
+
+#[cfg(target_os = "linux")]
+impl Debug for LinuxDisplay {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        // TODO: finishme
+        write!(f, "Display")
+    }
+}
 
 #[derive(Debug, Clone)]
 pub struct Window {
@@ -19,7 +57,7 @@ pub struct Window {
     pub raw_handle: core_graphics_helmer_fork::window::CGWindowID,
 
     #[cfg(target_os = "linux")]
-    pub raw_handle: xcb::x::Window,
+    pub(crate) raw: LinuxWindow,
 }
 
 #[derive(Debug, Clone)]
@@ -34,21 +72,22 @@ pub struct Display {
     pub raw_handle: core_graphics_helmer_fork::display::CGDisplay,
 
     #[cfg(target_os = "linux")]
-    pub raw_handle: xcb::x::Window,
-    #[cfg(target_os = "linux")]
-    pub width: u16,
-    #[cfg(target_os = "linux")]
-    pub height: u16,
-    #[cfg(target_os = "linux")]
-    pub x_offset: i16,
-    #[cfg(target_os = "linux")]
-    pub y_offset: i16,
+    pub(crate) raw: LinuxDisplay,
 }
 
 #[derive(Debug, Clone)]
 pub enum Target {
     Window(Window),
     Display(Display),
+}
+
+impl Target {
+    pub fn title(&self) -> String {
+        match self {
+            Target::Window(window) => window.title.clone(),
+            Target::Display(display) => display.title.clone(),
+        }
+    }
 }
 
 /// Returns a list of targets that can be captured

@@ -1,4 +1,9 @@
-use std::ffi::{CStr, CString, NulError};
+use std::{
+    ffi::{CStr, CString, NulError},
+    sync::{Arc, Mutex},
+};
+
+use crate::targets::{self, LinuxDisplay, LinuxWindow};
 
 use super::{Display, Target};
 
@@ -106,7 +111,9 @@ fn get_x11_targets() -> Result<Vec<Target>, xcb::Error> {
                     id: 0,
                     title: String::from_utf8(cr.value().to_vec())
                         .map_err(|_| xcb::Error::Connection(xcb::ConnError::ClosedParseErr))?,
-                    raw_handle: *client,
+                    raw: LinuxWindow::X11 {
+                        raw_handle: *client,
+                    },
                 }));
                 continue;
             }
@@ -128,14 +135,18 @@ fn get_x11_targets() -> Result<Vec<Target>, xcb::Error> {
                 targets.push(Target::Window(crate::targets::Window {
                     id: 0,
                     title,
-                    raw_handle: *client,
+                    raw: LinuxWindow::X11 {
+                        raw_handle: *client,
+                    },
                 }));
                 continue;
             }
             targets.push(Target::Window(crate::targets::Window {
                 id: 0,
                 title: String::from("n/a"),
-                raw_handle: *client,
+                raw: LinuxWindow::X11 {
+                    raw_handle: *client,
+                },
             }));
         }
 
@@ -160,11 +171,13 @@ fn get_x11_targets() -> Result<Vec<Target>, xcb::Error> {
                 targets.push(Target::Display(crate::targets::Display {
                     id: crtc.resource_id(),
                     title,
-                    width: crtc_info.width(),
-                    height: crtc_info.height(),
-                    x_offset: crtc_info.x(),
-                    y_offset: crtc_info.y(),
-                    raw_handle: screen.root(),
+                    raw: LinuxDisplay::X11 {
+                        width: crtc_info.width(),
+                        height: crtc_info.height(),
+                        x_offset: crtc_info.x(),
+                        y_offset: crtc_info.y(),
+                        raw_handle: screen.root(),
+                    },
                 }));
             }
         }
@@ -175,8 +188,7 @@ fn get_x11_targets() -> Result<Vec<Target>, xcb::Error> {
 
 pub fn get_all_targets() -> Vec<Target> {
     if std::env::var("WAYLAND_DISPLAY").is_ok() {
-        // On Wayland, the target is selected when a Recorder is instanciated because it requires user interaction
-        Vec::new()
+        vec![targets::Target::Display(get_main_display())]
     } else if std::env::var("DISPLAY").is_ok() {
         get_x11_targets().unwrap()
     } else {
@@ -206,17 +218,34 @@ pub(crate) fn get_default_x_display(
     Ok(Display {
         id: crtc.resource_id(),
         title: String::from_utf8(info.name().to_vec()).unwrap_or(String::from("default")),
-        width: crtc_info.width(),
-        height: crtc_info.height(),
-        x_offset: crtc_info.x(),
-        y_offset: crtc_info.y(),
-        raw_handle: screen.root(),
+        raw: LinuxDisplay::X11 {
+            width: crtc_info.width(),
+            height: crtc_info.height(),
+            x_offset: crtc_info.x(),
+            y_offset: crtc_info.y(),
+            raw_handle: screen.root(),
+        },
     })
 }
 
+mod portal;
 pub fn get_main_display() -> Display {
     if std::env::var("WAYLAND_DISPLAY").is_ok() {
-        todo!()
+        let connection =
+            dbus::blocking::Connection::new_session().expect("Failed to create dbus connection");
+        let stream_id = portal::ScreenCastPortal::new(&connection)
+            .show_cursor(true)
+            .expect("Unsupported cursor mode")
+            .create_stream()
+            .expect("Failed to get screencast stream")
+            .pw_node_id();
+        Display {
+            id: stream_id,
+            title: "Display".to_owned(),
+            raw: LinuxDisplay::Wayland {
+                connection: Arc::new(Mutex::new(connection)),
+            },
+        }
     } else if std::env::var("DISPLAY").is_ok() {
         let (conn, screen_num) =
             xcb::Connection::connect_with_extensions(None, &[xcb::Extension::RandR], &[]).unwrap();
