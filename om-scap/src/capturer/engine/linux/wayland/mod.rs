@@ -333,15 +333,6 @@ impl WaylandCapturer {
         let capturer_state = Arc::new(AtomicU8::new(0));
         let stream_state_changed_to_error = Arc::new(AtomicBool::new(false));
 
-        // let connection =
-        //     dbus::blocking::Connection::new_session().expect("Failed to create dbus connection");
-        // let stream_id = ScreenCastPortal::new(&connection)
-        //     .show_cursor(options.show_cursor)
-        //     .expect("Unsupported cursor mode")
-        //     .create_stream()
-        //     .expect("Failed to get screencast stream")
-        //     .pw_node_id();
-
         let (stream_id, connection) = match &options.target {
             Some(target) => match target {
                 crate::Target::Display(display) => match &display.raw {
@@ -392,7 +383,6 @@ impl WaylandCapturer {
         Self {
             capturer_join_handle: Some(capturer_join_handle),
             _connection: connection,
-            // _connection: std::sync::Arc::new(std::sync::Mutex::new(connection)),
             capturer_state,
             stream_state_changed_to_error,
         }
