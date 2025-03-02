@@ -24,6 +24,7 @@ pub struct X11Capturer {
     capturer_state: Arc<AtomicU8>,
 }
 
+#[allow(clippy::too_many_arguments)]
 fn draw_cursor(
     conn: &xcb::Connection,
     img: &mut [u8],
@@ -65,8 +66,8 @@ fn draw_cursor(
         {
             return Ok(());
         }
-        cursor_x = ncursor_x as i32 - cursor_image.xhot() as i32;
-        cursor_y = ncursor_y as i32 - cursor_image.yhot() as i32;
+        cursor_x = ncursor_x - cursor_image.xhot() as i32;
+        cursor_y = ncursor_y - cursor_image.yhot() as i32;
     }
 
     if cursor_x >= win_width + win_x
@@ -115,7 +116,7 @@ fn draw_cursor(
             cursor_idx += 1;
             image_idx += stride;
         }
-        cursor_idx += cursor_image.width() as u32 - w as u32 - c_off as u32;
+        cursor_idx += cursor_image.width() as u32 - w - c_off;
         image_idx += (win_width - w as i32 - i_off) as u32 * stride;
     }
 
@@ -164,7 +165,7 @@ fn grab(conn: &xcb::Connection, target: &Target, show_cursor: bool) -> Result<Fr
 
     if show_cursor {
         draw_cursor(
-            &conn,
+            conn,
             &mut img_data,
             x,
             y,

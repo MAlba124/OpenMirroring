@@ -34,8 +34,7 @@ pub fn get_output_frame_size(options: &Options) -> [u32; 2] {
 
     #[cfg(target_os = "linux")]
     {
-        // TODO: How to calculate this on Linux?
-        return [0, 0];
+        [0, 0]
     }
 }
 
@@ -79,11 +78,11 @@ impl Engine {
 
         #[cfg(target_os = "linux")]
         {
-            let linux = linux::create_capturer(&options, tx);
-            return Engine {
+            let linux = linux::create_capturer(options, tx);
+            Engine {
                 linux,
                 options: (*options).clone(),
-            };
+            }
         }
     }
 

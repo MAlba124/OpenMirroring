@@ -80,14 +80,11 @@ fn state_changed_callback(
     _old: StreamState,
     new: StreamState,
 ) {
-    match new {
-        StreamState::Error(e) => {
-            error!("State changed to error({e})");
-            user_data
-                .stream_state_changed_to_error
-                .store(true, std::sync::atomic::Ordering::SeqCst);
-        }
-        _ => {}
+    if let StreamState::Error(e) = new {
+        error!("State changed to error({e})");
+        user_data
+            .stream_state_changed_to_error
+            .store(true, std::sync::atomic::Ordering::SeqCst);
     }
 }
 
@@ -338,7 +335,7 @@ impl WaylandCapturer {
                 crate::Target::Display(display) => match &display.raw {
                     crate::targets::LinuxDisplay::Wayland { connection } => {
                         let stream_id = display.id;
-                        (stream_id, Arc::clone(&connection))
+                        (stream_id, Arc::clone(connection))
                     }
                     crate::targets::LinuxDisplay::X11 { .. } => unreachable!(),
                 },

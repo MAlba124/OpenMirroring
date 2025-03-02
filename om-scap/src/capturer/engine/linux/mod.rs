@@ -26,9 +26,9 @@ impl LinuxCapturer {
     pub fn new(options: &Options, tx: Type) -> Self {
         if env::var("WAYLAND_DISPLAY").is_ok() {
             debug!("On wayland");
-            return Self {
+            Self {
                 imp: Box::new(WaylandCapturer::new(options, tx)),
-            };
+            }
         } else if env::var("DISPLAY").is_ok() {
             debug!("On X11");
             return Self {

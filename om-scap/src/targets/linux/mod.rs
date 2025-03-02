@@ -37,7 +37,7 @@ fn get_property(
         long_offset: 0,
         long_length: length,
     });
-    Ok(conn.wait_for_reply(cookie)?)
+    conn.wait_for_reply(cookie)
 }
 
 fn decode_compound_text(
@@ -68,7 +68,7 @@ fn decode_compound_text(
         return Ok(String::from("n/a"));
     }
 
-    let mut xname = XTextProperty {
+    let xname = XTextProperty {
         value: c_string.as_ptr() as *mut u8,
         encoding: ttype.resource_id() as u64,
         format: 8,
@@ -76,7 +76,7 @@ fn decode_compound_text(
     };
     let mut list: *mut *mut i8 = std::ptr::null_mut();
     let mut count: i32 = 0;
-    let result = unsafe { XmbTextPropertyToTextList(display, &mut xname, &mut list, &mut count) };
+    let result = unsafe { XmbTextPropertyToTextList(display, &xname, &mut list, &mut count) };
     if result < 1 || list.is_null() || count < 1 {
         Ok(String::from("n/a"))
     } else {
