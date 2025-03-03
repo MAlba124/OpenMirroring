@@ -25,6 +25,7 @@
             clang
             dig
             rust-bin.stable.latest.default
+            android-studio
           ];
           buildInputs = with pkgs; [
             libGL
