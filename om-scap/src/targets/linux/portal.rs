@@ -40,8 +40,8 @@ trait OrgFreedesktopPortalScreenCast {
     fn version(&self) -> Result<u32, dbus::Error>;
 }
 
-impl<T: blocking::BlockingSender, C: ::std::ops::Deref<Target = T>>
-    OrgFreedesktopPortalScreenCast for blocking::Proxy<'_, C>
+impl<T: blocking::BlockingSender, C: ::std::ops::Deref<Target = T>> OrgFreedesktopPortalScreenCast
+    for blocking::Proxy<'_, C>
 {
     fn create_session(&self, options: arg::PropMap) -> Result<dbus::Path<'static>, dbus::Error> {
         self.method_call(

@@ -147,12 +147,12 @@ fn setup_timeout(
 fn on_bus_msg(
     msg: &gst::Message,
     pipeline_weak: &WeakRef<gst::Pipeline>,
-    get_clone: &tokio::sync::mpsc::Sender<GuiEvent>,
-) -> glib::ControlFlow {
+    gui_event_tx: &tokio::sync::mpsc::Sender<GuiEvent>,
+) -> Result<(), glib::ControlFlow> {
     use gst::MessageView;
 
     let Some(pipeline) = pipeline_weak.upgrade() else {
-        return glib::ControlFlow::Break;
+        return Err(glib::ControlFlow::Break);
     };
 
     match msg.view() {
@@ -160,14 +160,11 @@ fn on_bus_msg(
             debug!("Reached EOS");
             pipeline
                 .set_state(gst::State::Ready)
-                .expect("Unable to set pipeline to `Ready` state");
-            glib::spawn_future_local(glib::clone!(
-                #[strong]
-                get_clone,
-                async move {
-                    get_clone.send(GuiEvent::Eos).await.unwrap();
-                }
-            ));
+                .map_err(|_| glib::ControlFlow::Break)?;
+            let get_clone = gui_event_tx.clone();
+            runtime().spawn(async move {
+                get_clone.send(GuiEvent::Eos).await.unwrap();
+            });
         }
         MessageView::Error(err) => {
             error!(
@@ -178,13 +175,13 @@ fn on_bus_msg(
             );
             pipeline
                 .set_state(gst::State::Null)
-                .expect("Unable to set pipeline to `Null` state");
+                .map_err(|_| glib::ControlFlow::Break)?;
             // TODO: notify GUI
         }
         _ => (),
     };
 
-    glib::ControlFlow::Continue
+    Ok(())
 }
 
 async fn on_event(
@@ -195,7 +192,7 @@ async fn on_event(
     mut gui_event_rx: tokio::sync::mpsc::Receiver<GuiEvent>,
     stack: gtk::Stack,
     playback_speed: Arc<AtomicF64>,
-) {
+) -> Result<(), gst::StateChangeError> {
     while let Some(event) = gui_event_rx.recv().await {
         let Some(pipeline) = pipeline_weak.upgrade() else {
             panic!("Pipeline = bozo");
@@ -203,34 +200,24 @@ async fn on_event(
         match event {
             GuiEvent::Play(play_message) => {
                 stack.set_visible_child(&video_view);
-                pipeline
-                    .set_state(gst::State::Ready)
-                    .expect("Unable to set the pipeline to the `Ready` state");
+                pipeline.set_state(gst::State::Ready)?;
                 playbin.set_property("uri", play_message.url.unwrap());
-                pipeline
-                    .set_state(gst::State::Playing)
-                    .expect("Unable to set the pipeline to the `Playing` state");
+                pipeline.set_state(gst::State::Playing)?;
             }
             GuiEvent::Eos => {
                 // stack_clone.set_visible_child(&label_view_clone);
                 debug!("EOS");
             }
             GuiEvent::Pause => {
-                pipeline
-                    .set_state(gst::State::Paused)
-                    .expect("Unable to set the pipeline to `Pause` state");
+                pipeline.set_state(gst::State::Paused)?;
                 debug!("Playback paused");
             }
             GuiEvent::Resume => {
-                pipeline
-                    .set_state(gst::State::Playing)
-                    .expect("Unable to set the pipeline to `Playing` state");
+                pipeline.set_state(gst::State::Playing)?;
                 debug!("Playback resumed");
             }
             GuiEvent::Stop => {
-                pipeline
-                    .set_state(gst::State::Null)
-                    .expect("Unable to set the pipeline to `Playing` state");
+                pipeline.set_state(gst::State::Null)?;
                 playbin.set_property("uri", "");
                 stack.set_visible_child(&label_view);
                 debug!("Playback stopped");
@@ -287,26 +274,26 @@ async fn on_event(
             }
         }
     }
+
+    Ok(())
 }
 
 fn build_ui(app: &Application) {
-    debug!("Building UI");
-
     let mut ips: Vec<Ipv4Addr> = Vec::new();
     for iface in pnet_datalink::interfaces() {
         for ip in iface.ips {
             match ip {
                 ipnetwork::IpNetwork::V4(v4) => ips.push(v4.ip()),
-                ipnetwork::IpNetwork::V6(_) => warn!("Found IPv6 address, ignoring"),
+                ipnetwork::IpNetwork::V6(v6) => warn!("Found IPv6 address ({v6:?}), ignoring"),
             }
         }
     }
 
     let (pipeline, playbin, video_view) = create_pipeline();
-    let label_view = gtk::Label::new(Some(&format!("Listening on {ips:?} :46899")));
+    let label_view = gtk::Label::new(Some(&format!("Listening on {ips:?}:46899")));
     let stack = gtk::Stack::new();
-    stack.add_named(&label_view, Some("text_view"));
-    stack.add_named(&video_view, Some("video_view"));
+    stack.add_child(&label_view);
+    stack.add_child(&video_view);
 
     let window = ApplicationWindow::builder()
         .application(app)
@@ -328,16 +315,20 @@ fn build_ui(app: &Application) {
 
     let bus = pipeline.bus().unwrap();
 
-    debug!("Setting pipeline to `Ready`");
-
     pipeline
         .set_state(gst::State::Ready)
         .expect("Unable to set the pipeline to the `Ready` state");
+
     let _app_weak = app.downgrade(); // HACK: removing this makes the gui not show!?
     let pipeline_weak = pipeline.downgrade();
     let get_clone = gui_event_tx.clone();
     let bus_watch = bus
-        .add_watch_local(move |_, msg| on_bus_msg(msg, &pipeline_weak, &get_clone))
+        .add_watch_local(move |_, msg| {
+            if let Err(err) = on_bus_msg(msg, &pipeline_weak, &get_clone) {
+                return err;
+            }
+            glib::ControlFlow::Continue
+        })
         .expect("Failed to add bus watch");
 
     let event_tx_clone = event_tx.clone();
@@ -369,7 +360,8 @@ fn build_ui(app: &Application) {
             stack_clone,
             playback_speed,
         )
-        .await;
+        .await
+        .unwrap();
     });
 
     let timeout_id = RefCell::new(Some(timeout_id));
@@ -407,8 +399,6 @@ fn main() -> glib::ExitCode {
         .build();
 
     app.connect_activate(build_ui);
-
-    debug!("Starting app");
 
     app.run()
 }
