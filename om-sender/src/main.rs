@@ -103,6 +103,52 @@ async fn session(mut rx: tokio::sync::mpsc::Receiver<Message>) {
     debug!("Session terminated");
 }
 
+async fn event_loop(
+    pipeline_weak: gst::glib::WeakRef<gst::Pipeline>,
+    mut event_rx: tokio::sync::mpsc::Receiver<Event>,
+    preview_stack: gtk::Stack,
+    gst_widget: gst_gtk4::RenderWidget,
+    preview_disabled_label: gtk::Label,
+    tx: tokio::sync::mpsc::Sender<Message>,
+) {
+    let mut producer_id = None;
+    while let Some(event) = event_rx.recv().await {
+        let Some(pipeline) = pipeline_weak.upgrade() else {
+            panic!("Pipeline = bozo");
+        };
+        match event {
+            Event::ProducerConnected(id) => producer_id = Some(id),
+            Event::SelectInput => {
+                pipeline
+                    .set_state(gst::State::Playing)
+                    .expect("Unable to set the pipeline to the `Playing` state");
+                preview_stack.set_visible_child(&gst_widget);
+            }
+            Event::Start => {
+                let Some(ref producer_id) = producer_id else {
+                    error!("No producer available for casting");
+                    continue;
+                };
+                tx
+                    .send(Message::Play(format!(
+                        "gstwebrtc://127.0.0.1:8443?peer-id={producer_id}" // "gstwebrtc://192.168.1.133:8443?peer-id={producer_id}"
+                    )))
+                    .await
+                    .unwrap();
+            }
+            Event::Stop => {
+                tx.send(Message::Stop).await.unwrap();
+            }
+            Event::EnablePreview => {
+                preview_stack.set_visible_child(&gst_widget);
+            }
+            Event::DisablePreview => {
+                preview_stack.set_visible_child(&preview_disabled_label);
+            }
+        }
+    }
+}
+
 fn build_ui(app: &Application) {
     info!("Starting signalling server");
     let (prod_peer_tx, prod_peer_rx) = tokio::sync::oneshot::channel();
@@ -181,7 +227,7 @@ fn build_ui(app: &Application) {
     vbox.append(&preview_stack);
 
     let (tx, rx) = tokio::sync::mpsc::channel::<Message>(100);
-    let (event_tx, mut event_rx) = tokio::sync::mpsc::channel::<Event>(100);
+    let (event_tx, event_rx) = tokio::sync::mpsc::channel::<Event>(100);
 
     let select_button = gtk::Button::builder().label("Select input").build();
     let event_tx_clone = event_tx.clone();
@@ -306,42 +352,15 @@ fn build_ui(app: &Application) {
     let gst_widget_clone = gst_widget.clone();
     let preview_disabled_label_clone = preview_disabled_label.clone();
     glib::spawn_future_local(async move {
-        let mut producer_id = None;
-        while let Some(event) = event_rx.recv().await {
-            let Some(pipeline) = pipeline_weak.upgrade() else {
-                panic!("Pipeline = bozo");
-            };
-            match event {
-                Event::ProducerConnected(id) => producer_id = Some(id),
-                Event::SelectInput => {
-                    pipeline
-                        .set_state(gst::State::Playing)
-                        .expect("Unable to set the pipeline to the `Playing` state");
-                    preview_stack_clone.set_visible_child(&gst_widget_clone);
-                }
-                Event::Start => {
-                    let Some(ref producer_id) = producer_id else {
-                        error!("No producer available for casting");
-                        continue;
-                    };
-                    tx_clone
-                        .send(Message::Play(format!(
-                            "gstwebrtc://127.0.0.1:8443?peer-id={producer_id}"
-                        )))
-                        .await
-                        .unwrap();
-                }
-                Event::Stop => {
-                    tx_clone.send(Message::Stop).await.unwrap();
-                }
-                Event::EnablePreview => {
-                    preview_stack_clone.set_visible_child(&gst_widget_clone);
-                }
-                Event::DisablePreview => {
-                    preview_stack_clone.set_visible_child(&preview_disabled_label_clone);
-                }
-            }
-        }
+        event_loop(
+            pipeline_weak,
+            event_rx,
+            preview_stack_clone,
+            gst_widget_clone,
+            preview_disabled_label_clone,
+            tx_clone,
+        )
+        .await;
     });
 
     let timeout_id = RefCell::new(Some(timeout_id));
