@@ -5,12 +5,13 @@ use log::{debug, error, warn};
 use om_common::runtime;
 use om_receiver::dispatcher::Dispatcher;
 use om_receiver::session::Session;
-use om_receiver::{Event, GuiEvent};
+use om_receiver::{AtomicF64, Event, GuiEvent};
 
 use std::cell::RefCell;
 use std::net::Ipv4Addr;
+use std::sync::Arc;
 
-use gst::glib::{clone, WeakRef};
+use gst::glib::WeakRef;
 use gtk::prelude::*;
 use gtk::{glib, Application, ApplicationWindow};
 use gtk4 as gtk;
@@ -77,7 +78,7 @@ async fn event_loop(
                 if updates_tx.receiver_count() > 0 {
                     updates_tx.send(encoded_packet).unwrap();
                 }
-            } // Event::Playback(_playback_event) => todo!(),
+            }
         }
     }
 }
@@ -112,6 +113,7 @@ fn create_pipeline() -> (gst::Pipeline, gst::Element, gst_gtk4::RenderWidget) {
 fn setup_timeout(
     pipeline_weak: WeakRef<gst::Pipeline>,
     event_tx: tokio::sync::mpsc::Sender<Event>,
+    playback_speed: Arc<AtomicF64>,
 ) -> glib::SourceId {
     glib::timeout_add_local(std::time::Duration::from_millis(1000), move || {
         let event_tx = event_tx.clone();
@@ -121,9 +123,8 @@ fn setup_timeout(
             };
 
             let position: Option<gst::ClockTime> = pipeline.query_position();
-            // let speed = pipeline.query_position();
             let duration: Option<gst::ClockTime> = pipeline.query_duration();
-            // let speed = pipeline.
+            let speed = playback_speed.load(std::sync::atomic::Ordering::SeqCst);
             let state = match pipeline.state(gst::ClockTime::NONE).1 {
                 gst::State::Paused => PlaybackState::Paused,
                 gst::State::Playing => PlaybackState::Playing,
@@ -134,13 +135,158 @@ fn setup_timeout(
                     time: position.unwrap_or_default().seconds_f64(),
                     duration: duration.unwrap_or_default().seconds_f64(),
                     state,
-                    speed: 1.0,
+                    speed,
                 })
                 .await
                 .unwrap();
             glib::ControlFlow::Continue
         })
     })
+}
+
+fn on_bus_msg(
+    msg: &gst::Message,
+    pipeline_weak: &WeakRef<gst::Pipeline>,
+    get_clone: &tokio::sync::mpsc::Sender<GuiEvent>,
+) -> glib::ControlFlow {
+    use gst::MessageView;
+
+    let Some(pipeline) = pipeline_weak.upgrade() else {
+        return glib::ControlFlow::Break;
+    };
+
+    match msg.view() {
+        MessageView::Eos(..) => {
+            debug!("Reached EOS");
+            pipeline
+                .set_state(gst::State::Ready)
+                .expect("Unable to set pipeline to `Ready` state");
+            glib::spawn_future_local(glib::clone!(
+                #[strong]
+                get_clone,
+                async move {
+                    get_clone.send(GuiEvent::Eos).await.unwrap();
+                }
+            ));
+        }
+        MessageView::Error(err) => {
+            error!(
+                "Error from {:?}: {} ({:?})",
+                err.src().map(|s| s.path_string()),
+                err.error(),
+                err.debug()
+            );
+            pipeline
+                .set_state(gst::State::Null)
+                .expect("Unable to set pipeline to `Null` state");
+            // TODO: notify GUI
+        }
+        _ => (),
+    };
+
+    glib::ControlFlow::Continue
+}
+
+async fn on_event(
+    pipeline_weak: WeakRef<gst::Pipeline>,
+    video_view: gst_gtk4::RenderWidget,
+    label_view: gtk::Label,
+    playbin: gst::Element,
+    mut gui_event_rx: tokio::sync::mpsc::Receiver<GuiEvent>,
+    stack: gtk::Stack,
+    playback_speed: Arc<AtomicF64>,
+) {
+    while let Some(event) = gui_event_rx.recv().await {
+        let Some(pipeline) = pipeline_weak.upgrade() else {
+            panic!("Pipeline = bozo");
+        };
+        match event {
+            GuiEvent::Play(play_message) => {
+                stack.set_visible_child(&video_view);
+                pipeline
+                    .set_state(gst::State::Ready)
+                    .expect("Unable to set the pipeline to the `Ready` state");
+                playbin.set_property("uri", play_message.url.unwrap());
+                pipeline
+                    .set_state(gst::State::Playing)
+                    .expect("Unable to set the pipeline to the `Playing` state");
+            }
+            GuiEvent::Eos => {
+                // stack_clone.set_visible_child(&label_view_clone);
+                debug!("EOS");
+            }
+            GuiEvent::Pause => {
+                pipeline
+                    .set_state(gst::State::Paused)
+                    .expect("Unable to set the pipeline to `Pause` state");
+                debug!("Playback paused");
+            }
+            GuiEvent::Resume => {
+                pipeline
+                    .set_state(gst::State::Playing)
+                    .expect("Unable to set the pipeline to `Playing` state");
+                debug!("Playback resumed");
+            }
+            GuiEvent::Stop => {
+                pipeline
+                    .set_state(gst::State::Null)
+                    .expect("Unable to set the pipeline to `Playing` state");
+                playbin.set_property("uri", "");
+                stack.set_visible_child(&label_view);
+                debug!("Playback stopped");
+            }
+            GuiEvent::SetVolume(new_volume) => {
+                playbin.set_property("volume", new_volume.clamp(0.0, 1.0));
+            }
+            GuiEvent::Seek(seek_to) => {
+                if pipeline
+                    .seek_simple(
+                        SeekFlags::ACCURATE | SeekFlags::FLUSH,
+                        gst::ClockTime::from_seconds_f64(seek_to),
+                    )
+                    .is_err()
+                {
+                    error!("Failed to seek to={seek_to}");
+                    // TODO: send error message
+                }
+            }
+            GuiEvent::SetSpeed(new_speed) => {
+                let Some(position) = pipeline.query_position::<gst::ClockTime>() else {
+                    error!("Failed to get playback position");
+                    // TODO: send error message
+                    continue;
+                };
+
+                // https://gstreamer.freedesktop.org/documentation/tutorials/basic/playback-speed.html?gi-language=c
+                let res = if new_speed > 0.0 {
+                    pipeline.seek(
+                        new_speed,
+                        SeekFlags::ACCURATE | SeekFlags::FLUSH,
+                        gst::SeekType::Set,
+                        position,
+                        gst::SeekType::End,
+                        gst::ClockTime::ZERO,
+                    )
+                } else {
+                    pipeline.seek(
+                        new_speed,
+                        SeekFlags::ACCURATE | SeekFlags::FLUSH,
+                        gst::SeekType::Set,
+                        gst::ClockTime::ZERO,
+                        gst::SeekType::End,
+                        position,
+                    )
+                };
+                if res.is_err() {
+                    error!("Failed to set speed new_speed={new_speed}");
+                    // TODO: send error message
+                } else {
+                    debug!("Successfully set playback speed to {new_speed}");
+                    playback_speed.store(new_speed, std::sync::atomic::Ordering::SeqCst);
+                }
+            }
+        }
+    }
 }
 
 fn build_ui(app: &Application) {
@@ -171,9 +317,14 @@ fn build_ui(app: &Application) {
     window.present();
 
     let (event_tx, event_rx) = tokio::sync::mpsc::channel::<Event>(100);
-    let (gui_event_tx, mut gui_event_rx) = tokio::sync::mpsc::channel::<GuiEvent>(100);
+    let (gui_event_tx, gui_event_rx) = tokio::sync::mpsc::channel::<GuiEvent>(100);
 
-    let timeout_id = setup_timeout(pipeline.downgrade(), event_tx.clone());
+    let playback_speed = Arc::new(AtomicF64::new(1.0));
+    let timeout_id = setup_timeout(
+        pipeline.downgrade(),
+        event_tx.clone(),
+        Arc::clone(&playback_speed),
+    );
 
     let bus = pipeline.bus().unwrap();
 
@@ -186,70 +337,18 @@ fn build_ui(app: &Application) {
     let pipeline_weak = pipeline.downgrade();
     let get_clone = gui_event_tx.clone();
     let bus_watch = bus
-        .add_watch_local(move |_, msg| {
-            use gst::MessageView;
-
-            let Some(pipeline) = pipeline_weak.upgrade() else {
-                return glib::ControlFlow::Break;
-            };
-
-            match msg.view() {
-                MessageView::Eos(..) => {
-                    debug!("Reached EOS");
-                    pipeline
-                        .set_state(gst::State::Ready)
-                        .expect("Unable to set pipeline to `Ready` state");
-                    glib::spawn_future_local(glib::clone!(
-                        #[strong]
-                        get_clone,
-                        async move {
-                            get_clone.send(GuiEvent::Eos).await.unwrap();
-                        }
-                    ));
-                }
-                MessageView::Error(err) => {
-                    error!(
-                        "Error from {:?}: {} ({:?})",
-                        err.src().map(|s| s.path_string()),
-                        err.error(),
-                        err.debug()
-                    );
-                    pipeline
-                        .set_state(gst::State::Null)
-                        .expect("Unable to set pipeline to `Null` state");
-                    // TODO: notify GUI
-                }
-                _ => (),
-            };
-
-            glib::ControlFlow::Continue
-        })
+        .add_watch_local(move |_, msg| on_bus_msg(msg, &pipeline_weak, &get_clone))
         .expect("Failed to add bus watch");
 
-    runtime().spawn(clone!(
-        #[strong]
-        event_tx,
-        async move {
-            Dispatcher::new("0.0.0.0:46899", event_tx)
-                .await
-                .unwrap()
-                .run()
-                .await
-                .unwrap();
-        }
-    ));
-
-    // runtime().spawn(clone!(
-    //     #[strong]
-    //     event_rx,
-    //     #[strong]
-    //     event_tx,
-    //     #[strong]
-    //     gui_event_tx,
-    //     async move {
-    //         event_loop(event_rx, event_tx, gui_event_tx).await;
-    //     }
-    // ));
+    let event_tx_clone = event_tx.clone();
+    runtime().spawn(async move {
+        Dispatcher::new("0.0.0.0:46899", event_tx_clone)
+            .await
+            .unwrap()
+            .run()
+            .await
+            .unwrap();
+    });
 
     runtime().spawn(async move {
         event_loop(event_rx, event_tx, gui_event_tx).await;
@@ -261,92 +360,16 @@ fn build_ui(app: &Application) {
     let playbin_clone = playbin.clone();
     let pipeline_weak = pipeline.downgrade();
     glib::spawn_future_local(async move {
-        while let Some(event) = gui_event_rx.recv().await {
-            let Some(pipeline) = pipeline_weak.upgrade() else {
-                panic!("Pipeline = bozo");
-            };
-            match event {
-                GuiEvent::Play(_play_message) => {
-                    stack_clone.set_visible_child(&video_view_clone);
-                    pipeline
-                        .set_state(gst::State::Ready)
-                        .expect("Unable to set the pipeline to the `Ready` state");
-                    playbin_clone.set_property("uri", _play_message.url.unwrap());
-                    pipeline
-                        .set_state(gst::State::Playing)
-                        .expect("Unable to set the pipeline to the `Playing` state");
-                }
-                GuiEvent::Eos => {
-                    // stack_clone.set_visible_child(&label_view_clone);
-                    debug!("EOS");
-                }
-                GuiEvent::Pause => {
-                    pipeline
-                        .set_state(gst::State::Paused)
-                        .expect("Unable to set the pipeline to `Pause` state");
-                    debug!("Playback paused");
-                }
-                GuiEvent::Resume => {
-                    pipeline
-                        .set_state(gst::State::Playing)
-                        .expect("Unable to set the pipeline to `Playing` state");
-                    debug!("Playback resumed");
-                }
-                GuiEvent::Stop => {
-                    pipeline
-                        .set_state(gst::State::Null)
-                        .expect("Unable to set the pipeline to `Playing` state");
-                    playbin_clone.set_property("uri", "");
-                    stack_clone.set_visible_child(&label_view_clone);
-                    debug!("Playback stopped");
-                }
-                GuiEvent::SetVolume(new_volume) => {
-                    playbin_clone.set_property("volume", new_volume.clamp(0.0, 1.0));
-                }
-                GuiEvent::Seek(seek_to) => {
-                    if pipeline
-                        .seek_simple(
-                            SeekFlags::ACCURATE | SeekFlags::FLUSH,
-                            gst::ClockTime::from_seconds_f64(seek_to),
-                        )
-                        .is_err()
-                    {
-                        error!("Failed to seek to={seek_to}");
-                    }
-                }
-                GuiEvent::SetSpeed(new_speed) => {
-                    let Some(position) = pipeline.query_position::<gst::ClockTime>() else {
-                        error!("Failed to get playback position");
-                        continue;
-                    };
-
-                    // https://gstreamer.freedesktop.org/documentation/tutorials/basic/playback-speed.html?gi-language=c
-                    if if new_speed > 0.0 {
-                        pipeline.seek(
-                            new_speed,
-                            SeekFlags::ACCURATE | SeekFlags::FLUSH,
-                            gst::SeekType::Set,
-                            position,
-                            gst::SeekType::End,
-                            gst::ClockTime::ZERO,
-                        )
-                    } else {
-                        pipeline.seek(
-                            new_speed,
-                            SeekFlags::ACCURATE | SeekFlags::FLUSH,
-                            gst::SeekType::Set,
-                            gst::ClockTime::ZERO,
-                            gst::SeekType::End,
-                            position,
-                        )
-                    }
-                    .is_err()
-                    {
-                        error!("Failed to set speed new_speed={new_speed}");
-                    }
-                }
-            }
-        }
+        on_event(
+            pipeline_weak,
+            video_view_clone,
+            label_view_clone,
+            playbin_clone,
+            gui_event_rx,
+            stack_clone,
+            playback_speed,
+        )
+        .await;
     });
 
     let timeout_id = RefCell::new(Some(timeout_id));
