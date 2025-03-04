@@ -131,13 +131,12 @@ async fn event_loop(
                     error!("No producer available for casting");
                     continue;
                 };
-                tx
-                    .send(Message::Play(format!(
-                        // "gstwebrtc://192.168.1.133:8443?peer-id={producer_id}"
-                        "gstwebrtc://127.0.0.1:8443?peer-id={producer_id}"
-                    )))
-                    .await
-                    .unwrap();
+                tx.send(Message::Play(format!(
+                    // "gstwebrtc://192.168.1.133:8443?peer-id={producer_id}"
+                    "gstwebrtc://127.0.0.1:8443?peer-id={producer_id}"
+                )))
+                .await
+                .unwrap();
             }
             Event::Stop => {
                 tx.send(Message::Stop).await.unwrap();
@@ -150,7 +149,9 @@ async fn event_loop(
             }
             Event::Sources(sources) => {
                 debug!("Available sources: {sources:?}");
-                let l = gtk::StringList::new(&sources.iter().map(|s| s.as_str()).collect::<Vec<&str>>());
+                let l = gtk::StringList::new(
+                    &sources.iter().map(|s| s.as_str()).collect::<Vec<&str>>(),
+                );
                 select_source_drop_down.set_model(Some(&l));
                 main_view_stack.set_visible_child(&select_source_view);
             }
@@ -246,7 +247,6 @@ fn build_ui(app: &Application) {
     tee_webrtcsink_pad.link(&queue_webrtcsink_pad).unwrap();
 
     let vbox = gtk::Box::new(gtk::Orientation::Vertical, 0);
-
     let preview_stack = gtk::Stack::new();
     let preview_disabled_label = gtk::Label::new(Some("Preview disabled"));
     let gst_widget = gst_gtk4::RenderWidget::new(&gtksink);
@@ -308,27 +308,50 @@ fn build_ui(app: &Application) {
     vbox.append(&enable_preview);
 
     let main_view_stack = gtk::Stack::new();
-
-    let loading_source = gtk::Spinner::builder()
+    let loading_source_view = gtk::Box::builder()
+        .orientation(gtk::Orientation::Vertical)
+        .valign(gtk::Align::Center)
+        .halign(gtk::Align::Center)
+        .build();
+    let loading_source_spinner = gtk::Spinner::builder()
         .spinning(true)
         .build();
-    main_view_stack.add_child(&loading_source);
+    let loading_source_label = gtk::Label::new(Some("Loading sources..."));
+    loading_source_view.append(&loading_source_spinner);
+    loading_source_view.append(&loading_source_label);
+    main_view_stack.add_child(&loading_source_view);
 
-    let select_source_view = gtk::Box::builder().orientation(gtk::Orientation::Horizontal).build();
+    let select_source_view = gtk::Box::builder()
+        .orientation(gtk::Orientation::Vertical)
+        .valign(gtk::Align::Center)
+        .halign(gtk::Align::Center)
+        .build();
+    let select_source_horizontal = gtk::Box::builder()
+        .orientation(gtk::Orientation::Horizontal)
+        .valign(gtk::Align::Center)
+        .halign(gtk::Align::Center)
+        .build();
+    let select_source_label = gtk::Label::new(Some("Select source"));
+    select_source_view.append(&select_source_label);
     let select_source_drop_down = gtk::DropDown::builder().build();
-    let select_source_btn = gtk::Button::with_label("Select source");
+    let select_source_btn = gtk::Button::with_label("Ok");
     select_source_btn.connect_clicked(glib::clone!(
-        #[strong] event_tx,
-        #[weak] select_source_drop_down,
+        #[strong]
+        event_tx,
+        #[weak]
+        select_source_drop_down,
         move |_| {
             let selected = select_source_drop_down.selected() as usize;
             let event_tx = event_tx.clone();
             runtime().block_on(async move {
                 event_tx.send(Event::SelectSource(selected)).await.unwrap();
             });
-        }));
-    select_source_view.append(&select_source_drop_down);
-    select_source_view.append(&select_source_btn);
+        }
+    ));
+    select_source_horizontal.append(&select_source_drop_down);
+    select_source_horizontal.append(&select_source_btn);
+    select_source_view.append(&select_source_horizontal);
+
     main_view_stack.add_child(&select_source_view);
 
     main_view_stack.add_child(&vbox);
