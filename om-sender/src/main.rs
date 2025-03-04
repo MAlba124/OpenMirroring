@@ -308,15 +308,7 @@ fn build_ui(app: &Application) {
     vbox.append(&enable_preview);
 
     let main_view_stack = gtk::Stack::new();
-    let loading_source_view = gtk::Box::builder()
-        .orientation(gtk::Orientation::Vertical)
-        .valign(gtk::Align::Center)
-        .halign(gtk::Align::Center)
-        .build();
-    let loading_source_spinner = gtk::Spinner::builder().spinning(true).build();
-    let loading_source_label = gtk::Label::new(Some("Loading sources..."));
-    loading_source_view.append(&loading_source_spinner);
-    loading_source_view.append(&loading_source_label);
+    let loading_source_view = om_sender::loading::LoadingView::default();
     main_view_stack.add_child(&loading_source_view);
 
     let select_source_view = gtk::Box::builder()
