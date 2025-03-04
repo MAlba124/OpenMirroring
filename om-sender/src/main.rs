@@ -32,6 +32,7 @@ enum Event {
     EnablePreview,
     DisablePreview,
     Sources(Vec<String>),
+    SelectSource(usize),
 }
 
 const HEADER_BUFFER_SIZE: usize = 5;
@@ -116,7 +117,8 @@ async fn event_loop(
     select_source_tx: tokio::sync::mpsc::Sender<usize>,
     main_view_stack: gtk::Stack,
     vbox: gtk::Box,
-    // select_source_view: gtk::
+    select_source_view: gtk::Box,
+    select_source_drop_down: gtk::DropDown,
 ) {
     let mut producer_id = None;
     while let Some(event) = event_rx.recv().await {
@@ -155,7 +157,12 @@ async fn event_loop(
             }
             Event::Sources(sources) => {
                 debug!("Available sources: {sources:?}");
-                select_source_tx.send(0).await.unwrap();
+                let l = gtk::StringList::new(&sources.iter().map(|s| s.as_str()).collect::<Vec<&str>>());
+                select_source_drop_down.set_model(Some(&l));
+                main_view_stack.set_visible_child(&select_source_view);
+            }
+            Event::SelectSource(idx) => {
+                select_source_tx.send(idx).await.unwrap();
                 main_view_stack.set_visible_child(&vbox);
             }
         }
@@ -184,7 +191,6 @@ fn build_ui(app: &Application) {
         .unwrap();
 
     let (event_tx, event_rx) = tokio::sync::mpsc::channel::<Event>(100);
-    // let (sources_tx, sources_rx) = tokio::sync::mpsc::channel::<Vec<String>>(1);
     let (selected_tx, selected_rx) = tokio::sync::mpsc::channel::<usize>(1);
     let selected_rx = std::sync::Arc::new(std::sync::Mutex::new(selected_rx));
 
@@ -327,8 +333,22 @@ fn build_ui(app: &Application) {
         .build();
     main_view_stack.add_child(&loading_source);
 
-    let select_source_stack = gtk::Stack::new();
-    main_view_stack.add_child(&select_source_stack);
+    let select_source_view = gtk::Box::builder().orientation(gtk::Orientation::Horizontal).build();
+    let select_source_drop_down = gtk::DropDown::builder().build();
+    let select_source_btn = gtk::Button::with_label("Select source");
+    select_source_btn.connect_clicked(glib::clone!(
+        #[strong] event_tx,
+        #[weak] select_source_drop_down,
+        move |_| {
+            let selected = select_source_drop_down.selected() as usize;
+            let event_tx = event_tx.clone();
+            runtime().block_on(async move {
+                event_tx.send(Event::SelectSource(selected)).await.unwrap();
+            });
+        }));
+    select_source_view.append(&select_source_drop_down);
+    select_source_view.append(&select_source_btn);
+    main_view_stack.add_child(&select_source_view);
 
     main_view_stack.add_child(&vbox);
 
@@ -411,6 +431,8 @@ fn build_ui(app: &Application) {
             selected_tx,
             main_view_stack,
             vbox,
+            select_source_view,
+            select_source_drop_down,
         )
         .await;
     });
