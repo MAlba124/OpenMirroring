@@ -2,8 +2,6 @@
 resolver = "2"
 members = [ "fcast-lib", "om-common", "om-receiver", "om-sender", "om-scap", "om-scap-gstreamer"]
 
-# members = [ "fcast-lib", "om-common", "om-mdns","om-receiver", "om-sender"]
-
 [workspace.dependencies]
 gst-video = { package = "gstreamer-video", version = "0.23.5" }
 gst-webrtc = { package = "gst-plugin-webrtc", git = "https://github.com/GStreamer/gst-plugins-rs", rev = "a34efda2018a6e241bb3372bd767a79f58bdbe6f", default-features = false, features = ["v1_22"] }
@@ -16,4 +14,6 @@ log = "0.4.22"
 env_logger = "0.11.6"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0.133"
-mdns = { package = "agnostic-mdns", version="0.3.0", features = ["tokio"] }
+
+[profile.release]
+lto = true
