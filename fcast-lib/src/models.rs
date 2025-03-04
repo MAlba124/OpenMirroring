@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use serde::{Deserialize, Serialize};
 use serde_repr::{Deserialize_repr, Serialize_repr};
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq)]
 pub enum Opcode {
     None = 0,
     Play,
@@ -21,7 +21,7 @@ pub enum Opcode {
     Pong,
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq)]
 pub struct Header {
     pub size: u32,
     pub opcode: Opcode,
@@ -168,5 +168,26 @@ impl Header {
             size_slice[3],
             (&self.opcode).into(),
         ]
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::models::{Header, Opcode};
+
+    #[test]
+    fn test_header_encode() {
+        assert_eq!(
+            Header::new(Opcode::Ping, 0).encode(),
+            [1, 0, 0, 0, 12],
+        );
+        assert_eq!(
+            Header::new(Opcode::Play, 200).encode(),
+            [201, 0, 0, 0, 1],
+        );
+        assert_eq!(
+            Header::new(Opcode::None, 0).encode(),
+            [1, 0, 0, 0, 0],
+        );
     }
 }
