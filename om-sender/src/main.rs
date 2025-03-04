@@ -28,7 +28,6 @@ enum Event {
     ProducerConnected(ProducerId),
     Start,
     Stop,
-    SelectInput,
     EnablePreview,
     DisablePreview,
     Sources(Vec<String>),
@@ -108,7 +107,7 @@ async fn session(mut rx: tokio::sync::mpsc::Receiver<Message>) {
 }
 
 async fn event_loop(
-    pipeline_weak: gst::glib::WeakRef<gst::Pipeline>,
+    _pipeline_weak: gst::glib::WeakRef<gst::Pipeline>,
     mut event_rx: tokio::sync::mpsc::Receiver<Event>,
     preview_stack: gtk::Stack,
     gst_widget: gst_gtk4::RenderWidget,
@@ -122,17 +121,11 @@ async fn event_loop(
 ) {
     let mut producer_id = None;
     while let Some(event) = event_rx.recv().await {
-        let Some(pipeline) = pipeline_weak.upgrade() else {
-            panic!("Pipeline = bozo");
-        };
+        // let Some(pipeline) = pipeline_weak.upgrade() else {
+        //     panic!("Pipeline = bozo");
+        // };
         match event {
             Event::ProducerConnected(id) => producer_id = Some(id),
-            Event::SelectInput => {
-                pipeline
-                    .set_state(gst::State::Playing)
-                    .expect("Unable to set the pipeline to the `Playing` state");
-                preview_stack.set_visible_child(&gst_widget);
-            }
             Event::Start => {
                 let Some(ref producer_id) = producer_id else {
                     error!("No producer available for casting");
@@ -265,19 +258,7 @@ fn build_ui(app: &Application) {
 
     let (tx, rx) = tokio::sync::mpsc::channel::<Message>(100);
 
-    let select_button = gtk::Button::builder().label("Select input").build();
-    let event_tx_clone = event_tx.clone();
-    select_button.connect_clicked(move |_| {
-        glib::spawn_future_local(glib::clone!(
-            #[strong]
-            event_tx_clone,
-            async move {
-                event_tx_clone.send(Event::SelectInput).await.unwrap();
-            }
-        ));
-    });
-    vbox.append(&select_button);
-
+    // TODO: Check if all of thse `glib::clone!()` stuff is needed.
     let start_button = gtk::Button::builder().label("Start casting").build();
     let event_tx_clone = event_tx.clone();
     start_button.connect_clicked(move |_| {

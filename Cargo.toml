@@ -17,3 +17,4 @@ serde_json = "1.0.133"
 
 [profile.release]
 lto = true
+codegen-units = 1
