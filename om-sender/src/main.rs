@@ -5,6 +5,7 @@ use gtk::prelude::*;
 use gtk::{glib, Application, ApplicationWindow};
 use gtk4 as gtk;
 use log::{debug, error, info, warn};
+use om_common::runtime;
 use om_sender::signaller::run_server;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
@@ -30,6 +31,7 @@ enum Event {
     SelectInput,
     EnablePreview,
     DisablePreview,
+    Sources(Vec<String>),
 }
 
 const HEADER_BUFFER_SIZE: usize = 5;
@@ -61,6 +63,7 @@ async fn send_packet(stream: &mut TcpStream, packet: Packet) -> Result<(), tokio
 
 async fn session(mut rx: tokio::sync::mpsc::Receiver<Message>) {
     let mut stream = TcpStream::connect("127.0.0.1:46899").await.unwrap();
+    // let mut stream = TcpStream::connect("192.168.1.23:46899").await.unwrap();
     loop {
         tokio::select! {
             packet = read_packet_from_stream(&mut stream) => {
@@ -110,6 +113,10 @@ async fn event_loop(
     gst_widget: gst_gtk4::RenderWidget,
     preview_disabled_label: gtk::Label,
     tx: tokio::sync::mpsc::Sender<Message>,
+    select_source_tx: tokio::sync::mpsc::Sender<usize>,
+    main_view_stack: gtk::Stack,
+    vbox: gtk::Box,
+    // select_source_view: gtk::
 ) {
     let mut producer_id = None;
     while let Some(event) = event_rx.recv().await {
@@ -131,7 +138,8 @@ async fn event_loop(
                 };
                 tx
                     .send(Message::Play(format!(
-                        "gstwebrtc://127.0.0.1:8443?peer-id={producer_id}" // "gstwebrtc://192.168.1.133:8443?peer-id={producer_id}"
+                        // "gstwebrtc://192.168.1.133:8443?peer-id={producer_id}"
+                        "gstwebrtc://127.0.0.1:8443?peer-id={producer_id}"
                     )))
                     .await
                     .unwrap();
@@ -144,6 +152,11 @@ async fn event_loop(
             }
             Event::DisablePreview => {
                 preview_stack.set_visible_child(&preview_disabled_label);
+            }
+            Event::Sources(sources) => {
+                debug!("Available sources: {sources:?}");
+                select_source_tx.send(0).await.unwrap();
+                main_view_stack.set_visible_child(&vbox);
             }
         }
     }
@@ -163,11 +176,31 @@ fn build_ui(app: &Application) {
         .name("preview_queue")
         .build()
         .unwrap();
-    // let src = gst::ElementFactory::make("scapsrc")
-    //     .property("perform-internal-preroll", true)
-    //     .build()
-    //     .unwrap();
-    let src = gst::ElementFactory::make("videotestsrc").build().unwrap();
+
+    // let src = gst::ElementFactory::make("videotestsrc").build().unwrap();
+    let src = gst::ElementFactory::make("scapsrc")
+        .property("perform-internal-preroll", true)
+        .build()
+        .unwrap();
+
+    let (event_tx, event_rx) = tokio::sync::mpsc::channel::<Event>(100);
+    // let (sources_tx, sources_rx) = tokio::sync::mpsc::channel::<Vec<String>>(1);
+    let (selected_tx, selected_rx) = tokio::sync::mpsc::channel::<usize>(1);
+    let selected_rx = std::sync::Arc::new(std::sync::Mutex::new(selected_rx));
+
+    let event_tx_clone = event_tx.clone();
+    src.connect("select-source", false, move |vals| {
+        // let sources_tx = sources_tx.clone();
+        let event_tx = event_tx_clone.clone();
+        let selected_rx = std::sync::Arc::clone(&selected_rx);
+        runtime().block_on(async move {
+            let sources = vals[1].get::<Vec<String>>().unwrap();
+            event_tx.send(Event::Sources(sources)).await.unwrap();
+            let mut selected_rx = selected_rx.lock().unwrap();
+            let res = selected_rx.recv().await.unwrap() as u64;
+            Some(res.to_value())
+        })
+    });
 
     let preview_convert = gst::ElementFactory::make("videoconvert")
         .name("preview_convert")
@@ -217,17 +250,14 @@ fn build_ui(app: &Application) {
 
     let preview_stack = gtk::Stack::new();
     let preview_disabled_label = gtk::Label::new(Some("Preview disabled"));
-    let no_preview_label = gtk::Label::new(Some("Preview not available"));
     let gst_widget = gst_gtk4::RenderWidget::new(&gtksink);
 
-    preview_stack.add_child(&no_preview_label);
     preview_stack.add_child(&gst_widget);
     preview_stack.add_child(&preview_disabled_label);
 
     vbox.append(&preview_stack);
 
     let (tx, rx) = tokio::sync::mpsc::channel::<Message>(100);
-    let (event_tx, event_rx) = tokio::sync::mpsc::channel::<Event>(100);
 
     let select_button = gtk::Button::builder().label("Select input").build();
     let event_tx_clone = event_tx.clone();
@@ -290,10 +320,22 @@ fn build_ui(app: &Application) {
 
     vbox.append(&enable_preview);
 
+    let main_view_stack = gtk::Stack::new();
+
+    let loading_source = gtk::Spinner::builder()
+        .spinning(true)
+        .build();
+    main_view_stack.add_child(&loading_source);
+
+    let select_source_stack = gtk::Stack::new();
+    main_view_stack.add_child(&select_source_stack);
+
+    main_view_stack.add_child(&vbox);
+
     let window = ApplicationWindow::builder()
         .application(app)
         .title("OMSender")
-        .child(&vbox)
+        .child(&main_view_stack)
         .build();
 
     window.present();
@@ -306,8 +348,15 @@ fn build_ui(app: &Application) {
         glib::ControlFlow::Continue
     });
 
-    let bus = pipeline.bus().unwrap();
+    let pipeline_weak = pipeline.downgrade();
+    let _ = std::thread::spawn(move || {
+        let Some(pipeline) = pipeline_weak.upgrade() else {
+            panic!("No pipeline");
+        };
+        pipeline.set_state(gst::State::Playing).unwrap();
+    });
 
+    let bus = pipeline.bus().unwrap();
     let app_weak = app.downgrade();
     let bus_watch = bus
         .add_watch_local(move |_, msg| {
@@ -359,6 +408,9 @@ fn build_ui(app: &Application) {
             gst_widget_clone,
             preview_disabled_label_clone,
             tx_clone,
+            selected_tx,
+            main_view_stack,
+            vbox,
         )
         .await;
     });
