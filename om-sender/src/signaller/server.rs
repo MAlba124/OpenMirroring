@@ -76,7 +76,7 @@ impl Server {
                 // Handle the first producer that connects
                 match msg {
                     OutgoingMessage::Welcome { ref peer_id } if prod_peer_tx.is_some() => {
-                        info!("Ladies and gentlemen, we got'em {peer_id}");
+                        info!("Got producer: {peer_id}");
                         if let Some(prod_peer_tx) = prod_peer_tx.take() {
                             prod_peer_tx.send(peer_id.clone()).unwrap();
                         }
