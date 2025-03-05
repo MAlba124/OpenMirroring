@@ -177,17 +177,8 @@ mod tests {
 
     #[test]
     fn test_header_encode() {
-        assert_eq!(
-            Header::new(Opcode::Ping, 0).encode(),
-            [1, 0, 0, 0, 12],
-        );
-        assert_eq!(
-            Header::new(Opcode::Play, 200).encode(),
-            [201, 0, 0, 0, 1],
-        );
-        assert_eq!(
-            Header::new(Opcode::None, 0).encode(),
-            [1, 0, 0, 0, 0],
-        );
+        assert_eq!(Header::new(Opcode::Ping, 0).encode(), [1, 0, 0, 0, 12],);
+        assert_eq!(Header::new(Opcode::Play, 200).encode(), [201, 0, 0, 0, 1],);
+        assert_eq!(Header::new(Opcode::None, 0).encode(), [1, 0, 0, 0, 0],);
     }
 }

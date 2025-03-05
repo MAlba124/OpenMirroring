@@ -1,100 +1,16 @@
-use fcast_lib::models::{self, Header};
-use fcast_lib::packet::Packet;
 use gst::prelude::*;
 use gtk::prelude::*;
 use gtk::{glib, Application, ApplicationWindow};
 use gtk4 as gtk;
-use log::{debug, error, info, warn};
+use log::{debug, error, info};
 use om_sender::primary::PrimaryView;
 use om_sender::select_source::SelectSourceView;
 use om_sender::signaller::run_server;
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
-use tokio::net::TcpStream;
+use om_sender::session::session;
 
 use std::cell::RefCell;
 
-use om_sender::Event;
-
-const GST_WEBRTC_MIME_TYPE: &str = "application/x-gst-webrtc";
-
-#[derive(Debug)]
-enum Message {
-    Play(String),
-    Quit,
-    Stop,
-}
-
-const HEADER_BUFFER_SIZE: usize = 5;
-
-async fn read_packet_from_stream(stream: &mut TcpStream) -> Result<Packet, tokio::io::Error> {
-    let mut header_buf: [u8; HEADER_BUFFER_SIZE] = [0; HEADER_BUFFER_SIZE];
-
-    stream.read_exact(&mut header_buf).await?;
-
-    let header = Header::decode(header_buf);
-
-    let mut body_string = String::new();
-
-    if header.size > 0 {
-        let mut body_buf = vec![0; header.size as usize];
-        stream.read_exact(&mut body_buf).await?;
-        body_string =
-            String::from_utf8(body_buf).map_err(|e| tokio::io::Error::other(e.to_string()))?;
-    }
-
-    Packet::decode(header, &body_string).map_err(|e| tokio::io::Error::other(e.to_string()))
-}
-
-async fn send_packet(stream: &mut TcpStream, packet: Packet) -> Result<(), tokio::io::Error> {
-    let bytes = packet.encode();
-    stream.write_all(&bytes).await?;
-    Ok(())
-}
-
-async fn session(mut rx: tokio::sync::mpsc::Receiver<Message>) {
-    let mut stream = TcpStream::connect("127.0.0.1:46899").await.unwrap();
-    // let mut stream = TcpStream::connect("192.168.1.23:46899").await.unwrap();
-    loop {
-        tokio::select! {
-            packet = read_packet_from_stream(&mut stream) => {
-                match packet {
-                    Ok(packet) => match packet {
-                        Packet::Ping => {
-                            send_packet(&mut stream, Packet::Pong).await.unwrap();
-                        }
-                        _ => warn!("Unhandled packet: {packet:?}"),
-                    },
-                    Err(err) => panic!("{err}"),
-                }
-            }
-            msg = rx.recv() => match msg {
-                Some(msg) => {
-                    debug!("{msg:?}");
-                    match msg {
-                        Message::Play(url) => {
-                            let packet = Packet::from(
-                                models::PlayMessage {
-                                    container: GST_WEBRTC_MIME_TYPE.to_owned(),
-                                    url: Some(url),
-                                    content: None,
-                                    time: None,
-                                    speed: None,
-                                    headers: None
-                                }
-                            );
-                            send_packet(&mut stream, packet).await.unwrap();
-                        }
-                        Message::Quit => break,
-                        Message::Stop => send_packet(&mut stream, Packet::Stop).await.unwrap(),
-                    }
-                }
-                None => panic!("rx closed"), // TODO
-            }
-        }
-    }
-
-    debug!("Session terminated");
-}
+use om_sender::{Event, Message};
 
 async fn event_loop(
     primary_view: PrimaryView,
@@ -158,8 +74,7 @@ fn build_ui(app: &Application) {
     let (selected_tx, selected_rx) = tokio::sync::mpsc::channel::<usize>(1);
     let primary_view = om_sender::primary::PrimaryView::new(event_tx.clone(), selected_rx).unwrap();
 
-    // TODO: Rename
-    let (tx, rx) = tokio::sync::mpsc::channel::<Message>(100);
+    let (session_tx, session_rx) = tokio::sync::mpsc::channel::<Message>(100);
 
     let main_view_stack = gtk::Stack::new();
     let loading_sources_view = om_sender::loading::LoadingSourcesView::new();
@@ -234,7 +149,7 @@ fn build_ui(app: &Application) {
             .unwrap();
     });
 
-    let tx_clone = tx.clone();
+    let tx_clone = session_tx.clone();
     let pipeline = RefCell::new(Some(primary_view.pipeline.downgrade()));
     glib::spawn_future_local(async move {
         event_loop(
@@ -269,8 +184,8 @@ fn build_ui(app: &Application) {
             }
 
             om_common::runtime().block_on(async {
-                if !tx.is_closed() {
-                    tx.send(Message::Quit).await.unwrap();
+                if !session_tx.is_closed() {
+                    session_tx.send(Message::Quit).await.unwrap();
                 } else {
                     debug!("Tx was closed, weird");
                 }
@@ -278,7 +193,7 @@ fn build_ui(app: &Application) {
         }
     });
 
-    om_common::runtime().spawn(session(rx));
+    om_common::runtime().spawn(session(session_rx));
 }
 
 fn main() -> glib::ExitCode {
