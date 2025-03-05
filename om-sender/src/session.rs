@@ -1,9 +1,10 @@
-use fcast_lib::{models, packet::Packet, models::Header};
-use log::{debug, warn};
+use fcast_lib::{models, models::Header, packet::Packet};
+use log::debug;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
+use tokio::sync::mpsc::{Receiver, Sender};
 
-use crate::Message;
+use crate::{Event, Message};
 
 const HEADER_BUFFER_SIZE: usize = 5;
 const GST_WEBRTC_MIME_TYPE: &str = "application/x-gst-webrtc";
@@ -33,7 +34,7 @@ async fn send_packet(stream: &mut TcpStream, packet: Packet) -> Result<(), tokio
     Ok(())
 }
 
-pub async fn session(mut rx: tokio::sync::mpsc::Receiver<Message>) {
+pub async fn session(mut msg_rx: Receiver<Message>, event_tx: Sender<Event>) {
     let mut stream = TcpStream::connect("127.0.0.1:46899").await.unwrap();
     // let mut stream = TcpStream::connect("192.168.1.23:46899").await.unwrap();
     loop {
@@ -44,12 +45,14 @@ pub async fn session(mut rx: tokio::sync::mpsc::Receiver<Message>) {
                         Packet::Ping => {
                             send_packet(&mut stream, Packet::Pong).await.unwrap();
                         }
-                        _ => warn!("Unhandled packet: {packet:?}"),
+                        _ => {
+                            event_tx.send(Event::Packet(packet)).await.unwrap();
+                        }
                     },
                     Err(err) => panic!("{err}"),
                 }
             }
-            msg = rx.recv() => match msg {
+            msg = msg_rx.recv() => match msg {
                 Some(msg) => {
                     debug!("{msg:?}");
                     match msg {

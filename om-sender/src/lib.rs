@@ -1,8 +1,8 @@
 pub mod loading;
 pub mod primary;
 pub mod select_source;
-pub mod signaller;
 pub mod session;
+pub mod signaller;
 
 #[derive(Debug)]
 pub enum Message {
@@ -22,4 +22,5 @@ pub enum Event {
     DisablePreview,
     Sources(Vec<String>),
     SelectSource(usize),
+    Packet(fcast_lib::packet::Packet),
 }

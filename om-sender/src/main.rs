@@ -5,8 +5,8 @@ use gtk4 as gtk;
 use log::{debug, error, info};
 use om_sender::primary::PrimaryView;
 use om_sender::select_source::SelectSourceView;
-use om_sender::signaller::run_server;
 use om_sender::session::session;
+use om_sender::signaller::run_server;
 
 use std::cell::RefCell;
 
@@ -61,6 +61,9 @@ async fn event_loop(
                 select_source_tx.send(idx).await.unwrap();
                 main_view_stack.set_visible_child(primary_view.main_widget());
             }
+            Event::Packet(packet) => {
+                debug!("Unhandls packet: {packet:?}");
+            }
         }
     }
 }
@@ -93,49 +96,8 @@ fn build_ui(app: &Application) {
 
     window.present();
 
-    let pipeline_weak = primary_view.pipeline.downgrade();
-    let timeout_id = glib::timeout_add_local(std::time::Duration::from_millis(500), move || {
-        let Some(_pipeline) = pipeline_weak.upgrade() else {
-            return glib::ControlFlow::Break;
-        };
-        glib::ControlFlow::Continue
-    });
-
-    let pipeline_weak = primary_view.pipeline.downgrade();
-    let _ = std::thread::spawn(move || {
-        let Some(pipeline) = pipeline_weak.upgrade() else {
-            panic!("No pipeline");
-        };
-        pipeline.set_state(gst::State::Playing).unwrap();
-    });
-
-    // TODO: Move to otherplace
-    let bus = primary_view.pipeline.bus().unwrap();
-    let app_weak = app.downgrade();
-    let bus_watch = bus
-        .add_watch_local(move |_, msg| {
-            use gst::MessageView;
-
-            let Some(app) = app_weak.upgrade() else {
-                return glib::ControlFlow::Break;
-            };
-
-            match msg.view() {
-                MessageView::Eos(..) => app.quit(),
-                MessageView::Error(err) => {
-                    error!(
-                        "Error from {:?}: {} ({:?})",
-                        err.src().map(|s| s.path_string()),
-                        err.error(),
-                        err.debug()
-                    );
-                    app.quit();
-                }
-                _ => (),
-            };
-
-            glib::ControlFlow::Continue
-        })
+    let bus_watch = primary_view
+        .setup_bus_watch(app.downgrade())
         .expect("Failed to add bus watch");
 
     let event_tx_clone = event_tx.clone();
@@ -163,7 +125,6 @@ fn build_ui(app: &Application) {
         .await;
     });
 
-    let timeout_id = RefCell::new(Some(timeout_id));
     let bus_watch = RefCell::new(Some(bus_watch));
     app.connect_shutdown(move |_| {
         debug!("Shutting down");
@@ -179,10 +140,6 @@ fn build_ui(app: &Application) {
                     .expect("Unable to set the pipeline to the `Null` state");
             }
 
-            if let Some(timeout_id) = timeout_id.borrow_mut().take() {
-                timeout_id.remove();
-            }
-
             om_common::runtime().block_on(async {
                 if !session_tx.is_closed() {
                     session_tx.send(Message::Quit).await.unwrap();
@@ -193,7 +150,7 @@ fn build_ui(app: &Application) {
         }
     });
 
-    om_common::runtime().spawn(session(session_rx));
+    om_common::runtime().spawn(session(session_rx, event_tx));
 }
 
 fn main() -> glib::ExitCode {

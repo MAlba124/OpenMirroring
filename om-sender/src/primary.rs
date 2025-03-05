@@ -1,8 +1,9 @@
 use std::sync::{Arc, Mutex};
 
-use gst::{glib, prelude::*};
+use gst::{bus::BusWatchGuard, glib, prelude::*};
 use gtk::prelude::*;
 use gtk4 as gtk;
+use log::error;
 use tokio::sync::mpsc::{Receiver, Sender};
 
 use crate::Event;
@@ -157,6 +158,15 @@ impl PrimaryView {
 
         vbox.append(&enable_preview);
 
+        let pipeline_weak = pipeline.downgrade();
+        // Start pipeline in background to not freez UI
+        let _ = std::thread::spawn(move || {
+            let Some(pipeline) = pipeline_weak.upgrade() else {
+                panic!("No pipeline");
+            };
+            pipeline.set_state(gst::State::Playing).unwrap();
+        });
+
         Ok(Self {
             pipeline,
             vbox,
@@ -164,6 +174,38 @@ impl PrimaryView {
             gst_widget,
             preview_disabled_label,
         })
+    }
+
+    pub fn setup_bus_watch(
+        &self,
+        app_weak: glib::WeakRef<gtk::Application>,
+    ) -> Result<BusWatchGuard, glib::BoolError> {
+        let bus = self.pipeline.bus().unwrap();
+        let bus_watch = bus.add_watch_local(move |_, msg| {
+            use gst::MessageView;
+
+            let Some(app) = app_weak.upgrade() else {
+                return glib::ControlFlow::Break;
+            };
+
+            match msg.view() {
+                MessageView::Eos(..) => app.quit(),
+                MessageView::Error(err) => {
+                    error!(
+                        "Error from {:?}: {} ({:?})",
+                        err.src().map(|s| s.path_string()),
+                        err.error(),
+                        err.debug()
+                    );
+                    app.quit();
+                }
+                _ => (),
+            };
+
+            glib::ControlFlow::Continue
+        })?;
+
+        Ok(bus_watch)
     }
 
     pub fn main_widget(&self) -> &gtk::Box {
