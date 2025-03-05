@@ -20,38 +20,31 @@ impl PrimaryView {
         event_tx: Sender<Event>,
         selected_rx: Receiver<usize>,
     ) -> Result<Self, glib::BoolError> {
-        let tee = gst::ElementFactory::make("tee").build().unwrap();
+        let tee = gst::ElementFactory::make("tee").build()?;
         let src = gst::ElementFactory::make("scapsrc")
             .property("perform-internal-preroll", true)
-            .build()
-            .unwrap();
+            .build()?;
 
         let preview_queue = gst::ElementFactory::make("queue")
             .name("preview_queue")
-            .build()
-            .unwrap();
+            .build()?;
         let preview_convert = gst::ElementFactory::make("videoconvert")
             .name("preview_convert")
-            .build()
-            .unwrap();
+            .build()?;
         let gtksink = gst::ElementFactory::make("gtk4paintablesink")
             .name("gtksink")
-            .build()
-            .unwrap();
+            .build()?;
 
         let webrtcsink_queue = gst::ElementFactory::make("queue")
             .name("webrtcsink_queue")
-            .build()
-            .unwrap();
+            .build()?;
         let webrtcsink_convert = gst::ElementFactory::make("videoconvert")
             .name("webrtcsink_convert")
-            .build()
-            .unwrap();
+            .build()?;
         let webrtcsink = gst::ElementFactory::make("webrtcsink")
             .property("signalling-server-host", "127.0.0.1")
             .property("signalling-server-port", 8443u32)
-            .build()
-            .unwrap();
+            .build()?;
 
         let selected_rx = Arc::new(Mutex::new(selected_rx));
         let event_tx_clone = event_tx.clone();
@@ -69,30 +62,42 @@ impl PrimaryView {
         });
 
         let pipeline = gst::Pipeline::new();
-        pipeline
-            .add_many([
-                &src,
-                &tee,
-                &preview_queue,
-                &preview_convert,
-                &gtksink,
-                &webrtcsink_queue,
-                &webrtcsink_convert,
-                &webrtcsink,
-            ])
-            .unwrap();
+        pipeline.add_many([
+            &src,
+            &tee,
+            &preview_queue,
+            &preview_convert,
+            &gtksink,
+            &webrtcsink_queue,
+            &webrtcsink_convert,
+            &webrtcsink,
+        ])?;
 
-        gst::Element::link_many([&src, &tee]).unwrap();
-        gst::Element::link_many([&preview_queue, &preview_convert, &gtksink]).unwrap();
-        gst::Element::link_many([&webrtcsink_queue, &webrtcsink_convert, &webrtcsink]).unwrap();
+        gst::Element::link_many([&src, &tee])?;
+        gst::Element::link_many([&preview_queue, &preview_convert, &gtksink])?;
+        gst::Element::link_many([&webrtcsink_queue, &webrtcsink_convert, &webrtcsink])?;
 
-        let tee_preview_pad = tee.request_pad_simple("src_%u").unwrap();
-        let queue_preview_pad = preview_queue.static_pad("sink").unwrap();
-        tee_preview_pad.link(&queue_preview_pad).unwrap();
+        let tee_preview_pad = tee.request_pad_simple("src_%u").map_or_else(
+            || Err(glib::bool_error!("`request_pad_simple()` failed")),
+            Ok,
+        )?;
+        let queue_preview_pad = preview_queue
+            .static_pad("sink")
+            .map_or_else(|| Err(glib::bool_error!("`static_pad()` failed")), Ok)?;
+        tee_preview_pad
+            .link(&queue_preview_pad)
+            .map_err(|err| glib::bool_error!("{err}"))?;
 
-        let tee_webrtcsink_pad = tee.request_pad_simple("src_%u").unwrap();
-        let queue_webrtcsink_pad = webrtcsink_queue.static_pad("sink").unwrap();
-        tee_webrtcsink_pad.link(&queue_webrtcsink_pad).unwrap();
+        let tee_webrtcsink_pad = tee.request_pad_simple("src_%u").map_or_else(
+            || Err(glib::bool_error!("`request_pad_simple()` failed")),
+            Ok,
+        )?;
+        let queue_webrtcsink_pad = webrtcsink_queue
+            .static_pad("sink")
+            .map_or_else(|| Err(glib::bool_error!("`static_pad()` failed")), Ok)?;
+        tee_webrtcsink_pad
+            .link(&queue_webrtcsink_pad)
+            .map_err(|err| glib::bool_error!("{err}"))?;
 
         let vbox = gtk::Box::new(gtk::Orientation::Vertical, 0);
         let preview_stack = gtk::Stack::new();
