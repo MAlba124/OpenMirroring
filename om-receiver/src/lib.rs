@@ -10,6 +10,7 @@ use tokio::net::TcpStream;
 
 pub mod dispatcher;
 pub mod session;
+pub mod video;
 
 #[derive(Debug)]
 pub enum GuiEvent {

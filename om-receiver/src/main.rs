@@ -1,4 +1,4 @@
-use fcast_lib::models::{PlaybackState, PlaybackUpdateMessage};
+use fcast_lib::models::PlaybackUpdateMessage;
 use fcast_lib::packet::Packet;
 use gst::{prelude::*, SeekFlags};
 use log::{debug, error, warn};
@@ -11,7 +11,6 @@ use std::cell::RefCell;
 use std::net::Ipv4Addr;
 use std::sync::Arc;
 
-use gst::glib::WeakRef;
 use gtk::prelude::*;
 use gtk::{glib, Application, ApplicationWindow};
 use gtk4 as gtk;
@@ -83,150 +82,46 @@ async fn event_loop(
     }
 }
 
-fn create_pipeline() -> (gst::Pipeline, gst::Element, gst_gtk4::RenderWidget) {
-    let pipeline = gst::Pipeline::new();
-    let gtksink = gst::ElementFactory::make("gtk4paintablesink")
-        .build()
-        .unwrap();
-
-    let playbin = gst::ElementFactory::make("playbin3").build().unwrap();
-
-    let sink = gst::Bin::default();
-    let convert = gst::ElementFactory::make("videoconvert").build().unwrap();
-
-    sink.add(&convert).unwrap();
-    sink.add(&gtksink).unwrap();
-    convert.link(&gtksink).unwrap();
-
-    sink.add_pad(&gst::GhostPad::with_target(&convert.static_pad("sink").unwrap()).unwrap())
-        .unwrap();
-
-    playbin.set_property("video-sink", &sink);
-
-    pipeline.add(&playbin).unwrap();
-
-    let video_view = gst_gtk4::RenderWidget::new(&gtksink);
-
-    (pipeline, playbin, video_view)
-}
-
-fn setup_timeout(
-    pipeline_weak: WeakRef<gst::Pipeline>,
-    event_tx: tokio::sync::mpsc::Sender<Event>,
-    playback_speed: Arc<AtomicF64>,
-) -> glib::SourceId {
-    glib::timeout_add_local(std::time::Duration::from_millis(1000), move || {
-        let event_tx = event_tx.clone();
-        runtime().block_on(async {
-            let Some(pipeline) = pipeline_weak.upgrade() else {
-                return glib::ControlFlow::Break;
-            };
-
-            let position: Option<gst::ClockTime> = pipeline.query_position();
-            let duration: Option<gst::ClockTime> = pipeline.query_duration();
-            let speed = playback_speed.load(std::sync::atomic::Ordering::SeqCst);
-            let state = match pipeline.state(gst::ClockTime::NONE).1 {
-                gst::State::Paused => PlaybackState::Paused,
-                gst::State::Playing => PlaybackState::Playing,
-                _ => PlaybackState::Idle,
-            };
-            event_tx
-                .send(Event::PlaybackUpdate {
-                    time: position.unwrap_or_default().seconds_f64(),
-                    duration: duration.unwrap_or_default().seconds_f64(),
-                    state,
-                    speed,
-                })
-                .await
-                .unwrap();
-            glib::ControlFlow::Continue
-        })
-    })
-}
-
-fn on_bus_msg(
-    msg: &gst::Message,
-    pipeline_weak: &WeakRef<gst::Pipeline>,
-    gui_event_tx: &tokio::sync::mpsc::Sender<GuiEvent>,
-) -> Result<(), glib::ControlFlow> {
-    use gst::MessageView;
-
-    let Some(pipeline) = pipeline_weak.upgrade() else {
-        return Err(glib::ControlFlow::Break);
-    };
-
-    match msg.view() {
-        MessageView::Eos(..) => {
-            debug!("Reached EOS");
-            pipeline
-                .set_state(gst::State::Ready)
-                .map_err(|_| glib::ControlFlow::Break)?;
-            let get_clone = gui_event_tx.clone();
-            runtime().spawn(async move {
-                get_clone.send(GuiEvent::Eos).await.unwrap();
-            });
-        }
-        MessageView::Error(err) => {
-            error!(
-                "Error from {:?}: {} ({:?})",
-                err.src().map(|s| s.path_string()),
-                err.error(),
-                err.debug()
-            );
-            pipeline
-                .set_state(gst::State::Null)
-                .map_err(|_| glib::ControlFlow::Break)?;
-            // TODO: notify GUI
-        }
-        _ => (),
-    };
-
-    Ok(())
-}
-
-async fn on_event(
-    pipeline_weak: WeakRef<gst::Pipeline>,
-    video_view: gst_gtk4::RenderWidget,
+async fn gui_event_loop(
+    video_view: om_receiver::video::VideoView,
     label_view: gtk::Label,
-    playbin: gst::Element,
     mut gui_event_rx: tokio::sync::mpsc::Receiver<GuiEvent>,
     stack: gtk::Stack,
     playback_speed: Arc<AtomicF64>,
 ) -> Result<(), gst::StateChangeError> {
     while let Some(event) = gui_event_rx.recv().await {
-        let Some(pipeline) = pipeline_weak.upgrade() else {
-            panic!("Pipeline = bozo");
-        };
         match event {
             GuiEvent::Play(play_message) => {
-                stack.set_visible_child(&video_view);
-                pipeline.set_state(gst::State::Ready)?;
-                playbin.set_property("uri", play_message.url.unwrap());
-                pipeline.set_state(gst::State::Playing)?;
+                stack.set_visible_child(video_view.main_widget());
+                video_view.pipeline.set_state(gst::State::Ready)?;
+                video_view
+                    .playbin
+                    .set_property("uri", play_message.url.unwrap());
+                video_view.pipeline.set_state(gst::State::Playing)?;
             }
             GuiEvent::Eos => {
                 // stack_clone.set_visible_child(&label_view_clone);
                 debug!("EOS");
             }
             GuiEvent::Pause => {
-                pipeline.set_state(gst::State::Paused)?;
+                video_view.pipeline.set_state(gst::State::Paused)?;
                 debug!("Playback paused");
             }
             GuiEvent::Resume => {
-                pipeline.set_state(gst::State::Playing)?;
+                video_view.pipeline.set_state(gst::State::Playing)?;
                 debug!("Playback resumed");
             }
             GuiEvent::Stop => {
-                pipeline.set_state(gst::State::Null)?;
-                playbin.set_property("uri", "");
+                video_view.pipeline.set_state(gst::State::Null)?;
+                video_view.playbin.set_property("uri", "");
                 stack.set_visible_child(&label_view);
                 debug!("Playback stopped");
             }
             GuiEvent::SetVolume(new_volume) => {
-                playbin.set_property("volume", new_volume.clamp(0.0, 1.0));
+                video_view.playbin.set_property("volume", new_volume.clamp(0.0, 1.0));
             }
             GuiEvent::Seek(seek_to) => {
-                if pipeline
+                if video_view.pipeline
                     .seek_simple(
                         SeekFlags::ACCURATE | SeekFlags::FLUSH,
                         gst::ClockTime::from_seconds_f64(seek_to),
@@ -238,7 +133,7 @@ async fn on_event(
                 }
             }
             GuiEvent::SetSpeed(new_speed) => {
-                let Some(position) = pipeline.query_position::<gst::ClockTime>() else {
+                let Some(position) = video_view.pipeline.query_position::<gst::ClockTime>() else {
                     error!("Failed to get playback position");
                     // TODO: send error message
                     continue;
@@ -246,7 +141,7 @@ async fn on_event(
 
                 // https://gstreamer.freedesktop.org/documentation/tutorials/basic/playback-speed.html?gi-language=c
                 let res = if new_speed > 0.0 {
-                    pipeline.seek(
+                    video_view.pipeline.seek(
                         new_speed,
                         SeekFlags::ACCURATE | SeekFlags::FLUSH,
                         gst::SeekType::Set,
@@ -255,7 +150,7 @@ async fn on_event(
                         gst::ClockTime::ZERO,
                     )
                 } else {
-                    pipeline.seek(
+                    video_view.pipeline.seek(
                         new_speed,
                         SeekFlags::ACCURATE | SeekFlags::FLUSH,
                         gst::SeekType::Set,
@@ -289,11 +184,11 @@ fn build_ui(app: &Application) {
         }
     }
 
-    let (pipeline, playbin, video_view) = create_pipeline();
+    let video_view = om_receiver::video::VideoView::new().unwrap();
     let label_view = gtk::Label::new(Some(&format!("Listening on {ips:?}:46899")));
     let stack = gtk::Stack::new();
     stack.add_child(&label_view);
-    stack.add_child(&video_view);
+    stack.add_child(video_view.main_widget());
 
     let window = ApplicationWindow::builder()
         .application(app)
@@ -307,29 +202,10 @@ fn build_ui(app: &Application) {
     let (gui_event_tx, gui_event_rx) = tokio::sync::mpsc::channel::<GuiEvent>(100);
 
     let playback_speed = Arc::new(AtomicF64::new(1.0));
-    let timeout_id = setup_timeout(
-        pipeline.downgrade(),
-        event_tx.clone(),
-        Arc::clone(&playback_speed),
-    );
-
-    let bus = pipeline.bus().unwrap();
-
-    pipeline
-        .set_state(gst::State::Ready)
-        .expect("Unable to set the pipeline to the `Ready` state");
+    let timeout_id = video_view.setup_timeout(event_tx.clone(), Arc::clone(&playback_speed));
 
     let _app_weak = app.downgrade(); // HACK: removing this makes the gui not show!?
-    let pipeline_weak = pipeline.downgrade();
-    let get_clone = gui_event_tx.clone();
-    let bus_watch = bus
-        .add_watch_local(move |_, msg| {
-            if let Err(err) = on_bus_msg(msg, &pipeline_weak, &get_clone) {
-                return err;
-            }
-            glib::ControlFlow::Continue
-        })
-        .expect("Failed to add bus watch");
+    let bus_watch = video_view.setup_bus_watch(gui_event_tx.clone());
 
     let event_tx_clone = event_tx.clone();
     runtime().spawn(async move {
@@ -346,16 +222,12 @@ fn build_ui(app: &Application) {
     });
 
     let stack_clone = stack.clone();
-    let video_view_clone = video_view.clone();
     let label_view_clone = label_view.clone();
-    let playbin_clone = playbin.clone();
-    let pipeline_weak = pipeline.downgrade();
+    let pipeline_weak = video_view.pipeline.downgrade();
     glib::spawn_future_local(async move {
-        on_event(
-            pipeline_weak,
-            video_view_clone,
+        gui_event_loop(
+            video_view,
             label_view_clone,
-            playbin_clone,
             gui_event_rx,
             stack_clone,
             playback_speed,
@@ -365,17 +237,19 @@ fn build_ui(app: &Application) {
     });
 
     let timeout_id = RefCell::new(Some(timeout_id));
-    let pipeline = RefCell::new(Some(pipeline));
+    let pipeline_weak = RefCell::new(Some(pipeline_weak));
     let bus_watch = RefCell::new(Some(bus_watch));
     app.connect_shutdown(move |_| {
         debug!("Closing window and shutting down gst pipeline");
         window.close();
 
         drop(bus_watch.borrow_mut().take());
-        if let Some(pipeline) = pipeline.borrow_mut().take() {
-            pipeline
-                .set_state(gst::State::Null)
-                .expect("Unable to set the pipeline to the `Null` state");
+        if let Some(pipeline_weak) = pipeline_weak.borrow_mut().take() {
+            if let Some(pipeline) = pipeline_weak.upgrade() {
+                pipeline
+                    .set_state(gst::State::Null)
+                    .expect("Unable to set the pipeline to the `Null` state");
+            }
         }
 
         if let Some(timeout_id) = timeout_id.borrow_mut().take() {
