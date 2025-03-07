@@ -25,6 +25,7 @@
             clang
             dig
             rust-bin.stable.latest.default
+            graphviz
             android-studio
           ];
           buildInputs = with pkgs; [
