@@ -1,8 +1,10 @@
+// TODO: make `views` module and put the views as sub
 pub mod loading;
 pub mod primary;
 pub mod select_source;
 pub mod session;
 pub mod signaller;
+pub mod sink;
 
 #[derive(Debug)]
 pub enum Message {
@@ -21,6 +23,6 @@ pub enum Event {
     EnablePreview,
     DisablePreview,
     Sources(Vec<String>),
-    SelectSource(usize),
+    SelectSource(usize, usize),
     Packet(fcast_lib::packet::Packet),
 }

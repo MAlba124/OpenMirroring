@@ -59,7 +59,8 @@ pub async fn session(mut msg_rx: Receiver<Message>, event_tx: Sender<Event>) {
                         Message::Play(url) => {
                             let packet = Packet::from(
                                 models::PlayMessage {
-                                    container: GST_WEBRTC_MIME_TYPE.to_owned(),
+                                    // container: GST_WEBRTC_MIME_TYPE.to_owned(),
+                                    container: "application/vnd.apple.mpegurl".to_owned(),
                                     url: Some(url),
                                     content: None,
                                     time: None,

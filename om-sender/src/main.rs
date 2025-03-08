@@ -2,7 +2,7 @@ use gst::prelude::*;
 use gtk::prelude::*;
 use gtk::{glib, Application, ApplicationWindow};
 use gtk4 as gtk;
-use log::{debug, error, info};
+use log::{debug, error, info, trace};
 use om_sender::primary::PrimaryView;
 use om_sender::select_source::SelectSourceView;
 use om_sender::session::session;
@@ -13,7 +13,7 @@ use std::cell::RefCell;
 use om_sender::{Event, Message};
 
 async fn event_loop(
-    primary_view: PrimaryView,
+    mut primary_view: PrimaryView,
     mut event_rx: tokio::sync::mpsc::Receiver<Event>,
     tx: tokio::sync::mpsc::Sender<Message>,
     select_source_tx: tokio::sync::mpsc::Sender<usize>,
@@ -25,16 +25,19 @@ async fn event_loop(
         match event {
             Event::ProducerConnected(id) => producer_id = Some(id),
             Event::Start => {
-                let Some(ref producer_id) = producer_id else {
-                    error!("No producer available for casting");
-                    continue;
-                };
-                tx.send(Message::Play(format!(
-                    // "gstwebrtc://192.168.1.133:8443?peer-id={producer_id}"
-                    "gstwebrtc://127.0.0.1:8443?peer-id={producer_id}"
-                )))
-                .await
-                .unwrap();
+                // let Some(ref producer_id) = producer_id else {
+                //     error!("No producer available for casting");
+                //     continue;
+                // };
+                // tx.send(Message::Play(format!(
+                //     // "gstwebrtc://192.168.1.133:8443?peer-id={producer_id}"
+                //     "gstwebrtc://127.0.0.1:8443?peer-id={producer_id}"
+                // )))
+                // .await
+                // .unwrap();
+                tx.send(Message::Play(primary_view.get_stream_uri()))
+                    .await
+                    .unwrap();
             }
             Event::Stop => {
                 tx.send(Message::Stop).await.unwrap();
@@ -57,12 +60,17 @@ async fn event_loop(
                 select_source_view.drop_down.set_model(Some(&l));
                 main_view_stack.set_visible_child(select_source_view.main_widget());
             }
-            Event::SelectSource(idx) => {
+            Event::SelectSource(idx, sink_type) => {
                 select_source_tx.send(idx).await.unwrap();
                 main_view_stack.set_visible_child(primary_view.main_widget());
+                if sink_type == 0 {
+                    primary_view.add_webrtc_sink();
+                } else {
+                    primary_view.add_hls_sink();
+                }
             }
             Event::Packet(packet) => {
-                debug!("Unhandls packet: {packet:?}");
+                trace!("Unhandled packet: {packet:?}");
             }
         }
     }
@@ -87,6 +95,10 @@ fn build_ui(app: &Application) {
     main_view_stack.add_child(select_source_view.main_widget());
 
     main_view_stack.add_child(primary_view.main_widget());
+
+    // **
+    // main_view_stack.set_visible_child(primary_view.main_widget());
+    // **
 
     let window = ApplicationWindow::builder()
         .application(app)
@@ -135,6 +147,7 @@ fn build_ui(app: &Application) {
 
         if let Some(pipeline) = pipeline.borrow_mut().take() {
             if let Some(pipeline) = pipeline.upgrade() {
+                pipeline.debug_to_dot_file(gst::DebugGraphDetails::ALL, "gstdebug");
                 pipeline
                     .set_state(gst::State::Null)
                     .expect("Unable to set the pipeline to the `Null` state");
@@ -163,6 +176,8 @@ fn main() -> glib::ExitCode {
     gst_gtk4::plugin_register_static().unwrap();
     gst_rtp::plugin_register_static().unwrap();
     gst_webrtc::plugin_register_static().unwrap();
+    gst_hlssink3::plugin_register_static().unwrap();
+    gst_fmp4::plugin_register_static().unwrap();
 
     let app = Application::builder()
         .application_id("com.github.malba124.OpenMirroring.om-sender")
