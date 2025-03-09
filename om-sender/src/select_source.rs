@@ -5,7 +5,6 @@ use gtk4 as gtk;
 
 #[allow(dead_code)]
 pub struct SelectSourceView {
-    vbox: gtk::Box,
     hbox: gtk::Box,
     source_label: gtk::Label,
     pub drop_down: gtk::DropDown,
@@ -14,10 +13,14 @@ pub struct SelectSourceView {
 
 impl SelectSourceView {
     pub fn new(event_tx: tokio::sync::mpsc::Sender<Event>) -> Self {
-        let vbox = gtk::Box::builder()
+        let source_vbox = gtk::Box::builder()
             .orientation(gtk::Orientation::Vertical)
             .valign(gtk::Align::Center)
             .halign(gtk::Align::Center)
+            .margin_bottom(10)
+            .margin_top(10)
+            .margin_start(10)
+            .margin_end(10)
             .build();
         let hbox = gtk::Box::builder()
             .orientation(gtk::Orientation::Horizontal)
@@ -25,10 +28,25 @@ impl SelectSourceView {
             .halign(gtk::Align::Center)
             .build();
         let source_label = gtk::Label::new(Some("Select source"));
-        vbox.append(&source_label);
         let sources_drop_down = gtk::DropDown::builder().build();
-        let button = gtk::Button::with_label("Ok");
         let sink_drop_down = gtk::DropDown::from_strings(&["WebRTC", "HLS"]);
+        let sink_vbox = gtk::Box::builder()
+            .orientation(gtk::Orientation::Vertical)
+            .valign(gtk::Align::Center)
+            .halign(gtk::Align::Center)
+            .margin_bottom(10)
+            .margin_top(10)
+            .margin_start(10)
+            .margin_end(10)
+            .build();
+        let sink_label = gtk::Label::new(Some("Select protocol"));
+        let button = gtk::Button::builder()
+            .label("Ok")
+            .margin_bottom(10)
+            .margin_top(10)
+            .margin_start(10)
+            .margin_end(10)
+            .build();
         button.connect_clicked(glib::clone!(
             #[weak]
             sources_drop_down,
@@ -46,13 +64,18 @@ impl SelectSourceView {
                 });
             }
         ));
-        hbox.append(&sources_drop_down);
-        hbox.append(&sink_drop_down);
+
+        source_vbox.append(&source_label);
+        source_vbox.append(&sources_drop_down);
+
+        sink_vbox.append(&sink_label);
+        sink_vbox.append(&sink_drop_down);
+
+        hbox.append(&source_vbox);
+        hbox.append(&sink_vbox);
         hbox.append(&button);
-        vbox.append(&hbox);
 
         Self {
-            vbox,
             hbox,
             source_label,
             drop_down: sources_drop_down,
@@ -61,6 +84,6 @@ impl SelectSourceView {
     }
 
     pub fn main_widget(&self) -> &gtk::Box {
-        &self.vbox
+        &self.hbox
     }
 }
