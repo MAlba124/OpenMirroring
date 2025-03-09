@@ -245,9 +245,9 @@ checksum = "1fd0f2584146f6f2ef48085050886acf353beff7305ebd1ae69500e27c67f64b"
 
 [[package]]
 name = "bytes"
-version = "1.10.0"
+version = "1.10.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f61dac84819c6588b558454b194026eb1f09c293b9036ae9b159e74e73ab6cf9"
+checksum = "d71b6127be86fdcfddb610f7182ac57211d4b18a3e9c82eb2d17662f2227ad6a"
 
 [[package]]
 name = "cairo-rs"
@@ -988,7 +988,7 @@ dependencies = [
 [[package]]
 name = "gio"
 version = "0.21.0"
-source = "git+https://github.com/gtk-rs/gtk-rs-core?branch=main#c10cbc14a673b4cfbb57ffdc0e72e242fa105d3f"
+source = "git+https://github.com/gtk-rs/gtk-rs-core?branch=main#e6b43dc4d7cdb1ab62d6522c90807e6cd40973aa"
 dependencies = [
  "futures-channel",
  "futures-core",
@@ -1017,7 +1017,7 @@ dependencies = [
 [[package]]
 name = "gio-sys"
 version = "0.21.0"
-source = "git+https://github.com/gtk-rs/gtk-rs-core?branch=main#c10cbc14a673b4cfbb57ffdc0e72e242fa105d3f"
+source = "git+https://github.com/gtk-rs/gtk-rs-core?branch=main#e6b43dc4d7cdb1ab62d6522c90807e6cd40973aa"
 dependencies = [
  "glib-sys 0.21.0",
  "gobject-sys 0.21.0",
@@ -1050,7 +1050,7 @@ dependencies = [
 [[package]]
 name = "glib"
 version = "0.21.0"
-source = "git+https://github.com/gtk-rs/gtk-rs-core?branch=main#c10cbc14a673b4cfbb57ffdc0e72e242fa105d3f"
+source = "git+https://github.com/gtk-rs/gtk-rs-core?branch=main#e6b43dc4d7cdb1ab62d6522c90807e6cd40973aa"
 dependencies = [
  "bitflags 2.8.0",
  "futures-channel",
@@ -1083,7 +1083,7 @@ dependencies = [
 [[package]]
 name = "glib-macros"
 version = "0.21.0"
-source = "git+https://github.com/gtk-rs/gtk-rs-core?branch=main#c10cbc14a673b4cfbb57ffdc0e72e242fa105d3f"
+source = "git+https://github.com/gtk-rs/gtk-rs-core?branch=main#e6b43dc4d7cdb1ab62d6522c90807e6cd40973aa"
 dependencies = [
  "heck",
  "proc-macro-crate",
@@ -1105,7 +1105,7 @@ dependencies = [
 [[package]]
 name = "glib-sys"
 version = "0.21.0"
-source = "git+https://github.com/gtk-rs/gtk-rs-core?branch=main#c10cbc14a673b4cfbb57ffdc0e72e242fa105d3f"
+source = "git+https://github.com/gtk-rs/gtk-rs-core?branch=main#e6b43dc4d7cdb1ab62d6522c90807e6cd40973aa"
 dependencies = [
  "libc",
  "system-deps 7.0.3",
@@ -1131,7 +1131,7 @@ dependencies = [
 [[package]]
 name = "gobject-sys"
 version = "0.21.0"
-source = "git+https://github.com/gtk-rs/gtk-rs-core?branch=main#c10cbc14a673b4cfbb57ffdc0e72e242fa105d3f"
+source = "git+https://github.com/gtk-rs/gtk-rs-core?branch=main#e6b43dc4d7cdb1ab62d6522c90807e6cd40973aa"
 dependencies = [
  "glib-sys 0.21.0",
  "libc",
@@ -1193,6 +1193,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "gst-plugin-fmp4"
+version = "0.14.0-alpha.1"
+source = "git+https://github.com/GStreamer/gst-plugins-rs?rev=a34efda2018a6e241bb3372bd767a79f58bdbe6f#a34efda2018a6e241bb3372bd767a79f58bdbe6f"
+dependencies = [
+ "anyhow",
+ "bitstream-io",
+ "gst-plugin-version-helper 0.8.1",
+ "gstreamer 0.24.0",
+ "gstreamer-audio 0.24.0",
+ "gstreamer-base 0.24.0",
+ "gstreamer-pbutils 0.24.0",
+ "gstreamer-video 0.24.0",
+]
+
+[[package]]
 name = "gst-plugin-gtk4"
 version = "0.13.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1211,6 +1226,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "gst-plugin-hlssink3"
+version = "0.14.0-alpha.1"
+source = "git+https://github.com/GStreamer/gst-plugins-rs?rev=a34efda2018a6e241bb3372bd767a79f58bdbe6f#a34efda2018a6e241bb3372bd767a79f58bdbe6f"
+dependencies = [
+ "chrono",
+ "gio 0.21.0",
+ "gst-plugin-version-helper 0.8.1",
+ "gstreamer 0.24.0",
+ "gstreamer-app",
+ "m3u8-rs 5.0.5",
+ "sprintf",
+]
+
+[[package]]
 name = "gst-plugin-rtp"
 version = "0.14.0-alpha.1"
 source = "git+https://github.com/GStreamer/gst-plugins-rs?rev=a34efda2018a6e241bb3372bd767a79f58bdbe6f#a34efda2018a6e241bb3372bd767a79f58bdbe6f"
@@ -1224,7 +1253,7 @@ dependencies = [
  "gio 0.21.0",
  "gst-plugin-version-helper 0.8.1",
  "gstreamer 0.24.0",
- "gstreamer-audio",
+ "gstreamer-audio 0.24.0",
  "gstreamer-base 0.24.0",
  "gstreamer-net",
  "gstreamer-rtp",
@@ -1275,7 +1304,7 @@ dependencies = [
  "gst-plugin-webrtc-signalling-protocol",
  "gstreamer 0.24.0",
  "gstreamer-app",
- "gstreamer-audio",
+ "gstreamer-audio 0.24.0",
  "gstreamer-base 0.24.0",
  "gstreamer-net",
  "gstreamer-rtp",
@@ -1360,7 +1389,7 @@ dependencies = [
 [[package]]
 name = "gstreamer"
 version = "0.24.0"
-source = "git+https://gitlab.freedesktop.org/gstreamer/gstreamer-rs?branch=main#cf15ac04156810ec508955d7df7458d5e96da855"
+source = "git+https://gitlab.freedesktop.org/gstreamer/gstreamer-rs?branch=main#eb1c49729ba6715d41ffb5ce9bd6951c9c5720c7"
 dependencies = [
  "cfg-if",
  "futures-channel",
@@ -1386,7 +1415,7 @@ dependencies = [
 [[package]]
 name = "gstreamer-app"
 version = "0.24.0"
-source = "git+https://gitlab.freedesktop.org/gstreamer/gstreamer-rs?branch=main#cf15ac04156810ec508955d7df7458d5e96da855"
+source = "git+https://gitlab.freedesktop.org/gstreamer/gstreamer-rs?branch=main#eb1c49729ba6715d41ffb5ce9bd6951c9c5720c7"
 dependencies = [
  "futures-core",
  "futures-sink",
@@ -1400,7 +1429,7 @@ dependencies = [
 [[package]]
 name = "gstreamer-app-sys"
 version = "0.24.0"
-source = "git+https://gitlab.freedesktop.org/gstreamer/gstreamer-rs?branch=main#cf15ac04156810ec508955d7df7458d5e96da855"
+source = "git+https://gitlab.freedesktop.org/gstreamer/gstreamer-rs?branch=main#eb1c49729ba6715d41ffb5ce9bd6951c9c5720c7"
 dependencies = [
  "glib-sys 0.21.0",
  "gstreamer-base-sys 0.24.0",
@@ -1411,13 +1440,29 @@ dependencies = [
 
 [[package]]
 name = "gstreamer-audio"
+version = "0.23.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "49118ca684e2fc42207509fcac8497d91079c2ffe8ff2b4ae99e71dbafef1ede"
+dependencies = [
+ "cfg-if",
+ "glib 0.20.9",
+ "gstreamer 0.23.5",
+ "gstreamer-audio-sys 0.23.5",
+ "gstreamer-base 0.23.5",
+ "libc",
+ "once_cell",
+ "smallvec",
+]
+
+[[package]]
+name = "gstreamer-audio"
 version = "0.24.0"
-source = "git+https://gitlab.freedesktop.org/gstreamer/gstreamer-rs?branch=main#cf15ac04156810ec508955d7df7458d5e96da855"
+source = "git+https://gitlab.freedesktop.org/gstreamer/gstreamer-rs?branch=main#eb1c49729ba6715d41ffb5ce9bd6951c9c5720c7"
 dependencies = [
  "cfg-if",
  "glib 0.21.0",
  "gstreamer 0.24.0",
- "gstreamer-audio-sys",
+ "gstreamer-audio-sys 0.24.0",
  "gstreamer-base 0.24.0",
  "libc",
  "serde",
@@ -1426,8 +1471,22 @@ dependencies = [
 
 [[package]]
 name = "gstreamer-audio-sys"
+version = "0.23.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7d469526ecf30811b50a6460fd285ee40d189c46048b3d0c69b67a04b414fb51"
+dependencies = [
+ "glib-sys 0.20.9",
+ "gobject-sys 0.20.9",
+ "gstreamer-base-sys 0.23.5",
+ "gstreamer-sys 0.23.5",
+ "libc",
+ "system-deps 7.0.3",
+]
+
+[[package]]
+name = "gstreamer-audio-sys"
 version = "0.24.0"
-source = "git+https://gitlab.freedesktop.org/gstreamer/gstreamer-rs?branch=main#cf15ac04156810ec508955d7df7458d5e96da855"
+source = "git+https://gitlab.freedesktop.org/gstreamer/gstreamer-rs?branch=main#eb1c49729ba6715d41ffb5ce9bd6951c9c5720c7"
 dependencies = [
  "glib-sys 0.21.0",
  "gobject-sys 0.21.0",
@@ -1454,7 +1513,7 @@ dependencies = [
 [[package]]
 name = "gstreamer-base"
 version = "0.24.0"
-source = "git+https://gitlab.freedesktop.org/gstreamer/gstreamer-rs?branch=main#cf15ac04156810ec508955d7df7458d5e96da855"
+source = "git+https://gitlab.freedesktop.org/gstreamer/gstreamer-rs?branch=main#eb1c49729ba6715d41ffb5ce9bd6951c9c5720c7"
 dependencies = [
  "atomic_refcell",
  "cfg-if",
@@ -1480,7 +1539,7 @@ dependencies = [
 [[package]]
 name = "gstreamer-base-sys"
 version = "0.24.0"
-source = "git+https://gitlab.freedesktop.org/gstreamer/gstreamer-rs?branch=main#cf15ac04156810ec508955d7df7458d5e96da855"
+source = "git+https://gitlab.freedesktop.org/gstreamer/gstreamer-rs?branch=main#eb1c49729ba6715d41ffb5ce9bd6951c9c5720c7"
 dependencies = [
  "glib-sys 0.21.0",
  "gobject-sys 0.21.0",
@@ -1522,7 +1581,7 @@ dependencies = [
 [[package]]
 name = "gstreamer-net"
 version = "0.24.0"
-source = "git+https://gitlab.freedesktop.org/gstreamer/gstreamer-rs?branch=main#cf15ac04156810ec508955d7df7458d5e96da855"
+source = "git+https://gitlab.freedesktop.org/gstreamer/gstreamer-rs?branch=main#eb1c49729ba6715d41ffb5ce9bd6951c9c5720c7"
 dependencies = [
  "gio 0.21.0",
  "glib 0.21.0",
@@ -1533,7 +1592,7 @@ dependencies = [
 [[package]]
 name = "gstreamer-net-sys"
 version = "0.24.0"
-source = "git+https://gitlab.freedesktop.org/gstreamer/gstreamer-rs?branch=main#cf15ac04156810ec508955d7df7458d5e96da855"
+source = "git+https://gitlab.freedesktop.org/gstreamer/gstreamer-rs?branch=main#eb1c49729ba6715d41ffb5ce9bd6951c9c5720c7"
 dependencies = [
  "gio-sys 0.21.0",
  "glib-sys 0.21.0",
@@ -1543,9 +1602,67 @@ dependencies = [
 ]
 
 [[package]]
+name = "gstreamer-pbutils"
+version = "0.23.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "acf4bf5857fa22f910634e86a5bce33b5581a9e90caa4e32fd4a20bdd4c83ed0"
+dependencies = [
+ "glib 0.20.9",
+ "gstreamer 0.23.5",
+ "gstreamer-audio 0.23.5",
+ "gstreamer-pbutils-sys 0.23.5",
+ "gstreamer-video 0.23.5",
+ "libc",
+ "thiserror 2.0.11",
+]
+
+[[package]]
+name = "gstreamer-pbutils"
+version = "0.24.0"
+source = "git+https://gitlab.freedesktop.org/gstreamer/gstreamer-rs?branch=main#eb1c49729ba6715d41ffb5ce9bd6951c9c5720c7"
+dependencies = [
+ "glib 0.21.0",
+ "gstreamer 0.24.0",
+ "gstreamer-audio 0.24.0",
+ "gstreamer-pbutils-sys 0.24.0",
+ "gstreamer-video 0.24.0",
+ "libc",
+ "thiserror 2.0.11",
+]
+
+[[package]]
+name = "gstreamer-pbutils-sys"
+version = "0.23.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "304101f5fccbbe41e0169536777ddb7680c2c837e18575c22b30fc20cedfb76f"
+dependencies = [
+ "glib-sys 0.20.9",
+ "gobject-sys 0.20.9",
+ "gstreamer-audio-sys 0.23.5",
+ "gstreamer-sys 0.23.5",
+ "gstreamer-video-sys 0.23.5",
+ "libc",
+ "system-deps 7.0.3",
+]
+
+[[package]]
+name = "gstreamer-pbutils-sys"
+version = "0.24.0"
+source = "git+https://gitlab.freedesktop.org/gstreamer/gstreamer-rs?branch=main#eb1c49729ba6715d41ffb5ce9bd6951c9c5720c7"
+dependencies = [
+ "glib-sys 0.21.0",
+ "gobject-sys 0.21.0",
+ "gstreamer-audio-sys 0.24.0",
+ "gstreamer-sys 0.24.0",
+ "gstreamer-video-sys 0.24.0",
+ "libc",
+ "system-deps 7.0.3",
+]
+
+[[package]]
 name = "gstreamer-rtp"
 version = "0.24.0"
-source = "git+https://gitlab.freedesktop.org/gstreamer/gstreamer-rs?branch=main#cf15ac04156810ec508955d7df7458d5e96da855"
+source = "git+https://gitlab.freedesktop.org/gstreamer/gstreamer-rs?branch=main#eb1c49729ba6715d41ffb5ce9bd6951c9c5720c7"
 dependencies = [
  "glib 0.21.0",
  "gstreamer 0.24.0",
@@ -1556,7 +1673,7 @@ dependencies = [
 [[package]]
 name = "gstreamer-rtp-sys"
 version = "0.24.0"
-source = "git+https://gitlab.freedesktop.org/gstreamer/gstreamer-rs?branch=main#cf15ac04156810ec508955d7df7458d5e96da855"
+source = "git+https://gitlab.freedesktop.org/gstreamer/gstreamer-rs?branch=main#eb1c49729ba6715d41ffb5ce9bd6951c9c5720c7"
 dependencies = [
  "glib-sys 0.21.0",
  "gstreamer-base-sys 0.24.0",
@@ -1568,7 +1685,7 @@ dependencies = [
 [[package]]
 name = "gstreamer-sdp"
 version = "0.24.0"
-source = "git+https://gitlab.freedesktop.org/gstreamer/gstreamer-rs?branch=main#cf15ac04156810ec508955d7df7458d5e96da855"
+source = "git+https://gitlab.freedesktop.org/gstreamer/gstreamer-rs?branch=main#eb1c49729ba6715d41ffb5ce9bd6951c9c5720c7"
 dependencies = [
  "glib 0.21.0",
  "gstreamer 0.24.0",
@@ -1578,7 +1695,7 @@ dependencies = [
 [[package]]
 name = "gstreamer-sdp-sys"
 version = "0.24.0"
-source = "git+https://gitlab.freedesktop.org/gstreamer/gstreamer-rs?branch=main#cf15ac04156810ec508955d7df7458d5e96da855"
+source = "git+https://gitlab.freedesktop.org/gstreamer/gstreamer-rs?branch=main#eb1c49729ba6715d41ffb5ce9bd6951c9c5720c7"
 dependencies = [
  "glib-sys 0.21.0",
  "gstreamer-sys 0.24.0",
@@ -1601,7 +1718,7 @@ dependencies = [
 [[package]]
 name = "gstreamer-sys"
 version = "0.24.0"
-source = "git+https://gitlab.freedesktop.org/gstreamer/gstreamer-rs?branch=main#cf15ac04156810ec508955d7df7458d5e96da855"
+source = "git+https://gitlab.freedesktop.org/gstreamer/gstreamer-rs?branch=main#eb1c49729ba6715d41ffb5ce9bd6951c9c5720c7"
 dependencies = [
  "cfg-if",
  "glib-sys 0.21.0",
@@ -1613,7 +1730,7 @@ dependencies = [
 [[package]]
 name = "gstreamer-utils"
 version = "0.24.0"
-source = "git+https://gitlab.freedesktop.org/gstreamer/gstreamer-rs?branch=main#cf15ac04156810ec508955d7df7458d5e96da855"
+source = "git+https://gitlab.freedesktop.org/gstreamer/gstreamer-rs?branch=main#eb1c49729ba6715d41ffb5ce9bd6951c9c5720c7"
 dependencies = [
  "gstreamer 0.24.0",
  "gstreamer-app",
@@ -1641,7 +1758,7 @@ dependencies = [
 [[package]]
 name = "gstreamer-video"
 version = "0.24.0"
-source = "git+https://gitlab.freedesktop.org/gstreamer/gstreamer-rs?branch=main#cf15ac04156810ec508955d7df7458d5e96da855"
+source = "git+https://gitlab.freedesktop.org/gstreamer/gstreamer-rs?branch=main#eb1c49729ba6715d41ffb5ce9bd6951c9c5720c7"
 dependencies = [
  "cfg-if",
  "futures-channel",
@@ -1671,7 +1788,7 @@ dependencies = [
 [[package]]
 name = "gstreamer-video-sys"
 version = "0.24.0"
-source = "git+https://gitlab.freedesktop.org/gstreamer/gstreamer-rs?branch=main#cf15ac04156810ec508955d7df7458d5e96da855"
+source = "git+https://gitlab.freedesktop.org/gstreamer/gstreamer-rs?branch=main#eb1c49729ba6715d41ffb5ce9bd6951c9c5720c7"
 dependencies = [
  "glib-sys 0.21.0",
  "gobject-sys 0.21.0",
@@ -1684,7 +1801,7 @@ dependencies = [
 [[package]]
 name = "gstreamer-webrtc"
 version = "0.24.0"
-source = "git+https://gitlab.freedesktop.org/gstreamer/gstreamer-rs?branch=main#cf15ac04156810ec508955d7df7458d5e96da855"
+source = "git+https://gitlab.freedesktop.org/gstreamer/gstreamer-rs?branch=main#eb1c49729ba6715d41ffb5ce9bd6951c9c5720c7"
 dependencies = [
  "glib 0.21.0",
  "gstreamer 0.24.0",
@@ -1696,7 +1813,7 @@ dependencies = [
 [[package]]
 name = "gstreamer-webrtc-sys"
 version = "0.24.0"
-source = "git+https://gitlab.freedesktop.org/gstreamer/gstreamer-rs?branch=main#cf15ac04156810ec508955d7df7458d5e96da855"
+source = "git+https://gitlab.freedesktop.org/gstreamer/gstreamer-rs?branch=main#eb1c49729ba6715d41ffb5ce9bd6951c9c5720c7"
 dependencies = [
  "glib-sys 0.21.0",
  "gstreamer-sdp-sys",
@@ -1798,10 +1915,39 @@ dependencies = [
 ]
 
 [[package]]
+name = "http-body"
+version = "1.0.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1efedce1fb8e6913f23e0c92de8e62cd5b772a67e7b3946df930a62566c93184"
+dependencies = [
+ "bytes",
+ "http 1.2.0",
+]
+
+[[package]]
+name = "http-body-util"
+version = "0.1.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "793429d76616a256bcb62c2a2ec2bed781c8307e797e2598c50010f2bee2544f"
+dependencies = [
+ "bytes",
+ "futures-util",
+ "http 1.2.0",
+ "http-body",
+ "pin-project-lite",
+]
+
+[[package]]
 name = "httparse"
 version = "1.10.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f2d708df4e7140240a16cd6ab0ab65c972d7433ab77819ea693fde9c43811e2a"
+
+[[package]]
+name = "httpdate"
+version = "1.0.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "df3b46402a9d5adb4c86a0cf463f42e19994e3ee891101b1841f30a545cb49a9"
 
 [[package]]
 name = "human_bytes"
@@ -1814,6 +1960,25 @@ name = "humantime"
 version = "2.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9a3a5bfb195931eeb336b2a7b4d761daec841b97f947d34394601737a7bba5e4"
+
+[[package]]
+name = "hyper"
+version = "1.6.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "cc2b571658e38e0c01b1fdca3bbbe93c00d3d71693ff2770043f8c29bc7d6f80"
+dependencies = [
+ "bytes",
+ "futures-channel",
+ "futures-util",
+ "http 1.2.0",
+ "http-body",
+ "httparse",
+ "httpdate",
+ "itoa",
+ "pin-project-lite",
+ "smallvec",
+ "tokio",
+]
 
 [[package]]
 name = "iana-time-zone"
@@ -2148,6 +2313,26 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "30bde2b3dc3671ae49d8e2e9f044c7c005836e7a023ee57cffa25ab82764bb9e"
 
 [[package]]
+name = "m3u8-rs"
+version = "5.0.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0c1d7ba86f7ea62f17f4310c55e93244619ddc7dadfc7e565de1967e4e41e6e7"
+dependencies = [
+ "chrono",
+ "nom",
+]
+
+[[package]]
+name = "m3u8-rs"
+version = "6.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f03cd3335fb5f2447755d45cda9c70f76013626a9db44374973791b0926a86c3"
+dependencies = [
+ "chrono",
+ "nom",
+]
+
+[[package]]
 name = "malloc_buf"
 version = "0.0.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2435,23 +2620,33 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "async-tungstenite",
+ "bytes",
  "env_logger",
  "fcast-lib",
  "futures",
+ "gio 0.20.9",
+ "gst-plugin-fmp4",
  "gst-plugin-gtk4",
+ "gst-plugin-hlssink3",
  "gst-plugin-rtp",
  "gst-plugin-webrtc",
  "gstreamer 0.23.5",
+ "gstreamer-pbutils 0.23.5",
  "gstreamer-video 0.23.5",
  "gtk4",
+ "http-body-util",
+ "hyper",
  "log",
+ "m3u8-rs 6.0.0",
  "om-common",
  "om-scap-gstreamer",
  "pin-project-lite",
+ "rand 0.9.0",
  "serde",
  "serde_json",
  "thiserror 2.0.11",
  "tokio",
+ "tokio-util",
  "uuid",
 ]
 
@@ -3105,6 +3300,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "sprintf"
+version = "0.2.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f2819cb5194dfe9e6d102f4519a9fb9dc7106d2879b71b4fd4d4677f1175bd39"
+dependencies = [
+ "thiserror 1.0.69",
+]
+
+[[package]]
 name = "stable_deref_trait"
 version = "1.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3361,6 +3565,19 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "eca58d7bba4a75707817a2c44174253f9236b2d5fbd055602e9d5c07c139a047"
 dependencies = [
  "futures-core",
+ "pin-project-lite",
+ "tokio",
+]
+
+[[package]]
+name = "tokio-util"
+version = "0.7.13"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d7fcaa8d55a2bdd6b83ace262b016eca0d79ee02818c5c1bcdf0305114081078"
+dependencies = [
+ "bytes",
+ "futures-core",
+ "futures-sink",
  "pin-project-lite",
  "tokio",
 ]

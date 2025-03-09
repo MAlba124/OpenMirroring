@@ -46,7 +46,8 @@ impl Server {
         St: Stream<Item = (String, OutgoingMessage)> + Send + Unpin + 'static,
     >(
         factory: Factory,
-        prod_peer_tx: tokio::sync::oneshot::Sender<String>,
+        // prod_peer_tx: tokio::sync::oneshot::Sender<String>,
+        prod_peer_tx: tokio::sync::mpsc::Sender<crate::Event>,
     ) -> Self {
         let (tx, rx) = mpsc::channel::<(String, Option<Utf8Bytes>)>(1000);
         let mut handler = factory(Box::pin(rx.filter_map(|(peer_id, msg)| async move {
@@ -78,7 +79,10 @@ impl Server {
                     OutgoingMessage::Welcome { ref peer_id } if prod_peer_tx.is_some() => {
                         info!("Got producer: {peer_id}");
                         if let Some(prod_peer_tx) = prod_peer_tx.take() {
-                            prod_peer_tx.send(peer_id.clone()).unwrap();
+                            prod_peer_tx
+                                .send(crate::Event::ProducerConnected(peer_id.clone()))
+                                .await
+                                .unwrap();
                         }
                     }
                     _ => (),

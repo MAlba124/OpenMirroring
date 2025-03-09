@@ -4,23 +4,33 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
+env_logger = { workspace = true }
+log = { workspace = true }
+tokio = { workspace = true }
 gtk4 = { workspace = true }
 gst = { workspace = true }
 gst-gtk4 = { workspace = true }
 gst-video = { workspace = true }
-tokio = { workspace = true }
-log = { workspace = true }
-env_logger = { workspace = true }
-serde = { workspace = true }
-serde_json = { workspace = true }
 gst-webrtc = { workspace = true }
 gst-rtp = { workspace = true }
-scap-gstreamer = { package = "om-scap-gstreamer", path = "../om-scap-gstreamer" }
-om-common = { path = "../om-common" }
-fcast-lib = { path = "../fcast-lib" }
+gst-hlssink3= { package = "gst-plugin-hlssink3", git = "https://github.com/GStreamer/gst-plugins-rs", rev = "a34efda2018a6e241bb3372bd767a79f58bdbe6f" }
+gst-fmp4= { package = "gst-plugin-fmp4", git = "https://github.com/GStreamer/gst-plugins-rs", rev = "a34efda2018a6e241bb3372bd767a79f58bdbe6f" }
+gst-pbutils = { package = "gstreamer-pbutils", version = "0.23.5", features = [ "v1_22" ] }
+m3u8-rs = "6.0.0"
+gio = "0.20.9"
 async-tungstenite = { version = "0.29", features = ["tokio-runtime"] }
 uuid = { version = "1", features = ["v4"] }
 anyhow = "1"
 futures = "0.3"
 thiserror = "2"
 pin-project-lite = "0.2"
+hyper = { version = "1.6.0", features = ["server", "http1"] }
+http-body-util = "0.1.2"
+bytes = "1.10.1"
+om-common = { path = "../om-common" }
+fcast-lib = { path = "../fcast-lib" }
+scap-gstreamer = { package = "om-scap-gstreamer", path = "../om-scap-gstreamer" }
+serde = { workspace = true }
+serde_json = { workspace = true }
+tokio-util = { version= "0.7.13", features = ["io"] }
+rand = "0.9.0"

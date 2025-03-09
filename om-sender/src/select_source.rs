@@ -7,7 +7,7 @@ use gtk4 as gtk;
 pub struct SelectSourceView {
     vbox: gtk::Box,
     hbox: gtk::Box,
-    label: gtk::Label,
+    source_label: gtk::Label,
     pub drop_down: gtk::DropDown,
     button: gtk::Button,
 }
@@ -24,30 +24,38 @@ impl SelectSourceView {
             .valign(gtk::Align::Center)
             .halign(gtk::Align::Center)
             .build();
-        let label = gtk::Label::new(Some("Select source"));
-        vbox.append(&label);
-        let drop_down = gtk::DropDown::builder().build();
+        let source_label = gtk::Label::new(Some("Select source"));
+        vbox.append(&source_label);
+        let sources_drop_down = gtk::DropDown::builder().build();
         let button = gtk::Button::with_label("Ok");
+        let sink_drop_down = gtk::DropDown::from_strings(&["WebRTC", "HLS"]);
         button.connect_clicked(glib::clone!(
             #[weak]
-            drop_down,
+            sources_drop_down,
+            #[weak]
+            sink_drop_down,
             move |_| {
-                let selected = drop_down.selected() as usize;
+                let selected = sources_drop_down.selected() as usize;
+                let sink_type = sink_drop_down.selected() as usize;
                 let event_tx = event_tx.clone();
                 om_common::runtime().block_on(async move {
-                    event_tx.send(Event::SelectSource(selected)).await.unwrap();
+                    event_tx
+                        .send(Event::SelectSource(selected, sink_type))
+                        .await
+                        .unwrap();
                 });
             }
         ));
-        hbox.append(&drop_down);
+        hbox.append(&sources_drop_down);
+        hbox.append(&sink_drop_down);
         hbox.append(&button);
         vbox.append(&hbox);
 
         Self {
             vbox,
             hbox,
-            label,
-            drop_down,
+            source_label,
+            drop_down: sources_drop_down,
             button,
         }
     }
