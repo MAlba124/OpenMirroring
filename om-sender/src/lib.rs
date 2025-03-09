@@ -7,10 +7,7 @@ pub mod sink;
 
 #[derive(Debug)]
 pub enum Message {
-    Play {
-        mime: String,
-        uri: String,
-    },
+    Play { mime: String, uri: String },
     Quit,
     Stop,
 }
@@ -28,4 +25,7 @@ pub enum Event {
     Sources(Vec<String>),
     SelectSource(usize, usize),
     Packet(fcast_lib::packet::Packet),
+    HlsServerAddr {
+        port: u16,
+    },
 }

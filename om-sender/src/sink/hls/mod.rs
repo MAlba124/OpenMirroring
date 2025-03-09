@@ -6,6 +6,7 @@ use log::{debug, error, trace};
 use m3u8_rs::{MasterPlaylist, VariantStream};
 use rand::Rng;
 use std::path::PathBuf;
+use tokio::sync::mpsc::Sender;
 use tokiort::TokioIo;
 use url_utils::decode_path;
 
@@ -69,12 +70,14 @@ async fn request_handler(
 }
 
 // TODO: rewrite to use custom http server
-async fn serve_dir(base: PathBuf) {
-    let listener = tokio::net::TcpListener::bind("127.0.0.1:6969")
+async fn serve_dir(base: PathBuf, event_tx: Sender<crate::Event>) {
+    let listener = tokio::net::TcpListener::bind("0.0.0.0:0")
         .await
         .unwrap();
 
     debug!("HTTP server listening on {:?}", listener.local_addr());
+
+    event_tx.send(crate::Event::HlsServerAddr { port: listener.local_addr().unwrap().port() }).await.unwrap();
 
     loop {
         let (stream, _) = listener.accept().await.unwrap();
@@ -117,7 +120,10 @@ pub struct Hls {
 }
 
 impl Hls {
-    pub fn new(pipeline: &gst::Pipeline) -> Result<Self, gst::glib::BoolError> {
+    pub fn new(
+        pipeline: &gst::Pipeline,
+        event_tx: Sender<crate::Event>,
+    ) -> Result<Self, gst::glib::BoolError> {
         let enc = gst::ElementFactory::make("x264enc")
             .property("bframes", 0u32)
             // TODO: find a good bitrate
@@ -138,7 +144,7 @@ impl Hls {
         let base_path = generate_rand_tmp_dir_path();
         std::fs::create_dir_all(&base_path).unwrap();
 
-        om_common::runtime().spawn(serve_dir(base_path.clone()));
+        om_common::runtime().spawn(serve_dir(base_path.clone(), event_tx));
 
         let mut manifest_path = base_path.clone();
         manifest_path.push("manifest.m3u8");

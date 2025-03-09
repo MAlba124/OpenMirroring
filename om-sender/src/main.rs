@@ -30,9 +30,7 @@ async fn event_loop(
             }
             Event::Start => {
                 if let Some(play_msg) = primary_view.get_play_msg() {
-                    tx.send(play_msg)
-                        .await
-                        .unwrap();
+                    tx.send(play_msg).await.unwrap();
                 } else {
                     error!("Could not get stream uri");
                 }
@@ -64,12 +62,13 @@ async fn event_loop(
                 if sink_type == 0 {
                     primary_view.add_webrtc_sink(event_tx.clone());
                 } else {
-                    primary_view.add_hls_sink();
+                    primary_view.add_hls_sink(event_tx.clone());
                 }
             }
             Event::Packet(packet) => {
                 trace!("Unhandled packet: {packet:?}");
             }
+            Event::HlsServerAddr { port } => primary_view.set_server_port(port),
         }
     }
 

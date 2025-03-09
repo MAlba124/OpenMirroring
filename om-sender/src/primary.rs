@@ -255,7 +255,7 @@ impl PrimaryView {
         *s = S::WebRTC(webrtc_);
     }
 
-    pub fn add_hls_sink(&mut self) {
+    pub fn add_hls_sink(&mut self, event_tx: Sender<Event>) {
         debug!("Adding HLS sink");
         let tee_pad = self
             .tee
@@ -265,7 +265,7 @@ impl PrimaryView {
                 Ok,
             )
             .unwrap();
-        let hls_ = crate::sink::HlsSink::new(&self.pipeline).unwrap();
+        let hls_ = crate::sink::HlsSink::new(&self.pipeline, event_tx).unwrap();
         let queue_pad = hls_
             .queue
             .static_pad("sink")
@@ -302,6 +302,14 @@ impl PrimaryView {
         match *s {
             S::WebRTC(ref mut sink) => sink.producer_id = Some(producer_id),
             _ => error!("Attempted to set producer peer id for non WebRTC sink"),
+        }
+    }
+
+    pub fn set_server_port(&mut self, port: u16) {
+        let mut s = self.s.lock().unwrap();
+        match *s {
+            S::Hls(ref mut sink) => sink.server_port = Some(port),
+            _ => error!("Attempted to set server port for non HLS sink"),
         }
     }
 

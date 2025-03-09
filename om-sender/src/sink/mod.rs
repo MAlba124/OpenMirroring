@@ -1,4 +1,5 @@
 use gst::{glib, prelude::*};
+use tokio::sync::mpsc::Sender;
 
 mod hls;
 mod webrtc;
@@ -11,10 +12,14 @@ pub struct HlsSink {
     pub queue: gst::Element,
     convert: gst::Element,
     pub hls: hls::Hls,
+    pub server_port: Option<u16>,
 }
 
 impl HlsSink {
-    pub fn new(pipeline: &gst::Pipeline) -> Result<Self, glib::BoolError> {
+    pub fn new(
+        pipeline: &gst::Pipeline,
+        event_tx: Sender<crate::Event>,
+    ) -> Result<Self, glib::BoolError> {
         let queue = gst::ElementFactory::make("queue")
             .name("sink_queue")
             .property("silent", true)
@@ -22,7 +27,7 @@ impl HlsSink {
         let convert = gst::ElementFactory::make("videoconvert")
             .name("sink_convert")
             .build()?;
-        let hls = hls::Hls::new(pipeline)?;
+        let hls = hls::Hls::new(pipeline, event_tx)?;
 
         pipeline.add_many([&queue, &convert])?;
         gst::Element::link_many([&queue, &convert, &hls.enc, &hls.enc_caps, &hls.sink])?;
@@ -31,14 +36,19 @@ impl HlsSink {
             queue,
             convert,
             hls,
+            server_port: None,
         })
     }
 
     pub fn get_play_msg(&self) -> Option<crate::Message> {
-        Some(crate::Message::Play {
-            mime: HLS_MIME_TYPE.to_owned(),
-            uri: "http://127.0.0.1:6969/manifest.m3u8".to_owned(),
-        })
+        if let Some(server_port) = self.server_port {
+            Some(crate::Message::Play {
+                mime: HLS_MIME_TYPE.to_owned(),
+                uri: format!("http://127.0.0.1:{server_port}/manifest.m3u8"),
+            })
+        } else {
+            None
+        }
     }
 }
 
@@ -53,7 +63,7 @@ pub struct WebrtcSink {
 impl WebrtcSink {
     pub fn new(
         pipeline: &gst::Pipeline,
-        event_tx: tokio::sync::mpsc::Sender<crate::Event>,
+        event_tx: Sender<crate::Event>,
     ) -> Result<Self, glib::BoolError> {
         let queue = gst::ElementFactory::make("queue")
             .name("sink_queue")
@@ -77,12 +87,10 @@ impl WebrtcSink {
 
     pub fn get_play_msg(&self) -> Option<crate::Message> {
         if let Some(producer_id) = &self.producer_id {
-            Some(
-                crate::Message::Play {
-                    mime: GST_WEBRTC_MIME_TYPE.to_owned(),
-                    uri: format!("gstwebrtc://127.0.0.1:8443?peer-id={producer_id}"),
-                }
-            )
+            Some(crate::Message::Play {
+                mime: GST_WEBRTC_MIME_TYPE.to_owned(),
+                uri: format!("gstwebrtc://127.0.0.1:8443?peer-id={producer_id}"),
+            })
         } else {
             None
         }
