@@ -60,9 +60,9 @@ async fn event_loop(
                 select_source_tx.send(idx).await.unwrap();
                 main_view_stack.set_visible_child(primary_view.main_widget());
                 if sink_type == 0 {
-                    primary_view.add_webrtc_sink(event_tx.clone());
+                    primary_view.add_webrtc_sink(event_tx.clone()).unwrap();
                 } else {
-                    primary_view.add_hls_sink(event_tx.clone());
+                    primary_view.add_hls_sink(event_tx.clone()).unwrap();
                 }
             }
             Event::Packet(packet) => {
@@ -81,8 +81,6 @@ async fn event_loop(
 
 fn build_ui(app: &Application) {
     info!("Starting signalling server");
-    // let (prod_peer_tx, prod_peer_rx) = tokio::sync::oneshot::channel();
-    // om_common::runtime().spawn(run_server(prod_peer_tx));
 
     let (event_tx, event_rx) = tokio::sync::mpsc::channel::<Event>(100);
     let (selected_tx, selected_rx) = tokio::sync::mpsc::channel::<usize>(1);
@@ -99,10 +97,6 @@ fn build_ui(app: &Application) {
 
     main_view_stack.add_child(primary_view.main_widget());
 
-    // **
-    // main_view_stack.set_visible_child(primary_view.main_widget());
-    // **
-
     let window = ApplicationWindow::builder()
         .application(app)
         .title("OMSender")
@@ -114,17 +108,6 @@ fn build_ui(app: &Application) {
     let bus_watch = primary_view
         .setup_bus_watch(app.downgrade())
         .expect("Failed to add bus watch");
-
-    // let event_tx_clone = event_tx.clone();
-    // om_common::runtime().spawn(async move {
-    //     debug!("Waiting for the producer to connect...");
-    //     let peer_id = prod_peer_rx.await.unwrap();
-    //     debug!("Producer connected peer_id={peer_id}");
-    //     event_tx_clone
-    //         .send(Event::ProducerConnected(peer_id))
-    //         .await
-    //         .unwrap();
-    // });
 
     let tx_clone = session_tx.clone();
     let pipeline = RefCell::new(Some(primary_view.pipeline.downgrade()));

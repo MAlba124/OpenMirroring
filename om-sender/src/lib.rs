@@ -25,7 +25,5 @@ pub enum Event {
     Sources(Vec<String>),
     SelectSource(usize, usize),
     Packet(fcast_lib::packet::Packet),
-    HlsServerAddr {
-        port: u16,
-    },
+    HlsServerAddr { port: u16 },
 }

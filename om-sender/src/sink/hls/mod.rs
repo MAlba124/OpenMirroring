@@ -36,8 +36,7 @@ async fn request_handler(
             .unwrap());
     }
 
-    // TODO: remove `..` and friends
-    let uri = decode_path(req.uri().path().trim_start_matches("/")).unwrap();
+    let uri = decode_path(&req.uri().path().trim_start_matches("/").replace("..", "")).unwrap();
 
     base_path.push(&uri);
 
@@ -71,13 +70,16 @@ async fn request_handler(
 
 // TODO: rewrite to use custom http server
 async fn serve_dir(base: PathBuf, event_tx: Sender<crate::Event>) {
-    let listener = tokio::net::TcpListener::bind("0.0.0.0:0")
-        .await
-        .unwrap();
+    let listener = tokio::net::TcpListener::bind("0.0.0.0:0").await.unwrap();
 
     debug!("HTTP server listening on {:?}", listener.local_addr());
 
-    event_tx.send(crate::Event::HlsServerAddr { port: listener.local_addr().unwrap().port() }).await.unwrap();
+    event_tx
+        .send(crate::Event::HlsServerAddr {
+            port: listener.local_addr().unwrap().port(),
+        })
+        .await
+        .unwrap();
 
     loop {
         let (stream, _) = listener.accept().await.unwrap();
@@ -199,7 +201,7 @@ impl Hls {
             "delete-fragment",
             false,
             glib::closure!(move |sink: &gst::Element, location: &str| {
-                trace!("{}, removeing segment {location}", sink.name());
+                trace!("{}, removing segment {location}", sink.name());
                 std::fs::remove_file(location).unwrap();
                 true
             }),

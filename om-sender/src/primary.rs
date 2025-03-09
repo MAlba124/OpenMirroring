@@ -155,7 +155,7 @@ impl PrimaryView {
         vbox.append(&enable_preview);
 
         let pipeline_weak = pipeline.downgrade();
-        // Start pipeline in background to not freez UI
+        // Start pipeline in background to not freeze UI
         let _ = std::thread::spawn(move || {
             let Some(pipeline) = pipeline_weak.upgrade() else {
                 panic!("No pipeline");
@@ -195,10 +195,7 @@ impl PrimaryView {
                         todo!();
                     };
 
-                    // debug!("{state_changed:?}");
-
                     let mut s = s.lock().unwrap();
-
                     match *s {
                         S::Hls(ref mut hls) => {
                             if state_changed.src() == Some(pipeline.upcast_ref())
@@ -230,54 +227,45 @@ impl PrimaryView {
         Ok(bus_watch)
     }
 
-    // TODO: errors
-    pub fn add_webrtc_sink(&mut self, event_tx: Sender<Event>) {
+    pub fn add_webrtc_sink(&mut self, event_tx: Sender<Event>) -> Result<(), glib::BoolError> {
         debug!("Adding WebRTC sink");
-        let tee_pad = self
-            .tee
-            .request_pad_simple("src_%u")
-            .map_or_else(
-                || Err(glib::bool_error!("`request_pad_simple()` failed")),
-                Ok,
-            )
-            .unwrap();
-        let webrtc_ = crate::sink::WebrtcSink::new(&self.pipeline, event_tx).unwrap();
+        let tee_pad = self.tee.request_pad_simple("src_%u").map_or_else(
+            || Err(glib::bool_error!("`request_pad_simple()` failed")),
+            Ok,
+        )?;
+        let webrtc_ = crate::sink::WebrtcSink::new(&self.pipeline, event_tx)?;
         let queue_pad = webrtc_
             .queue
             .static_pad("sink")
-            .map_or_else(|| Err(glib::bool_error!("`static_pad()` failed")), Ok)
-            .unwrap();
+            .map_or_else(|| Err(glib::bool_error!("`static_pad()` failed")), Ok)?;
         tee_pad
             .link(&queue_pad)
-            .map_err(|err| glib::bool_error!("{err}"))
-            .unwrap();
-        let mut s = self.s.lock().unwrap();
+            .map_err(|err| glib::bool_error!("{err}"))?;
+        let mut s = self.s.lock().map_err(|err| glib::bool_error!("{err}"))?;
         *s = S::WebRTC(webrtc_);
+
+        Ok(())
     }
 
-    pub fn add_hls_sink(&mut self, event_tx: Sender<Event>) {
+    pub fn add_hls_sink(&mut self, event_tx: Sender<Event>) -> Result<(), glib::BoolError> {
         debug!("Adding HLS sink");
-        let tee_pad = self
-            .tee
-            .request_pad_simple("src_%u")
-            .map_or_else(
-                || Err(glib::bool_error!("`request_pad_simple()` failed")),
-                Ok,
-            )
-            .unwrap();
-        let hls_ = crate::sink::HlsSink::new(&self.pipeline, event_tx).unwrap();
+        let tee_pad = self.tee.request_pad_simple("src_%u").map_or_else(
+            || Err(glib::bool_error!("`request_pad_simple()` failed")),
+            Ok,
+        )?;
+        let hls_ = crate::sink::HlsSink::new(&self.pipeline, event_tx)?;
         let queue_pad = hls_
             .queue
             .static_pad("sink")
-            .map_or_else(|| Err(glib::bool_error!("`static_pad()` failed")), Ok)
-            .unwrap();
+            .map_or_else(|| Err(glib::bool_error!("`static_pad()` failed")), Ok)?;
         tee_pad
             .link(&queue_pad)
-            .map_err(|err| glib::bool_error!("{err}"))
-            .unwrap();
+            .map_err(|err| glib::bool_error!("{err}"))?;
 
-        let mut s = self.s.lock().unwrap();
+        let mut s = self.s.lock().map_err(|err| glib::bool_error!("{err}"))?;
         *s = S::Hls(hls_);
+
+        Ok(())
     }
 
     pub fn get_play_msg(&self) -> Option<crate::Message> {
