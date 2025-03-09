@@ -20,27 +20,7 @@ pub type ChannelItem = (
 #[cfg(not(target_os = "macos"))]
 pub type ChannelItem = Frame;
 
-#[allow(unused_variables)]
-pub fn get_output_frame_size(options: &Options) -> [u32; 2] {
-    #[cfg(target_os = "macos")]
-    {
-        mac::get_output_frame_size(options)
-    }
-
-    #[cfg(target_os = "windows")]
-    {
-        win::get_output_frame_size(options)
-    }
-
-    #[cfg(target_os = "linux")]
-    {
-        [0, 0]
-    }
-}
-
 pub struct Engine {
-    options: Options,
-
     #[cfg(target_os = "macos")]
     mac: screencapturekit::sc_stream::SCStream,
     #[cfg(target_os = "macos")]
@@ -63,7 +43,6 @@ impl Engine {
             Engine {
                 mac,
                 error_flag,
-                options: (*options).clone(),
             }
         }
 
@@ -72,7 +51,6 @@ impl Engine {
             let win = win::create_capturer(&options, tx);
             return Engine {
                 win,
-                options: (*options).clone(),
             };
         }
 
@@ -81,7 +59,6 @@ impl Engine {
             let linux = linux::create_capturer(options, tx);
             Engine {
                 linux,
-                options: (*options).clone(),
             }
         }
     }
@@ -119,10 +96,6 @@ impl Engine {
         {
             self.linux.imp.stop_capture();
         }
-    }
-
-    pub fn get_output_frame_size(&mut self) -> [u32; 2] {
-        get_output_frame_size(&self.options)
     }
 
     pub fn process_channel_item(&self, data: ChannelItem) -> Option<Frame> {
