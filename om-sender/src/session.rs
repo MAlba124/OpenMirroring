@@ -7,7 +7,6 @@ use tokio::sync::mpsc::{Receiver, Sender};
 use crate::{Event, Message};
 
 const HEADER_BUFFER_SIZE: usize = 5;
-const GST_WEBRTC_MIME_TYPE: &str = "application/x-gst-webrtc";
 
 async fn read_packet_from_stream(stream: &mut TcpStream) -> Result<Packet, tokio::io::Error> {
     let mut header_buf: [u8; HEADER_BUFFER_SIZE] = [0; HEADER_BUFFER_SIZE];
@@ -56,12 +55,12 @@ pub async fn session(mut msg_rx: Receiver<Message>, event_tx: Sender<Event>) {
                 Some(msg) => {
                     debug!("{msg:?}");
                     match msg {
-                        Message::Play(url) => {
+                        Message::Play { mime, uri } => {
                             let packet = Packet::from(
                                 models::PlayMessage {
                                     // container: GST_WEBRTC_MIME_TYPE.to_owned(),
-                                    container: "application/vnd.apple.mpegurl".to_owned(),
-                                    url: Some(url),
+                                    container: mime,
+                                    url: Some(uri),
                                     content: None,
                                     time: None,
                                     speed: None,

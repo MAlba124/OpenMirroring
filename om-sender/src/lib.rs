@@ -3,12 +3,14 @@ pub mod loading;
 pub mod primary;
 pub mod select_source;
 pub mod session;
-pub mod signaller;
 pub mod sink;
 
 #[derive(Debug)]
 pub enum Message {
-    Play(String),
+    Play {
+        mime: String,
+        uri: String,
+    },
     Quit,
     Stop,
 }

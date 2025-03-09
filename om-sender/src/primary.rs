@@ -231,7 +231,7 @@ impl PrimaryView {
     }
 
     // TODO: errors
-    pub fn add_webrtc_sink(&mut self) {
+    pub fn add_webrtc_sink(&mut self, event_tx: Sender<Event>) {
         debug!("Adding WebRTC sink");
         let tee_pad = self
             .tee
@@ -241,7 +241,7 @@ impl PrimaryView {
                 Ok,
             )
             .unwrap();
-        let webrtc_ = crate::sink::WebrtcSink::new(&self.pipeline).unwrap();
+        let webrtc_ = crate::sink::WebrtcSink::new(&self.pipeline, event_tx).unwrap();
         let queue_pad = webrtc_
             .queue
             .static_pad("sink")
@@ -280,12 +280,12 @@ impl PrimaryView {
         *s = S::Hls(hls_);
     }
 
-    pub fn get_stream_uri(&self) -> String {
+    pub fn get_play_msg(&self) -> Option<crate::Message> {
         let s = self.s.lock().unwrap();
         match *s {
             S::Unset => unreachable!(),
-            S::WebRTC(ref sink) => sink.get_stream_uri(),
-            S::Hls(ref sink) => sink.get_stream_uri(),
+            S::WebRTC(ref sink) => sink.get_play_msg(),
+            S::Hls(ref sink) => sink.get_play_msg(),
         }
     }
 
@@ -294,6 +294,14 @@ impl PrimaryView {
         match *s {
             S::Hls(ref sink) => sink.hls.shutdown(),
             _ => (),
+        }
+    }
+
+    pub fn set_producer_id(&mut self, producer_id: String) {
+        let mut s = self.s.lock().unwrap();
+        match *s {
+            S::WebRTC(ref mut sink) => sink.producer_id = Some(producer_id),
+            _ => error!("Attempted to set producer peer id for non WebRTC sink"),
         }
     }
 

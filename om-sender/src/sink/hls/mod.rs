@@ -5,7 +5,7 @@ use hyper::{body::Frame, Response};
 use log::{debug, error, trace};
 use m3u8_rs::{MasterPlaylist, VariantStream};
 use rand::Rng;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use tokiort::TokioIo;
 use url_utils::decode_path;
 

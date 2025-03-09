@@ -2,11 +2,10 @@ use gst::prelude::*;
 use gtk::prelude::*;
 use gtk::{glib, Application, ApplicationWindow};
 use gtk4 as gtk;
-use log::{debug, info, trace, warn};
+use log::{debug, error, info, trace, warn};
 use om_sender::primary::PrimaryView;
 use om_sender::select_source::SelectSourceView;
 use om_sender::session::session;
-use om_sender::signaller::run_server;
 
 use std::cell::RefCell;
 
@@ -15,32 +14,28 @@ use om_sender::{Event, Message};
 async fn event_loop(
     mut primary_view: PrimaryView,
     mut event_rx: tokio::sync::mpsc::Receiver<Event>,
+    event_tx: tokio::sync::mpsc::Sender<Event>,
     tx: tokio::sync::mpsc::Sender<Message>,
     select_source_tx: tokio::sync::mpsc::Sender<usize>,
     main_view_stack: gtk::Stack,
     select_source_view: SelectSourceView,
     fin_tx: tokio::sync::oneshot::Sender<()>,
 ) {
-    let mut producer_id = None;
     while let Some(event) = event_rx.recv().await {
-        debug!("{event:?}");
         match event {
             Event::Quit => break,
-            Event::ProducerConnected(id) => producer_id = Some(id),
+            Event::ProducerConnected(id) => {
+                debug!("Got producer peer id: {id}");
+                primary_view.set_producer_id(id);
+            }
             Event::Start => {
-                // let Some(ref producer_id) = producer_id else {
-                //     error!("No producer available for casting");
-                //     continue;
-                // };
-                // tx.send(Message::Play(format!(
-                //     // "gstwebrtc://192.168.1.133:8443?peer-id={producer_id}"
-                //     "gstwebrtc://127.0.0.1:8443?peer-id={producer_id}"
-                // )))
-                // .await
-                // .unwrap();
-                tx.send(Message::Play(primary_view.get_stream_uri()))
-                    .await
-                    .unwrap();
+                if let Some(play_msg) = primary_view.get_play_msg() {
+                    tx.send(play_msg)
+                        .await
+                        .unwrap();
+                } else {
+                    error!("Could not get stream uri");
+                }
             }
             Event::Stop => {
                 tx.send(Message::Stop).await.unwrap();
@@ -67,7 +62,7 @@ async fn event_loop(
                 select_source_tx.send(idx).await.unwrap();
                 main_view_stack.set_visible_child(primary_view.main_widget());
                 if sink_type == 0 {
-                    primary_view.add_webrtc_sink();
+                    primary_view.add_webrtc_sink(event_tx.clone());
                 } else {
                     primary_view.add_hls_sink();
                 }
@@ -87,8 +82,8 @@ async fn event_loop(
 
 fn build_ui(app: &Application) {
     info!("Starting signalling server");
-    let (prod_peer_tx, prod_peer_rx) = tokio::sync::oneshot::channel();
-    om_common::runtime().spawn(run_server(prod_peer_tx));
+    // let (prod_peer_tx, prod_peer_rx) = tokio::sync::oneshot::channel();
+    // om_common::runtime().spawn(run_server(prod_peer_tx));
 
     let (event_tx, event_rx) = tokio::sync::mpsc::channel::<Event>(100);
     let (selected_tx, selected_rx) = tokio::sync::mpsc::channel::<usize>(1);
@@ -121,24 +116,26 @@ fn build_ui(app: &Application) {
         .setup_bus_watch(app.downgrade())
         .expect("Failed to add bus watch");
 
-    let event_tx_clone = event_tx.clone();
-    om_common::runtime().spawn(async move {
-        debug!("Waiting for the producer to connect...");
-        let peer_id = prod_peer_rx.await.unwrap();
-        debug!("Producer connected peer_id={peer_id}");
-        event_tx_clone
-            .send(Event::ProducerConnected(peer_id))
-            .await
-            .unwrap();
-    });
+    // let event_tx_clone = event_tx.clone();
+    // om_common::runtime().spawn(async move {
+    //     debug!("Waiting for the producer to connect...");
+    //     let peer_id = prod_peer_rx.await.unwrap();
+    //     debug!("Producer connected peer_id={peer_id}");
+    //     event_tx_clone
+    //         .send(Event::ProducerConnected(peer_id))
+    //         .await
+    //         .unwrap();
+    // });
 
     let tx_clone = session_tx.clone();
     let pipeline = RefCell::new(Some(primary_view.pipeline.downgrade()));
+    let event_tx_clone = event_tx.clone();
     let (fin_tx, fin_rx) = tokio::sync::oneshot::channel::<()>();
     glib::spawn_future_local(async move {
         event_loop(
             primary_view,
             event_rx,
+            event_tx_clone,
             tx_clone,
             selected_tx,
             main_view_stack,
