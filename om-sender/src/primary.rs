@@ -289,6 +289,14 @@ impl PrimaryView {
         }
     }
 
+    pub fn shutdown(&self) {
+        let s = self.s.lock().unwrap();
+        match *s {
+            S::Hls(ref sink) => sink.hls.shutdown(),
+            _ => (),
+        }
+    }
+
     pub fn main_widget(&self) -> &gtk::Box {
         &self.vbox
     }

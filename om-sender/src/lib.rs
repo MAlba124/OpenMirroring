@@ -17,6 +17,7 @@ pub type ProducerId = String;
 
 #[derive(Debug)]
 pub enum Event {
+    Quit,
     ProducerConnected(ProducerId),
     Start,
     Stop,

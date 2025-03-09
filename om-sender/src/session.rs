@@ -80,4 +80,6 @@ pub async fn session(mut msg_rx: Receiver<Message>, event_tx: Sender<Event>) {
     }
 
     debug!("Session terminated");
+
+    event_tx.send(Event::Quit).await.unwrap();
 }

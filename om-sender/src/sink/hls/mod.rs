@@ -4,10 +4,13 @@ use http_body_util::{combinators::BoxBody, BodyExt, Full, StreamBody};
 use hyper::{body::Frame, Response};
 use log::{debug, error, trace};
 use m3u8_rs::{MasterPlaylist, VariantStream};
+use rand::Rng;
 use std::path::{Path, PathBuf};
 use tokiort::TokioIo;
+use url_utils::decode_path;
 
 mod tokiort;
+mod url_utils;
 
 fn get_codec_name(sink: &gst::Element) -> String {
     let pad = sink.static_pad("sink").unwrap();
@@ -33,11 +36,7 @@ async fn request_handler(
     }
 
     // TODO: remove `..` and friends
-    let uri = req
-        .uri()
-        .path()
-        .trim_start_matches("/")
-        .replace("%20", " "); // HACK: use propper url decoder
+    let uri = decode_path(req.uri().path().trim_start_matches("/")).unwrap();
 
     base_path.push(&uri);
 
@@ -96,7 +95,20 @@ async fn serve_dir(base: PathBuf) {
     }
 }
 
+// TODO: Make portable
+fn generate_rand_tmp_dir_path() -> PathBuf {
+    let mut rng = rand::rng();
+    // Spin until we generate a sub directory in /tmp that does not exist
+    loop {
+        let path = PathBuf::from(format!("/tmp/om-{}", rng.random::<u32>()));
+        if !path.exists() {
+            return path;
+        }
+    }
+}
+
 pub struct Hls {
+    base_path: PathBuf,
     pub main_path: PathBuf,
     pub enc: gst::Element,
     pub enc_caps: gst::Element,
@@ -123,16 +135,15 @@ impl Hls {
             )
             .build()?;
 
-        // (high)TODO: make random path like "om-{random digits}"
-        let main_path = PathBuf::from("/tmp/om-hls");
-        std::fs::create_dir_all(main_path).unwrap();
+        let base_path = generate_rand_tmp_dir_path();
+        std::fs::create_dir_all(&base_path).unwrap();
 
-        om_common::runtime().spawn(serve_dir(main_path.clone()));
+        om_common::runtime().spawn(serve_dir(base_path.clone()));
 
-        let mut manifest_path = main_path.clone();
+        let mut manifest_path = base_path.clone();
         manifest_path.push("manifest.m3u8");
 
-        let mut path = main_path.clone();
+        let mut path = base_path.clone();
         path.push("video");
         std::fs::create_dir_all(&path).unwrap();
 
@@ -191,6 +202,7 @@ impl Hls {
         pipeline.add_many([&enc, &enc_caps, &sink])?;
 
         Ok(Self {
+            base_path,
             enc,
             enc_caps,
             sink,
@@ -224,5 +236,12 @@ impl Hls {
         playlist.write_to(&mut file).unwrap();
 
         self.write_playlist = false;
+    }
+
+    pub fn shutdown(&self) {
+        if let Err(err) = std::fs::remove_dir_all(&self.base_path) {
+            error!("Failed to remove {}: {err}", self.base_path.display());
+        }
+        debug!("Removed stream directory at {}", self.base_path.display());
     }
 }

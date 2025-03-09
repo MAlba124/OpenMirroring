@@ -2,7 +2,7 @@ use gst::prelude::*;
 use gtk::prelude::*;
 use gtk::{glib, Application, ApplicationWindow};
 use gtk4 as gtk;
-use log::{debug, error, info, trace};
+use log::{debug, info, trace, warn};
 use om_sender::primary::PrimaryView;
 use om_sender::select_source::SelectSourceView;
 use om_sender::session::session;
@@ -19,10 +19,13 @@ async fn event_loop(
     select_source_tx: tokio::sync::mpsc::Sender<usize>,
     main_view_stack: gtk::Stack,
     select_source_view: SelectSourceView,
+    fin_tx: tokio::sync::oneshot::Sender<()>,
 ) {
     let mut producer_id = None;
     while let Some(event) = event_rx.recv().await {
+        debug!("{event:?}");
         match event {
+            Event::Quit => break,
             Event::ProducerConnected(id) => producer_id = Some(id),
             Event::Start => {
                 // let Some(ref producer_id) = producer_id else {
@@ -74,6 +77,12 @@ async fn event_loop(
             }
         }
     }
+
+    debug!("Quitting");
+
+    primary_view.shutdown();
+
+    fin_tx.send(()).unwrap();
 }
 
 fn build_ui(app: &Application) {
@@ -125,6 +134,7 @@ fn build_ui(app: &Application) {
 
     let tx_clone = session_tx.clone();
     let pipeline = RefCell::new(Some(primary_view.pipeline.downgrade()));
+    let (fin_tx, fin_rx) = tokio::sync::oneshot::channel::<()>();
     glib::spawn_future_local(async move {
         event_loop(
             primary_view,
@@ -133,11 +143,13 @@ fn build_ui(app: &Application) {
             selected_tx,
             main_view_stack,
             select_source_view,
+            fin_tx,
         )
         .await;
     });
 
     let bus_watch = RefCell::new(Some(bus_watch));
+    let fin_rx = std::sync::Arc::new(std::sync::Mutex::new(Some(fin_rx)));
     app.connect_shutdown(move |_| {
         debug!("Shutting down");
 
@@ -153,13 +165,37 @@ fn build_ui(app: &Application) {
                     .expect("Unable to set the pipeline to the `Null` state");
             }
 
-            om_common::runtime().block_on(async {
-                if !session_tx.is_closed() {
-                    session_tx.send(Message::Quit).await.unwrap();
-                } else {
-                    debug!("Tx was closed, weird");
+            // Since the event-loop runs on the main thread and glib does not have a `runtime::block_on`
+            // alternative (i think), we need to create a MainLoop that we use to wait for the future
+            // spawned below to finish.
+            let main_loop = glib::MainLoop::new(None, false); // Lol!
+
+            glib::spawn_future_local(glib::clone!(
+                #[strong]
+                fin_rx,
+                #[strong]
+                session_tx,
+                #[strong]
+                main_loop,
+                async move {
+                    if !session_tx.is_closed() {
+                        session_tx.send(Message::Quit).await.unwrap();
+                        if let Some(fin_rx) = fin_rx.lock().unwrap().take() {
+                            debug!("Waiting for fin signal...");
+                            fin_rx.await.unwrap();
+                            debug!("Got fin signal")
+                        } else {
+                            warn!("Missing fin signal receiver");
+                        }
+                    } else {
+                        debug!("Tx was closed, weird");
+                    }
+                    debug!("Quitting main loop");
+                    main_loop.quit();
                 }
-            });
+            ));
+
+            main_loop.run();
         }
     });
 
