@@ -15,5 +15,3 @@ gst-gtk4 = { workspace = true }
 gtk4 = { workspace = true }
 fcast-lib = { path = "../fcast-lib" }
 om-common = { path = "../om-common" }
-pnet_datalink = "0.35.0"
-ipnetwork = "0.20.0"

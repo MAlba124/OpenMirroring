@@ -175,12 +175,10 @@ async fn gui_event_loop(
 
 fn build_ui(app: &Application) {
     let mut ips: Vec<Ipv4Addr> = Vec::new();
-    for iface in pnet_datalink::interfaces() {
-        for ip in iface.ips {
-            match ip {
-                ipnetwork::IpNetwork::V4(v4) => ips.push(v4.ip()),
-                ipnetwork::IpNetwork::V6(v6) => warn!("Found IPv6 address ({v6:?}), ignoring"),
-            }
+    for ip in om_common::net::get_all_ip_addresses() {
+        match ip {
+            om_common::net::Addr::V4(v4) => ips.push(v4),
+            om_common::net::Addr::V6(v6) => warn!("Found IPv6 address ({v6:?}), ignoring"),
         }
     }
 

@@ -5,3 +5,10 @@ edition = "2021"
 
 [dependencies]
 tokio = { workspace = true }
+
+[target.'cfg(target_os = "windows")'.dependencies]
+windows = "0.60.0"
+
+[target.'cfg(not(target_os = "windows"))'.dependencies]
+pnet_datalink = "0.35.0"
+ipnetwork = "0.20.0"
