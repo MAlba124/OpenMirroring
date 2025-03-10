@@ -178,6 +178,7 @@ impl PrimaryView {
     pub fn setup_bus_watch(
         &self,
         app_weak: glib::WeakRef<gtk::Application>,
+        event_tx: Sender<Event>,
     ) -> Result<BusWatchGuard, glib::BoolError> {
         let bus = self.pipeline.bus().unwrap();
         let pipeline_weak = self.pipeline.downgrade();
@@ -203,6 +204,9 @@ impl PrimaryView {
                                 && state_changed.current() == gst::State::Playing
                             {
                                 hls.hls.write_manifest_file();
+                                om_common::runtime().block_on(async {
+                                    event_tx.send(Event::HlsStreamReady).await.unwrap();
+                                });
                             }
                         }
                         _ => (),

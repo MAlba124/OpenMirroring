@@ -4,6 +4,7 @@ pub mod primary;
 pub mod select_source;
 pub mod session;
 pub mod sink;
+pub mod loading_hls;
 
 #[derive(Debug)]
 pub enum Message {
@@ -26,4 +27,5 @@ pub enum Event {
     SelectSource(usize, usize),
     Packet(fcast_lib::packet::Packet),
     HlsServerAddr { port: u16 },
+    HlsStreamReady,
 }

@@ -20,6 +20,7 @@ async fn event_loop(
     main_view_stack: gtk::Stack,
     select_source_view: SelectSourceView,
     fin_tx: tokio::sync::oneshot::Sender<()>,
+    loading_hls: om_sender::loading_hls::LoadingHlsView,
 ) {
     while let Some(event) = event_rx.recv().await {
         match event {
@@ -58,10 +59,11 @@ async fn event_loop(
             }
             Event::SelectSource(idx, sink_type) => {
                 select_source_tx.send(idx).await.unwrap();
-                main_view_stack.set_visible_child(primary_view.main_widget());
                 if sink_type == 0 {
+                    main_view_stack.set_visible_child(primary_view.main_widget());
                     primary_view.add_webrtc_sink(event_tx.clone()).unwrap();
                 } else {
+                    main_view_stack.set_visible_child(loading_hls.main_widget());
                     primary_view.add_hls_sink(event_tx.clone()).unwrap();
                 }
             }
@@ -69,6 +71,7 @@ async fn event_loop(
                 trace!("Unhandled packet: {packet:?}");
             }
             Event::HlsServerAddr { port } => primary_view.set_server_port(port),
+            Event::HlsStreamReady => main_view_stack.set_visible_child(primary_view.main_widget()),
         }
     }
 
@@ -95,6 +98,9 @@ fn build_ui(app: &Application) {
     let select_source_view = om_sender::select_source::SelectSourceView::new(event_tx.clone());
     main_view_stack.add_child(select_source_view.main_widget());
 
+    let loading_hls = om_sender::loading_hls::LoadingHlsView::new();
+    main_view_stack.add_child(loading_hls.main_widget());
+
     main_view_stack.add_child(primary_view.main_widget());
 
     let window = ApplicationWindow::builder()
@@ -106,7 +112,7 @@ fn build_ui(app: &Application) {
     window.present();
 
     let bus_watch = primary_view
-        .setup_bus_watch(app.downgrade())
+        .setup_bus_watch(app.downgrade(), event_tx.clone())
         .expect("Failed to add bus watch");
 
     let tx_clone = session_tx.clone();
@@ -123,6 +129,7 @@ fn build_ui(app: &Application) {
             main_view_stack,
             select_source_view,
             fin_tx,
+            loading_hls,
         )
         .await;
     });
