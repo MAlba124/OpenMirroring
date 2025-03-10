@@ -3,11 +3,11 @@ use gtk4 as gtk;
 use gtk::prelude::*;
 use std::sync::{Arc, Mutex};
 
-use gst::prelude::*;
 use gst::bus::BusWatchGuard;
 use gst::glib;
-use tokio::sync::mpsc::{Receiver, Sender};
+use gst::prelude::*;
 use log::{debug, error};
+use tokio::sync::mpsc::{Receiver, Sender};
 
 use crate::Event;
 
@@ -110,7 +110,14 @@ impl Pipeline {
 
         let sink_state = Arc::new(Mutex::new(SinkState::Unset));
 
-        Ok((Self { inner: pipeline, sink_state, tee }, widget))
+        Ok((
+            Self {
+                inner: pipeline,
+                sink_state,
+                tee,
+            },
+            widget,
+        ))
     }
 
     pub fn setup_bus_watch(
@@ -183,7 +190,10 @@ impl Pipeline {
         tee_pad
             .link(&queue_pad)
             .map_err(|err| glib::bool_error!("{err}"))?;
-        let mut s = self.sink_state.lock().map_err(|err| glib::bool_error!("{err}"))?;
+        let mut s = self
+            .sink_state
+            .lock()
+            .map_err(|err| glib::bool_error!("{err}"))?;
         *s = SinkState::WebRTC(webrtc_);
 
         Ok(())
@@ -204,7 +214,10 @@ impl Pipeline {
             .link(&queue_pad)
             .map_err(|err| glib::bool_error!("{err}"))?;
 
-        let mut s = self.sink_state.lock().map_err(|err| glib::bool_error!("{err}"))?;
+        let mut s = self
+            .sink_state
+            .lock()
+            .map_err(|err| glib::bool_error!("{err}"))?;
         *s = SinkState::Hls(hls_);
 
         Ok(())

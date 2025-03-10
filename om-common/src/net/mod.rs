@@ -11,6 +11,15 @@ pub enum Addr {
     V6(Ipv6Addr),
 }
 
+impl ToString for Addr {
+    fn to_string(&self) -> String {
+        match self {
+            Addr::V4(v4) => v4.to_string(),
+            Addr::V6(v6) => format!("[{v6}]"),
+        }
+    }
+}
+
 pub fn get_all_ip_addresses() -> Vec<Addr> {
     #[cfg(target_os = "windows")]
     { win::get_all_ip_addresses() }

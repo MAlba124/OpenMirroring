@@ -81,7 +81,8 @@ fn build_ui(app: &Application) {
     let (event_tx, event_rx) = tokio::sync::mpsc::channel::<Event>(100);
     let (selected_tx, selected_rx) = tokio::sync::mpsc::channel::<usize>(1);
 
-    let (pipeline, gst_widget) = om_sender::pipeline::Pipeline::new(event_tx.clone(), selected_rx).unwrap();
+    let (pipeline, gst_widget) =
+        om_sender::pipeline::Pipeline::new(event_tx.clone(), selected_rx).unwrap();
 
     let main_view = om_sender::views::Main::new(event_tx.clone(), gst_widget);
 
