@@ -2,35 +2,31 @@ use gst::prelude::*;
 use gtk::prelude::*;
 use gtk::{glib, Application, ApplicationWindow};
 use gtk4 as gtk;
-use log::{debug, error, info, trace, warn};
-use om_sender::primary::PrimaryView;
-use om_sender::select_source::SelectSourceView;
+use log::{debug, error, trace, warn};
 use om_sender::session::session;
+use om_sender::views::{StateChange, View};
 
 use std::cell::RefCell;
 
 use om_sender::{Event, Message};
 
 async fn event_loop(
-    mut primary_view: PrimaryView,
+    mut main_view: om_sender::views::Main,
     mut event_rx: tokio::sync::mpsc::Receiver<Event>,
     event_tx: tokio::sync::mpsc::Sender<Event>,
     tx: tokio::sync::mpsc::Sender<Message>,
     select_source_tx: tokio::sync::mpsc::Sender<usize>,
-    main_view_stack: gtk::Stack,
-    select_source_view: SelectSourceView,
     fin_tx: tokio::sync::oneshot::Sender<()>,
-    loading_hls: om_sender::loading_hls::LoadingHlsView,
 ) {
     while let Some(event) = event_rx.recv().await {
         match event {
             Event::Quit => break,
             Event::ProducerConnected(id) => {
                 debug!("Got producer peer id: {id}");
-                primary_view.set_producer_id(id);
+                main_view.primary.set_producer_id(id);
             }
             Event::Start => {
-                if let Some(play_msg) = primary_view.get_play_msg() {
+                if let Some(play_msg) = main_view.primary.get_play_msg() {
                     tx.send(play_msg).await.unwrap();
                 } else {
                     error!("Could not get stream uri");
@@ -40,96 +36,79 @@ async fn event_loop(
                 tx.send(Message::Stop).await.unwrap();
             }
             Event::EnablePreview => {
-                primary_view
+                main_view
+                    .primary
                     .preview_stack
-                    .set_visible_child(&primary_view.gst_widget);
+                    .set_visible_child(&main_view.primary.gst_widget);
             }
             Event::DisablePreview => {
-                primary_view
+                main_view
+                    .primary
                     .preview_stack
-                    .set_visible_child(&primary_view.preview_disabled_label);
+                    .set_visible_child(&main_view.primary.preview_disabled_label);
             }
             Event::Sources(sources) => {
                 debug!("Available sources: {sources:?}");
-                let l = gtk::StringList::new(
-                    &sources.iter().map(|s| s.as_str()).collect::<Vec<&str>>(),
-                );
-                select_source_view.drop_down.set_model(Some(&l));
-                main_view_stack.set_visible_child(select_source_view.main_widget());
+                main_view.change_state(StateChange::LoadingSourcesToSelectSources(sources));
             }
             Event::SelectSource(idx, sink_type) => {
                 select_source_tx.send(idx).await.unwrap();
                 if sink_type == 0 {
-                    main_view_stack.set_visible_child(primary_view.main_widget());
-                    primary_view.add_webrtc_sink(event_tx.clone()).unwrap();
+                    main_view.change_state(StateChange::SelectSourceToPrimary);
+                    main_view.primary.add_webrtc_sink(event_tx.clone()).unwrap();
                 } else {
-                    main_view_stack.set_visible_child(loading_hls.main_widget());
-                    primary_view.add_hls_sink(event_tx.clone()).unwrap();
+                    main_view.change_state(StateChange::SelectSourceToLoadingHlsStream);
+                    main_view.primary.add_hls_sink(event_tx.clone()).unwrap();
                 }
             }
             Event::Packet(packet) => {
                 trace!("Unhandled packet: {packet:?}");
             }
-            Event::HlsServerAddr { port } => primary_view.set_server_port(port),
-            Event::HlsStreamReady => main_view_stack.set_visible_child(primary_view.main_widget()),
+            Event::HlsServerAddr { port } => main_view.primary.set_server_port(port),
+            Event::HlsStreamReady => main_view.change_state(StateChange::LoadingHlsStreamToPrimary),
         }
     }
 
     debug!("Quitting");
 
-    primary_view.shutdown();
+    main_view.primary.shutdown();
 
     fin_tx.send(()).unwrap();
 }
 
 fn build_ui(app: &Application) {
-    info!("Starting signalling server");
-
     let (event_tx, event_rx) = tokio::sync::mpsc::channel::<Event>(100);
     let (selected_tx, selected_rx) = tokio::sync::mpsc::channel::<usize>(1);
-    let primary_view = om_sender::primary::PrimaryView::new(event_tx.clone(), selected_rx).unwrap();
+
+    let main_view = om_sender::views::Main::new(event_tx.clone(), selected_rx);
 
     let (session_tx, session_rx) = tokio::sync::mpsc::channel::<Message>(100);
-
-    let main_view_stack = gtk::Stack::new();
-    let loading_sources_view = om_sender::loading::LoadingSourcesView::new();
-    main_view_stack.add_child(loading_sources_view.main_widget());
-
-    let select_source_view = om_sender::select_source::SelectSourceView::new(event_tx.clone());
-    main_view_stack.add_child(select_source_view.main_widget());
-
-    let loading_hls = om_sender::loading_hls::LoadingHlsView::new();
-    main_view_stack.add_child(loading_hls.main_widget());
-
-    main_view_stack.add_child(primary_view.main_widget());
 
     let window = ApplicationWindow::builder()
         .application(app)
         .title("OMSender")
-        .child(&main_view_stack)
+        .child(main_view.main_widget())
         .build();
 
     window.present();
 
-    let bus_watch = primary_view
+    let bus_watch = main_view
+        .primary
         .setup_bus_watch(app.downgrade(), event_tx.clone())
         .expect("Failed to add bus watch");
 
     let tx_clone = session_tx.clone();
-    let pipeline = RefCell::new(Some(primary_view.pipeline.downgrade()));
+    let pipeline = RefCell::new(Some(main_view.primary.pipeline.downgrade()));
     let event_tx_clone = event_tx.clone();
     let (fin_tx, fin_rx) = tokio::sync::oneshot::channel::<()>();
     glib::spawn_future_local(async move {
         event_loop(
-            primary_view,
+            main_view,
             event_rx,
             event_tx_clone,
             tx_clone,
             selected_tx,
-            main_view_stack,
-            select_source_view,
             fin_tx,
-            loading_hls,
         )
         .await;
     });
@@ -145,7 +124,7 @@ fn build_ui(app: &Application) {
 
         if let Some(pipeline) = pipeline.borrow_mut().take() {
             if let Some(pipeline) = pipeline.upgrade() {
-                pipeline.debug_to_dot_file(gst::DebugGraphDetails::ALL, "gstdebug");
+                // TODO: If the source is not selected, this just blocks forever
                 pipeline
                     .set_state(gst::State::Null)
                     .expect("Unable to set the pipeline to the `Null` state");
@@ -154,7 +133,7 @@ fn build_ui(app: &Application) {
             // Since the event-loop runs on the main thread and glib does not have a `runtime::block_on`
             // alternative (i think), we need to create a MainLoop that we use to wait for the future
             // spawned below to finish.
-            let main_loop = glib::MainLoop::new(None, false); // Lol!
+            let main_loop = glib::MainLoop::new(None, false);
 
             glib::spawn_future_local(glib::clone!(
                 #[strong]

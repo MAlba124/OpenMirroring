@@ -1,10 +1,11 @@
 // TODO: make `views` module and put the views as sub
-pub mod loading;
-pub mod primary;
-pub mod select_source;
+pub mod views;
+// pub mod loading;
+// pub mod loading_hls;
+// pub mod primary;
+// pub mod select_source;
 pub mod session;
 pub mod sink;
-pub mod loading_hls;
 
 #[derive(Debug)]
 pub enum Message {

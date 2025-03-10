@@ -4,14 +4,14 @@ use gtk::prelude::*;
 use gtk4 as gtk;
 
 #[allow(dead_code)]
-pub struct SelectSourceView {
+pub struct SelectSource {
     hbox: gtk::Box,
     source_label: gtk::Label,
     pub drop_down: gtk::DropDown,
     button: gtk::Button,
 }
 
-impl SelectSourceView {
+impl SelectSource {
     pub fn new(event_tx: tokio::sync::mpsc::Sender<Event>) -> Self {
         let source_vbox = gtk::Box::builder()
             .orientation(gtk::Orientation::Vertical)
@@ -82,8 +82,10 @@ impl SelectSourceView {
             button,
         }
     }
+}
 
-    pub fn main_widget(&self) -> &gtk::Box {
-        &self.hbox
+impl super::View for SelectSource {
+    fn main_widget(&self) -> &gtk4::Widget {
+        self.hbox.upcast_ref()
     }
 }

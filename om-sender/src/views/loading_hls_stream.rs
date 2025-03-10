@@ -1,35 +1,28 @@
-use gtk::prelude::*;
-use gtk4 as gtk;
+use gtk4::{self as gtk, prelude::BoxExt, prelude::Cast};
 
-#[allow(dead_code)]
-pub struct LoadingSourcesView {
+pub struct LoadingHlsStream {
     vbox: gtk::Box,
-    spinner: gtk::Spinner,
-    label: gtk::Label,
 }
 
-impl LoadingSourcesView {
+impl LoadingHlsStream {
     pub fn new() -> Self {
         let vbox = gtk::Box::builder()
             .orientation(gtk::Orientation::Vertical)
             .valign(gtk::Align::Center)
             .halign(gtk::Align::Center)
             .build();
-
         let spinner = gtk::Spinner::builder().spinning(true).build();
-        let label = gtk::Label::new(Some("Loading sources"));
+        let label = gtk::Label::new(Some("Setting up stream"));
 
         vbox.append(&spinner);
         vbox.append(&label);
 
-        Self {
-            vbox,
-            spinner,
-            label,
-        }
+        Self { vbox }
     }
+}
 
-    pub fn main_widget(&self) -> &gtk::Box {
-        &self.vbox
+impl super::View for LoadingHlsStream {
+    fn main_widget(&self) -> &gtk4::Widget {
+        self.vbox.upcast_ref()
     }
 }

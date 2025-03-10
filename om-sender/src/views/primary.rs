@@ -17,7 +17,7 @@ enum S {
     Hls(crate::sink::HlsSink),
 }
 
-pub struct PrimaryView {
+pub struct Primary {
     pub pipeline: gst::Pipeline,
     vbox: gtk::Box,
     pub preview_stack: gtk::Stack,
@@ -27,7 +27,7 @@ pub struct PrimaryView {
     s: Arc<Mutex<S>>,
 }
 
-impl PrimaryView {
+impl Primary {
     pub fn new(
         event_tx: Sender<Event>,
         selected_rx: Receiver<usize>,
@@ -304,8 +304,10 @@ impl PrimaryView {
             _ => error!("Attempted to set server port for non HLS sink"),
         }
     }
+}
 
-    pub fn main_widget(&self) -> &gtk::Box {
-        &self.vbox
+impl super::View for Primary {
+    fn main_widget(&self) -> &gtk4::Widget {
+        self.vbox.upcast_ref()
     }
 }
