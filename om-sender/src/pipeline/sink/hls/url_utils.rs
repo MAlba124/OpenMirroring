@@ -179,6 +179,7 @@ mod tests {
     #[quickcheck]
     // QUICKCHECK_TESTS=100000 cargo test
     fn encode_decode(s: String) -> bool {
-        Ok(s.clone()) == decode_path(&encode_path(&s))
+        let res = decode_path(&encode_path(&s));
+        Ok(s) == res
     }
 }

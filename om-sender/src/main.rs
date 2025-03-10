@@ -11,7 +11,8 @@ use std::cell::RefCell;
 use om_sender::{Event, Message};
 
 async fn event_loop(
-    mut main_view: om_sender::views::Main,
+    mut pipeline: om_sender::pipeline::Pipeline,
+    main_view: om_sender::views::Main,
     mut event_rx: tokio::sync::mpsc::Receiver<Event>,
     event_tx: tokio::sync::mpsc::Sender<Event>,
     tx: tokio::sync::mpsc::Sender<Message>,
@@ -23,10 +24,10 @@ async fn event_loop(
             Event::Quit => break,
             Event::ProducerConnected(id) => {
                 debug!("Got producer peer id: {id}");
-                main_view.primary.set_producer_id(id);
+                pipeline.set_producer_id(id);
             }
             Event::Start => {
-                if let Some(play_msg) = main_view.primary.get_play_msg() {
+                if let Some(play_msg) = pipeline.get_play_msg() {
                     tx.send(play_msg).await.unwrap();
                 } else {
                     error!("Could not get stream uri");
@@ -55,23 +56,23 @@ async fn event_loop(
                 select_source_tx.send(idx).await.unwrap();
                 if sink_type == 0 {
                     main_view.change_state(StateChange::SelectSourceToPrimary);
-                    main_view.primary.add_webrtc_sink(event_tx.clone()).unwrap();
+                    pipeline.add_webrtc_sink(event_tx.clone()).unwrap();
                 } else {
                     main_view.change_state(StateChange::SelectSourceToLoadingHlsStream);
-                    main_view.primary.add_hls_sink(event_tx.clone()).unwrap();
+                    pipeline.add_hls_sink(event_tx.clone()).unwrap();
                 }
             }
             Event::Packet(packet) => {
                 trace!("Unhandled packet: {packet:?}");
             }
-            Event::HlsServerAddr { port } => main_view.primary.set_server_port(port),
+            Event::HlsServerAddr { port } => pipeline.set_server_port(port),
             Event::HlsStreamReady => main_view.change_state(StateChange::LoadingHlsStreamToPrimary),
         }
     }
 
     debug!("Quitting");
 
-    main_view.primary.shutdown();
+    pipeline.shutdown();
 
     fin_tx.send(()).unwrap();
 }
@@ -80,7 +81,9 @@ fn build_ui(app: &Application) {
     let (event_tx, event_rx) = tokio::sync::mpsc::channel::<Event>(100);
     let (selected_tx, selected_rx) = tokio::sync::mpsc::channel::<usize>(1);
 
-    let main_view = om_sender::views::Main::new(event_tx.clone(), selected_rx);
+    let (pipeline, gst_widget) = om_sender::pipeline::Pipeline::new(event_tx.clone(), selected_rx).unwrap();
+
+    let main_view = om_sender::views::Main::new(event_tx.clone(), gst_widget);
 
     let (session_tx, session_rx) = tokio::sync::mpsc::channel::<Message>(100);
 
@@ -92,17 +95,17 @@ fn build_ui(app: &Application) {
 
     window.present();
 
-    let bus_watch = main_view
-        .primary
+    let bus_watch = pipeline
         .setup_bus_watch(app.downgrade(), event_tx.clone())
         .expect("Failed to add bus watch");
 
     let tx_clone = session_tx.clone();
-    let pipeline = RefCell::new(Some(main_view.primary.pipeline.downgrade()));
+    let pipeline_weak = RefCell::new(Some(pipeline.inner.downgrade()));
     let event_tx_clone = event_tx.clone();
     let (fin_tx, fin_rx) = tokio::sync::oneshot::channel::<()>();
     glib::spawn_future_local(async move {
         event_loop(
+            pipeline,
             main_view,
             event_rx,
             event_tx_clone,
@@ -122,7 +125,7 @@ fn build_ui(app: &Application) {
 
         drop(bus_watch.borrow_mut().take());
 
-        if let Some(pipeline) = pipeline.borrow_mut().take() {
+        if let Some(pipeline) = pipeline_weak.borrow_mut().take() {
             if let Some(pipeline) = pipeline.upgrade() {
                 // TODO: If the source is not selected, this just blocks forever
                 pipeline

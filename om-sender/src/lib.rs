@@ -1,6 +1,6 @@
-pub mod views;
+pub mod pipeline;
 pub mod session;
-pub mod sink;
+pub mod views;
 
 #[derive(Debug)]
 pub enum Message {

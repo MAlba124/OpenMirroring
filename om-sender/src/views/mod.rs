@@ -1,6 +1,6 @@
 use gtk::prelude::Cast;
 use gtk4 as gtk;
-use tokio::sync::mpsc::{Receiver, Sender};
+use tokio::sync::mpsc::Sender;
 
 use crate::Event;
 
@@ -30,12 +30,14 @@ pub struct Main {
 }
 
 impl Main {
-    pub fn new(event_tx: Sender<Event>, selected_rx: Receiver<usize>) -> Self {
+    // pub fn new(event_tx: Sender<Event>, selected_rx: Receiver<usize>) -> Self {
+    pub fn new(event_tx: Sender<Event>, gst_widget: gst_gtk4::RenderWidget) -> Self {
         let stack = gtk::Stack::new();
         let loading_sources = loading_sources::LoadingSources::new();
         let select_source = select_source::SelectSource::new(event_tx.clone());
         let loading_hls_stream = loading_hls_stream::LoadingHlsStream::new();
-        let primary = primary::Primary::new(event_tx, selected_rx).unwrap();
+        // let primary = primary::Primary::new(event_tx, selected_rx).unwrap();
+        let primary = primary::Primary::new(event_tx, gst_widget).unwrap();
 
         stack.add_child(loading_sources.main_widget());
         stack.add_child(select_source.main_widget());
