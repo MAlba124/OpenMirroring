@@ -50,6 +50,8 @@ pub fn decode_path(s: &str) -> Result<String, std::string::FromUtf8Error> {
 
 #[cfg(test)]
 mod tests {
+    use quickcheck_macros::quickcheck;
+
     use super::*;
 
     #[inline]
@@ -172,5 +174,11 @@ mod tests {
     #[test]
     fn decode_encoded_utf8() {
         assert_eq!(decode_path("%C3%A6%C3%B8%C3%A5"), Ok("æøå".to_owned()));
+    }
+
+    #[quickcheck]
+    // QUICKCHECK_TESTS=100000 cargo test
+    fn encode_decode(s: String) -> bool {
+        Ok(s.clone()) == decode_path(&encode_path(&s))
     }
 }

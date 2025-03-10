@@ -1,9 +1,4 @@
-// TODO: make `views` module and put the views as sub
 pub mod views;
-// pub mod loading;
-// pub mod loading_hls;
-// pub mod primary;
-// pub mod select_source;
 pub mod session;
 pub mod sink;
 
