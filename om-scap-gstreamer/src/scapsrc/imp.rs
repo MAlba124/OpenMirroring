@@ -23,35 +23,15 @@ static CAT: LazyLock<gst::DebugCategory> = LazyLock::new(|| {
     )
 });
 
-struct FrameInfo {
-    width: u32,
-    height: u32,
-    gst_v_format: gst_video::VideoFormat,
-    pts: u64,
-}
-
-macro_rules! frame_info {
-    ($frame:expr, $gst_fmt:expr) => {
-        FrameInfo {
-            width: $frame.width as u32,
-            height: $frame.height as u32,
-            gst_v_format: $gst_fmt,
-            pts: $frame.display_time,
-        }
-    };
-}
-
-impl FrameInfo {
-    pub fn new(frame: &scap::frame::Frame) -> Option<Self> {
-        Some(match frame {
-            scap::frame::Frame::RGB(f) => frame_info!(f, gst_video::VideoFormat::Rgb),
-            scap::frame::Frame::RGBx(f) => frame_info!(f, gst_video::VideoFormat::Rgbx),
-            scap::frame::Frame::XBGR(f) => frame_info!(f, gst_video::VideoFormat::Xbgr),
-            scap::frame::Frame::BGRx(f) => frame_info!(f, gst_video::VideoFormat::Bgrx),
-            scap::frame::Frame::BGR0(f) => frame_info!(f, gst_video::VideoFormat::Bgrx),
-            scap::frame::Frame::BGRA(f) => frame_info!(f, gst_video::VideoFormat::Bgra),
-            _ => return None,
-        })
+fn frame_format_to_gst(format: &scap::frame::FrameFormat) -> gst_video::VideoFormat {
+    match format {
+        scap::frame::FrameFormat::RGB => gst_video::VideoFormat::Rgb,
+        scap::frame::FrameFormat::RGB8 => gst_video::VideoFormat::Rgb8p, // Correct, idk?
+        scap::frame::FrameFormat::RGBx => gst_video::VideoFormat::Rgbx,
+        scap::frame::FrameFormat::XBGR => gst_video::VideoFormat::Xbgr,
+        scap::frame::FrameFormat::BGRx => gst_video::VideoFormat::Bgrx,
+        scap::frame::FrameFormat::BGR => gst_video::VideoFormat::Bgr,
+        scap::frame::FrameFormat::BGRA => gst_video::VideoFormat::Bgra,
     }
 }
 
@@ -96,7 +76,7 @@ impl Default for ScapSrc {
 }
 
 impl ScapSrc {
-    fn ensure_correct_format(&self, frame_info: &FrameInfo) -> Result<(), gst::FlowError> {
+    fn ensure_correct_format(&self, frame_info: &scap::frame::Frame) -> Result<(), gst::FlowError> {
         let state = self.state.lock().unwrap();
 
         let info = match &state.info {
@@ -104,8 +84,10 @@ impl ScapSrc {
             None => return Err(gst::FlowError::NotNegotiated),
         };
 
+        let gst_v_format = frame_format_to_gst(&frame_info.format);
+
         if (state.width, state.height) != (frame_info.width as i32, frame_info.height as i32)
-            || info.format() != frame_info.gst_v_format
+            || info.format() != gst_v_format
         {
             gst::debug!(
                 CAT,
@@ -114,7 +96,7 @@ impl ScapSrc {
             );
 
             let new_video_info = gst_video::VideoInfo::builder(
-                frame_info.gst_v_format,
+                gst_v_format,
                 frame_info.width,
                 frame_info.height,
             )
@@ -370,10 +352,7 @@ impl BaseSrcImpl for ScapSrc {
             show_cursor: settings.show_cursor,
             show_highlight: true,
             target: Some(targets[source_idx as usize].clone()),
-            crop_area: None,
-            output_type: scap::frame::FrameType::BGR0,
             output_resolution: scap::capturer::Resolution::Captured,
-            excluded_targets: None,
         })
         .map_err(|err| gst::error_msg!(gst::LibraryError::Init, ["{err}"]))?;
 
@@ -386,11 +365,13 @@ impl BaseSrcImpl for ScapSrc {
                     ["Failed to perform internal preroll: {err}"]
                 )
             })?;
-            let frame_info = FrameInfo::new(&frame).unwrap();
+
+            let gst_v_format = frame_format_to_gst(&frame.format);
+
             let video_info = gst_video::VideoInfo::builder(
-                frame_info.gst_v_format,
-                frame_info.width,
-                frame_info.height,
+                gst_v_format,
+                frame.width,
+                frame.height,
             )
             .build()
             .map_err(|err| {
@@ -412,7 +393,7 @@ impl BaseSrcImpl for ScapSrc {
                 .map_err(|err| gst::error_msg!(gst::LibraryError::Init, ["{err}"]))?;
 
             let mut state = self.state.lock().unwrap();
-            state.base_time = frame_info.pts;
+            state.base_time = frame.display_time;
         }
 
         *capturer = Some(new_capturer);
@@ -493,33 +474,18 @@ impl PushSrcImpl for ScapSrc {
             gst::FlowError::Error
         })?;
 
-        let Some(frame_info) = FrameInfo::new(&frame) else {
-            gst::element_error!(
-                self.obj(),
-                gst::ResourceError::Failed,
-                ("Unsupported frame format received")
-            );
-            return Err(gst::FlowError::Error);
-        };
+        self.ensure_correct_format(&frame)?;
 
-        self.ensure_correct_format(&frame_info)?;
-
-        let mut buffer = match frame {
-            scap::frame::Frame::RGB(f) => gst::Buffer::from_slice(f.data),
-            scap::frame::Frame::RGBx(f) => gst::Buffer::from_slice(f.data),
-            scap::frame::Frame::XBGR(f) => gst::Buffer::from_slice(f.data),
-            scap::frame::Frame::BGRx(f) => gst::Buffer::from_slice(f.data),
-            scap::frame::Frame::BGR0(f) => gst::Buffer::from_slice(f.data),
-            scap::frame::Frame::BGRA(f) => gst::Buffer::from_slice(f.data),
-            _ => unreachable!(), // Yuv format should already have returned an error
+        let mut buffer = match frame.data {
+            scap::frame::FrameData::Vec(vec) => gst::Buffer::from_slice(vec),
         };
 
         let mut state = self.state.lock().unwrap();
         if state.base_time == u64::default() {
-            state.base_time = frame_info.pts;
+            state.base_time = frame.display_time;
         }
 
-        let pts = frame_info.pts - state.base_time;
+        let pts = frame.display_time - state.base_time;
 
         let buf = buffer.get_mut().unwrap();
         buf.set_pts(gst::ClockTime::from_nseconds(pts));

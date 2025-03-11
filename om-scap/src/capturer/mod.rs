@@ -5,7 +5,7 @@ use std::{error::Error, sync::mpsc};
 use engine::ChannelItem;
 
 use crate::{
-    frame::{Frame, FrameType},
+    frame::Frame,
     has_permission, is_supported,
     targets::Target,
 };
@@ -64,11 +64,7 @@ pub struct Options {
     pub show_cursor: bool,
     pub show_highlight: bool,
     pub target: Option<Target>,
-    pub crop_area: Option<Area>,
-    pub output_type: FrameType,
     pub output_resolution: Resolution,
-    // excluded targets will only work on macOS
-    pub excluded_targets: Option<Vec<Target>>,
 }
 
 /// Screen capturer class
@@ -97,18 +93,6 @@ impl std::fmt::Display for CapturerBuildError {
 impl Error for CapturerBuildError {}
 
 impl Capturer {
-    /// Create a new capturer instance with the provided options
-    #[deprecated(
-        since = "0.0.6",
-        note = "Use `build` instead of `new` to create a new capturer instance."
-    )]
-    pub fn new(options: Options) -> Capturer {
-        let (tx, rx) = mpsc::channel();
-        let engine = engine::Engine::new(&options, tx);
-
-        Capturer { engine, rx }
-    }
-
     /// Build a new [Capturer] instance with the provided options
     pub fn build(options: Options) -> Result<Capturer, CapturerBuildError> {
         if !is_supported() {

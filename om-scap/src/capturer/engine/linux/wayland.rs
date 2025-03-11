@@ -1,12 +1,9 @@
 use std::{
-    mem::size_of,
-    sync::{
+    mem::size_of, sync::{
         atomic::{AtomicBool, AtomicU8},
         mpsc::{sync_channel, Sender, SyncSender},
         Arc,
-    },
-    thread::JoinHandle,
-    time::Duration,
+    }, thread::JoinHandle, time::Duration
 };
 
 use log::error;
@@ -33,7 +30,7 @@ use pw::{
 
 use crate::{
     capturer::Options,
-    frame::{BGRxFrame, Frame, RGBFrame, RGBxFrame, XBGRFrame},
+    frame::{self, Frame},
     targets::get_main_display,
 };
 
@@ -110,10 +107,10 @@ unsafe fn get_timestamp(buffer: *mut spa_buffer) -> i64 {
 fn process_callback(stream: &StreamRef, user_data: &mut ListenerUserData) {
     let buffer = unsafe { stream.dequeue_raw_buffer() };
     if !buffer.is_null() {
-        'outside: {
+        'outer: {
             let buffer = unsafe { (*buffer).buffer };
             if buffer.is_null() {
-                break 'outside;
+                break 'outer;
             }
             let timestamp = unsafe { get_timestamp(buffer) };
 
@@ -130,34 +127,22 @@ fn process_callback(stream: &StreamRef, user_data: &mut ListenerUserData) {
                 .to_vec()
             };
 
-            if let Err(e) = match user_data.format.format() {
-                VideoFormat::RGBx => user_data.tx.send(Frame::RGBx(RGBxFrame {
-                    display_time: timestamp as u64,
-                    width: frame_size.width as i32,
-                    height: frame_size.height as i32,
-                    data: frame_data,
-                })),
-                VideoFormat::RGB => user_data.tx.send(Frame::RGB(RGBFrame {
-                    display_time: timestamp as u64,
-                    width: frame_size.width as i32,
-                    height: frame_size.height as i32,
-                    data: frame_data,
-                })),
-                VideoFormat::xBGR => user_data.tx.send(Frame::XBGR(XBGRFrame {
-                    display_time: timestamp as u64,
-                    width: frame_size.width as i32,
-                    height: frame_size.height as i32,
-                    data: frame_data,
-                })),
-                VideoFormat::BGRx => user_data.tx.send(Frame::BGRx(BGRxFrame {
-                    display_time: timestamp as u64,
-                    width: frame_size.width as i32,
-                    height: frame_size.height as i32,
-                    data: frame_data,
-                })),
+            let format = match user_data.format.format() {
+                VideoFormat::RGBx => crate::frame::FrameFormat::RGBx,
+                VideoFormat::RGB => crate::frame::FrameFormat::RGBx,
+                VideoFormat::xBGR => crate::frame::FrameFormat::RGBx,
+                VideoFormat::BGRx => crate::frame::FrameFormat::RGBx,
                 _ => panic!("Unsupported frame format received"),
-            } {
-                error!("{e}");
+            };
+
+            if let Err(err) = user_data.tx.send(Frame {
+                display_time: timestamp as u64,
+                width: frame_size.width,
+                height: frame_size.height,
+                format,
+                data: frame::FrameData::Vec(frame_data),
+            }) {
+                error!("Failed to send frame: {err}");
             }
         }
     } else {

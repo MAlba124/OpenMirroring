@@ -1,92 +1,29 @@
+// TODO: migrate windows over to this new frame scheme
+// TODO: dma buf (https://docs.pipewire.org/page_dma_buf.html)
+
 #[derive(Debug, Clone)]
-pub struct YUVFrame {
+pub enum FrameFormat {
+    RGB,
+    RGB8,
+    RGBx,
+    XBGR,
+    BGRx,
+    BGR,
+    BGRA,
+}
+
+#[derive(Debug, Clone)]
+pub enum FrameData {
+    Vec(Vec<u8>),
+}
+
+#[derive(Debug, Clone)]
+pub struct Frame {
     pub display_time: u64,
-    pub width: i32,
-    pub height: i32,
-    pub luminance_bytes: Vec<u8>,
-    pub luminance_stride: i32,
-    pub chrominance_bytes: Vec<u8>,
-    pub chrominance_stride: i32,
-}
-
-#[derive(Debug, Clone)]
-pub struct RGBFrame {
-    pub display_time: u64,
-    pub width: i32,
-    pub height: i32,
-    pub data: Vec<u8>,
-}
-
-#[derive(Debug, Clone)]
-pub struct RGB8Frame {
-    pub display_time: u64,
-    pub width: i32,
-    pub height: i32,
-}
-
-#[derive(Debug, Clone)]
-pub struct RGBxFrame {
-    pub display_time: u64,
-    pub width: i32,
-    pub height: i32,
-    pub data: Vec<u8>,
-}
-
-#[derive(Debug, Clone)]
-pub struct XBGRFrame {
-    pub display_time: u64,
-    pub width: i32,
-    pub height: i32,
-    pub data: Vec<u8>,
-}
-
-#[derive(Debug, Clone)]
-pub struct BGRxFrame {
-    pub display_time: u64,
-    pub width: i32,
-    pub height: i32,
-    pub data: Vec<u8>,
-}
-
-#[derive(Debug, Clone)]
-pub struct BGRFrame {
-    pub display_time: u64,
-    pub width: i32,
-    pub height: i32,
-    pub data: Vec<u8>,
-}
-
-#[derive(Debug, Clone)]
-pub struct BGRAFrame {
-    pub display_time: u64,
-    pub width: i32,
-    pub height: i32,
-    pub data: Vec<u8>,
-}
-
-#[derive(Debug, Clone, Copy, Default)]
-pub enum FrameType {
-    #[default]
-    YUVFrame,
-    BGR0,
-    RGB, // Prefer BGR0 because RGB is slower
-    BGRAFrame,
-}
-
-#[derive(Debug, Clone)]
-pub enum Frame {
-    YUVFrame(YUVFrame),
-    RGB(RGBFrame),
-    RGBx(RGBxFrame),
-    XBGR(XBGRFrame),
-    BGRx(BGRxFrame),
-    BGR0(BGRFrame),
-    BGRA(BGRAFrame),
-}
-
-pub enum FrameData<'a> {
-    NV12(&'a YUVFrame),
-    BGR0(&'a [u8]),
+    pub width: u32,
+    pub height: u32,
+    pub format: FrameFormat,
+    pub data: FrameData,
 }
 
 pub fn remove_alpha_channel(frame_data: Vec<u8>) -> Vec<u8> {

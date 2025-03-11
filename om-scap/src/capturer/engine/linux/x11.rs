@@ -12,7 +12,7 @@ use xcb::{x, Xid};
 
 use crate::{
     capturer::Options,
-    frame::Frame,
+    frame::{self, Frame},
     targets::{linux::get_default_x_display, LinuxDisplay, LinuxWindow},
     Target,
 };
@@ -159,6 +159,12 @@ fn grab(conn: &xcb::Connection, target: &Target, show_cursor: bool) -> Result<Fr
         height,
         plane_mask: u32::MAX,
     });
+
+    let display_time = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .expect("Unix epoch is in the past")
+            .as_nanos() as u64;
+
     let img = conn.wait_for_reply(img_cookie)?;
 
     let mut img_data = img.data().to_vec();
@@ -176,15 +182,13 @@ fn grab(conn: &xcb::Connection, target: &Target, show_cursor: bool) -> Result<Fr
         )?;
     }
 
-    Ok(Frame::BGRx(crate::frame::BGRxFrame {
-        display_time: std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .expect("Unix epoch is in the past")
-            .as_nanos() as u64,
-        width: width as i32,
-        height: height as i32,
-        data: img_data,
-    }))
+    Ok(Frame {
+        display_time,
+        width: width as u32,
+        height: height as u32,
+        format: frame::FrameFormat::BGRx,
+        data: frame::FrameData::Vec(img_data),
+    })
 }
 
 fn query_xfixes_version(conn: &xcb::Connection) -> Result<(), xcb::Error> {
