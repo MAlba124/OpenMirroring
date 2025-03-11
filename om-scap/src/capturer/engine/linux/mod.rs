@@ -1,4 +1,4 @@
-use std::{env, sync::mpsc};
+use std::env;
 
 use log::debug;
 use wayland::WaylandCapturer;
@@ -20,10 +20,8 @@ pub struct LinuxCapturer {
     pub imp: Box<dyn LinuxCapturerImpl>,
 }
 
-type Type = mpsc::Sender<Frame>;
-
 impl LinuxCapturer {
-    pub fn new(options: &Options, tx: Type) -> Self {
+    pub fn new(options: &Options, tx: crossbeam_channel::Sender<Frame>) -> Self {
         if env::var("WAYLAND_DISPLAY").is_ok() {
             debug!("On wayland");
             Self {
@@ -40,6 +38,6 @@ impl LinuxCapturer {
     }
 }
 
-pub fn create_capturer(options: &Options, tx: mpsc::Sender<Frame>) -> LinuxCapturer {
+pub fn create_capturer(options: &Options, tx: crossbeam_channel::Sender<Frame>) -> LinuxCapturer {
     LinuxCapturer::new(options, tx)
 }

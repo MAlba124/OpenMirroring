@@ -1,6 +1,6 @@
 pub mod engine;
 
-use std::{error::Error, sync::mpsc};
+use std::error::Error;
 
 use engine::ChannelItem;
 
@@ -70,7 +70,7 @@ pub struct Options {
 /// Screen capturer class
 pub struct Capturer {
     engine: engine::Engine,
-    rx: mpsc::Receiver<ChannelItem>,
+    rx: crossbeam_channel::Receiver<ChannelItem>,
 }
 
 #[derive(Debug)]
@@ -103,7 +103,8 @@ impl Capturer {
             return Err(CapturerBuildError::PermissionNotGranted);
         }
 
-        let (tx, rx) = mpsc::channel();
+        // let (tx, rx) = mpsc::channel();
+        let (tx, rx) = crossbeam_channel::bounded(25);
         let engine = engine::Engine::new(&options, tx);
 
         Ok(Capturer { engine, rx })
@@ -122,7 +123,8 @@ impl Capturer {
     }
 
     /// Get the next captured frame
-    pub fn get_next_frame(&self) -> Result<Frame, mpsc::RecvError> {
+    // pub fn get_next_frame(&self) -> Result<Frame, mpsc::RecvError> {
+    pub fn get_next_frame(&self) -> Result<Frame, crossbeam_channel::RecvError> {
         loop {
             let res = self.rx.recv()?;
 

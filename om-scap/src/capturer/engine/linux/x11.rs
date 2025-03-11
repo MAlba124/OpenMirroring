@@ -1,7 +1,6 @@
 use std::{
     sync::{
         atomic::{AtomicU8, Ordering},
-        mpsc::Sender,
         Arc,
     },
     thread::JoinHandle,
@@ -201,7 +200,7 @@ fn query_xfixes_version(conn: &xcb::Connection) -> Result<(), xcb::Error> {
 }
 
 impl X11Capturer {
-    pub fn new(options: &Options, tx: Sender<Frame>) -> Result<Self, LinCapError> {
+    pub fn new(options: &Options, tx: crossbeam_channel::Sender<Frame>) -> Result<Self, LinCapError> {
         let (conn, screen_num) = xcb::Connection::connect_with_xlib_display_and_extensions(
             &[xcb::Extension::RandR, xcb::Extension::XFixes],
             &[],

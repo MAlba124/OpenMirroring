@@ -1,7 +1,7 @@
 use std::{
     mem::size_of, sync::{
         atomic::{AtomicBool, AtomicU8},
-        mpsc::{sync_channel, Sender, SyncSender},
+        mpsc::{sync_channel, SyncSender},
         Arc,
     }, thread::JoinHandle, time::Duration
 };
@@ -38,7 +38,7 @@ use super::{error::LinCapError, LinuxCapturerImpl};
 
 #[derive(Clone)]
 struct ListenerUserData {
-    pub tx: Sender<Frame>,
+    pub tx: crossbeam_channel::Sender<Frame>,
     pub format: spa::param::video::VideoInfoRaw,
     pub stream_state_changed_to_error: Arc<AtomicBool>,
 }
@@ -155,7 +155,7 @@ fn process_callback(stream: &StreamRef, user_data: &mut ListenerUserData) {
 // TODO: Format negotiation
 fn pipewire_capturer(
     options: Options,
-    tx: Sender<Frame>,
+    tx: crossbeam_channel::Sender<Frame>,
     ready_sender: &SyncSender<bool>,
     stream_id: u32,
     capturer_state: Arc<AtomicU8>,
@@ -304,7 +304,7 @@ pub struct WaylandCapturer {
 
 impl WaylandCapturer {
     // TODO: Error handling
-    pub fn new(options: &Options, tx: Sender<Frame>) -> Self {
+    pub fn new(options: &Options, tx: crossbeam_channel::Sender<Frame>) -> Self {
         let capturer_state = Arc::new(AtomicU8::new(0));
         let stream_state_changed_to_error = Arc::new(AtomicBool::new(false));
 
