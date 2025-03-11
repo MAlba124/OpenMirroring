@@ -9,6 +9,7 @@ use gst::prelude::*;
 use gst_base::prelude::BaseSrcExt;
 use gst_base::subclass::base_src::CreateSuccess;
 use gst_base::subclass::prelude::*;
+use gst_video::VideoFrameExt;
 use scap::capturer::Capturer;
 
 const DEFAULT_FPS: u32 = 25;
@@ -25,12 +26,9 @@ static CAT: LazyLock<gst::DebugCategory> = LazyLock::new(|| {
 
 fn frame_format_to_gst(format: &scap::frame::FrameFormat) -> gst_video::VideoFormat {
     match format {
-        scap::frame::FrameFormat::RGB => gst_video::VideoFormat::Rgb,
-        scap::frame::FrameFormat::RGB8 => gst_video::VideoFormat::Rgb8p, // Correct, idk?
         scap::frame::FrameFormat::RGBx => gst_video::VideoFormat::Rgbx,
         scap::frame::FrameFormat::XBGR => gst_video::VideoFormat::Xbgr,
         scap::frame::FrameFormat::BGRx => gst_video::VideoFormat::Bgrx,
-        scap::frame::FrameFormat::BGR => gst_video::VideoFormat::Bgr,
         scap::frame::FrameFormat::BGRA => gst_video::VideoFormat::Bgra,
     }
 }
@@ -57,6 +55,7 @@ struct State {
     width: i32,
     height: i32,
     base_time: u64,
+    buffer_pool: Option<gst::BufferPool>,
 }
 
 pub struct ScapSrc {
@@ -95,16 +94,13 @@ impl ScapSrc {
                 "Resolutions differ. Will try to renegotiate"
             );
 
-            let new_video_info = gst_video::VideoInfo::builder(
-                gst_v_format,
-                frame_info.width,
-                frame_info.height,
-            )
-            .build()
-            .map_err(|err| {
-                gst::error!(CAT, imp = self, "Failed to create video info: {err}");
-                gst::FlowError::Error
-            })?;
+            let new_video_info =
+                gst_video::VideoInfo::builder(gst_v_format, frame_info.width, frame_info.height)
+                    .build()
+                    .map_err(|err| {
+                        gst::error!(CAT, imp = self, "Failed to create video info: {err}");
+                        gst::FlowError::Error
+                    })?;
 
             let new_caps = new_video_info.to_caps().map_err(|err| {
                 gst::error!(CAT, imp = self, "Failed to create caps: {err}");
@@ -121,6 +117,22 @@ impl ScapSrc {
         }
 
         Ok(())
+    }
+
+    // https://github.com/sdroege/gst-plugin-rs/blob/826018a3937745d3a921f21da715fba164f57a14/net/ndi/src/ndisrcdemux/imp.rs#L570
+    fn create_buffer_pool(&self, video_info: &gst_video::VideoInfo) -> gst::BufferPool {
+        let pool = gst_video::VideoBufferPool::new();
+        let mut config = pool.config();
+        config.set_params(
+            Some(&video_info.to_caps().unwrap()),
+            video_info.size() as u32,
+            0,
+            0,
+        );
+        pool.set_config(config).unwrap();
+        pool.set_active(true).unwrap();
+
+        pool.upcast()
     }
 }
 
@@ -368,18 +380,14 @@ impl BaseSrcImpl for ScapSrc {
 
             let gst_v_format = frame_format_to_gst(&frame.format);
 
-            let video_info = gst_video::VideoInfo::builder(
-                gst_v_format,
-                frame.width,
-                frame.height,
-            )
-            .build()
-            .map_err(|err| {
-                gst::error_msg!(
-                    gst::LibraryError::Init,
-                    ["Failed to create video info: {err}"]
-                )
-            })?;
+            let video_info = gst_video::VideoInfo::builder(gst_v_format, frame.width, frame.height)
+                .build()
+                .map_err(|err| {
+                    gst::error_msg!(
+                        gst::LibraryError::Init,
+                        ["Failed to create video info: {err}"]
+                    )
+                })?;
 
             // Deadlock prevention
             drop(settings);
@@ -430,6 +438,22 @@ impl BaseSrcImpl for ScapSrc {
 
         let mut state = self.state.lock().unwrap();
 
+        match &state.buffer_pool {
+            Some(pool) => {
+                let config = pool.config();
+                let params = config.params().unwrap();
+                let now_size = info.size();
+                if params.0 != Some(info.to_caps().unwrap()) || params.1 as usize != now_size {
+                    let new_pool = self.create_buffer_pool(&info);
+                    state.buffer_pool = Some(new_pool);
+                }
+            }
+            None => {
+                let pool = self.create_buffer_pool(&info);
+                state.buffer_pool = Some(pool);
+            }
+        }
+
         state.info = Some(info);
         state.width = new_width as i32;
         state.height = new_height as i32;
@@ -476,11 +500,53 @@ impl PushSrcImpl for ScapSrc {
 
         self.ensure_correct_format(&frame)?;
 
+        let mut state = self.state.lock().unwrap();
+
         let mut buffer = match frame.data {
-            scap::frame::FrameData::Vec(vec) => gst::Buffer::from_slice(vec),
+            scap::frame::FrameData::Vec(vec) => {
+                let video_buffer_pool = state.buffer_pool.as_ref().unwrap();
+
+                let gst_buffer = video_buffer_pool.acquire_buffer(None).unwrap();
+
+                let mut vframe =
+                    gst_video::VideoFrame::from_buffer_writable(gst_buffer, state.info.as_ref().unwrap())
+                        .unwrap();
+
+                let dest_stride = vframe.plane_stride()[0] as usize;
+                let dest = vframe.plane_data_mut(0).unwrap();
+
+                for (dest, src) in dest.chunks_exact_mut(dest_stride).zip(vec.chunks_exact(dest_stride)) {
+                    dest[..dest_stride].copy_from_slice(&src[..dest_stride]);
+                }
+
+                vframe.into_buffer()
+            },
+            scap::frame::FrameData::PoolBuffer(mut buffer) => {
+                let buffer = buffer.take().expect("Always Some");
+
+                let video_buffer_pool = state.buffer_pool.as_ref().unwrap();
+
+                let gst_buffer = video_buffer_pool.acquire_buffer(None).unwrap();
+
+                let mut vframe =
+                    gst_video::VideoFrame::from_buffer_writable(gst_buffer, state.info.as_ref().unwrap())
+                        .unwrap();
+
+                let dest_stride = vframe.plane_stride()[0] as usize;
+                let dest = vframe.plane_data_mut(0).unwrap();
+
+                for (dest, src) in dest.chunks_exact_mut(dest_stride).zip(buffer.data.chunks_exact(dest_stride)) {
+                    dest[..dest_stride].copy_from_slice(&src[..dest_stride]);
+                }
+
+                let mut pool = cap.pool.lock().unwrap();
+                pool.give_back(buffer);
+                drop(pool);
+
+                vframe.into_buffer()
+            }
         };
 
-        let mut state = self.state.lock().unwrap();
         if state.base_time == u64::default() {
             state.base_time = frame.display_time;
         }

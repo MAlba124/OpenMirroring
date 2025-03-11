@@ -3,6 +3,7 @@ use crate::{
     frame::{BGRAFrame, Frame, FrameType},
     targets::{self, /*get_scale_factor,*/ Target},
 };
+use log::debug;
 use std::cmp;
 use std::sync::mpsc;
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -15,7 +16,6 @@ use windows_capture::{
     settings::{ColorFormat, CursorCaptureSettings, DrawBorderSettings, Settings as WCSettings},
     window::Window as WCWindow,
 };
-use log::debug;
 
 #[derive(Debug)]
 struct Capturer {

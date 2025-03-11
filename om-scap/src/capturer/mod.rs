@@ -1,14 +1,10 @@
 pub mod engine;
 
-use std::error::Error;
+use std::{error::Error, sync::{Arc, Mutex}};
 
 use engine::ChannelItem;
 
-use crate::{
-    frame::Frame,
-    has_permission, is_supported,
-    targets::Target,
-};
+use crate::{frame::Frame, has_permission, is_supported, targets::Target};
 
 #[derive(Debug, Clone, Copy, Default)]
 pub enum Resolution {
@@ -71,6 +67,7 @@ pub struct Options {
 pub struct Capturer {
     engine: engine::Engine,
     rx: crossbeam_channel::Receiver<ChannelItem>,
+    pub pool: Arc<Mutex<crate::pool::FramePool>>,
 }
 
 #[derive(Debug)]
@@ -105,9 +102,10 @@ impl Capturer {
 
         // let (tx, rx) = mpsc::channel();
         let (tx, rx) = crossbeam_channel::bounded(25);
-        let engine = engine::Engine::new(&options, tx);
+        let pool = Arc::new(Mutex::new(crate::pool::FramePool::new()));
+        let engine = engine::Engine::new(&options, tx, Arc::clone(&pool));
 
-        Ok(Capturer { engine, rx })
+        Ok(Capturer { engine, rx, pool })
     }
 
     // TODO

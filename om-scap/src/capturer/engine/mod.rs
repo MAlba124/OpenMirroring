@@ -1,5 +1,7 @@
+use std::sync::{Arc, Mutex};
+
 use super::Options;
-use crate::frame::Frame;
+use crate::{frame::Frame, pool::FramePool};
 
 #[cfg(target_os = "macos")]
 pub mod mac;
@@ -32,32 +34,25 @@ pub struct Engine {
 }
 
 impl Engine {
-    pub fn new(options: &Options, tx: crossbeam_channel::Sender<ChannelItem>) -> Engine {
+    pub fn new(options: &Options, tx: crossbeam_channel::Sender<ChannelItem>, pool: Arc<Mutex<FramePool>>) -> Engine {
         #[cfg(target_os = "macos")]
         {
             let error_flag = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
             let mac = mac::create_capturer(options, tx, error_flag.clone());
 
-            Engine {
-                mac,
-                error_flag,
-            }
+            Engine { mac, error_flag }
         }
 
         #[cfg(target_os = "windows")]
         {
             let win = win::create_capturer(&options, tx);
-            return Engine {
-                win,
-            };
+            return Engine { win };
         }
 
         #[cfg(target_os = "linux")]
         {
-            let linux = linux::create_capturer(options, tx);
-            Engine {
-                linux,
-            }
+            let linux = linux::create_capturer(options, tx, pool);
+            Engine { linux }
         }
     }
 
@@ -102,6 +97,6 @@ impl Engine {
             mac::process_sample_buffer(data.0, data.1, self.options.output_type)
         }
         #[cfg(not(target_os = "macos"))]
-        return Some(data);
+        Some(data)
     }
 }

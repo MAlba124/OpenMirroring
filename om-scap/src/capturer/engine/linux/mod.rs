@@ -1,10 +1,10 @@
-use std::env;
+use std::{env, sync::{Arc, Mutex}};
 
 use log::debug;
 use wayland::WaylandCapturer;
 use x11::X11Capturer;
 
-use crate::{capturer::Options, frame::Frame};
+use crate::{capturer::Options, frame::Frame, pool::FramePool};
 
 pub(crate) mod error;
 
@@ -21,11 +21,11 @@ pub struct LinuxCapturer {
 }
 
 impl LinuxCapturer {
-    pub fn new(options: &Options, tx: crossbeam_channel::Sender<Frame>) -> Self {
+    pub fn new(options: &Options, tx: crossbeam_channel::Sender<Frame>, pool: Arc<Mutex<FramePool>>) -> Self {
         if env::var("WAYLAND_DISPLAY").is_ok() {
             debug!("On wayland");
             Self {
-                imp: Box::new(WaylandCapturer::new(options, tx)),
+                imp: Box::new(WaylandCapturer::new(options, tx, pool)),
             }
         } else if env::var("DISPLAY").is_ok() {
             debug!("On X11");
@@ -38,6 +38,6 @@ impl LinuxCapturer {
     }
 }
 
-pub fn create_capturer(options: &Options, tx: crossbeam_channel::Sender<Frame>) -> LinuxCapturer {
-    LinuxCapturer::new(options, tx)
+pub fn create_capturer(options: &Options, tx: crossbeam_channel::Sender<Frame>, pool: Arc<Mutex<FramePool>>) -> LinuxCapturer {
+    LinuxCapturer::new(options, tx, pool)
 }

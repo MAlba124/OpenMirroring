@@ -1,23 +1,21 @@
 // TODO: migrate windows over to this new frame scheme
 // TODO: dma buf (https://docs.pipewire.org/page_dma_buf.html)
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub enum FrameFormat {
-    RGB,
-    RGB8,
     RGBx,
     XBGR,
     BGRx,
-    BGR,
     BGRA,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub enum FrameData {
     Vec(Vec<u8>),
+    PoolBuffer(Option<crate::pool::Buffer>),
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct Frame {
     pub display_time: u64,
     pub width: u32,
