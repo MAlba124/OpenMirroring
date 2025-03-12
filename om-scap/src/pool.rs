@@ -17,10 +17,7 @@ impl Buffer {
 
     #[inline]
     pub fn new_with_data(version: usize, data: Vec<u8>) -> Self {
-        Self {
-            version,
-            data,
-        }
+        Self { version, data }
     }
 }
 

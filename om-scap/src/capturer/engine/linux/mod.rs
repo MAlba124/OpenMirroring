@@ -1,4 +1,7 @@
-use std::{env, sync::{Arc, Mutex}};
+use std::{
+    env,
+    sync::{Arc, Mutex},
+};
 
 use log::debug;
 use wayland::WaylandCapturer;
@@ -21,7 +24,11 @@ pub struct LinuxCapturer {
 }
 
 impl LinuxCapturer {
-    pub fn new(options: &Options, tx: crossbeam_channel::Sender<Frame>, pool: Arc<Mutex<FramePool>>) -> Self {
+    pub fn new(
+        options: &Options,
+        tx: crossbeam_channel::Sender<Frame>,
+        pool: Arc<Mutex<FramePool>>,
+    ) -> Self {
         if env::var("WAYLAND_DISPLAY").is_ok() {
             debug!("On wayland");
             Self {
@@ -30,7 +37,7 @@ impl LinuxCapturer {
         } else if env::var("DISPLAY").is_ok() {
             debug!("On X11");
             return Self {
-                imp: Box::new(X11Capturer::new(options, tx).unwrap()),
+                imp: Box::new(X11Capturer::new(options, tx, pool).unwrap()),
             };
         } else {
             panic!("Unsupported platform. Could not detect Wayland or X11 displays")
@@ -38,6 +45,10 @@ impl LinuxCapturer {
     }
 }
 
-pub fn create_capturer(options: &Options, tx: crossbeam_channel::Sender<Frame>, pool: Arc<Mutex<FramePool>>) -> LinuxCapturer {
+pub fn create_capturer(
+    options: &Options,
+    tx: crossbeam_channel::Sender<Frame>,
+    pool: Arc<Mutex<FramePool>>,
+) -> LinuxCapturer {
     LinuxCapturer::new(options, tx, pool)
 }

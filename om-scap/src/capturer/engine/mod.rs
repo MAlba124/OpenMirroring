@@ -34,7 +34,11 @@ pub struct Engine {
 }
 
 impl Engine {
-    pub fn new(options: &Options, tx: crossbeam_channel::Sender<ChannelItem>, pool: Arc<Mutex<FramePool>>) -> Engine {
+    pub fn new(
+        options: &Options,
+        tx: crossbeam_channel::Sender<ChannelItem>,
+        pool: Arc<Mutex<FramePool>>,
+    ) -> Engine {
         #[cfg(target_os = "macos")]
         {
             let error_flag = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));

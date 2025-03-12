@@ -1,6 +1,9 @@
 pub mod engine;
 
-use std::{error::Error, sync::{Arc, Mutex}};
+use std::{
+    error::Error,
+    sync::{Arc, Mutex},
+};
 
 use engine::ChannelItem;
 

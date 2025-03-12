@@ -2,9 +2,9 @@
 
 pub mod capturer;
 pub mod frame;
+mod pool;
 mod targets;
 mod utils;
-mod pool;
 
 // Helper Methods
 pub use targets::get_all_targets;
