@@ -24,15 +24,13 @@ anyhow = "1"
 futures = "0.3"
 thiserror = "2"
 pin-project-lite = "0.2"
-hyper = { version = "1.6.0", features = ["server", "http1"] }
-http-body-util = "0.1.2"
 bytes = "1.10.1"
 om-common = { path = "../om-common" }
 fcast-lib = { path = "../fcast-lib" }
+http = { path = "../http" }
 scap-gstreamer = { package = "om-scap-gstreamer", path = "../om-scap-gstreamer" }
 serde = { workspace = true }
 serde_json = { workspace = true }
-tokio-util = { version= "0.7.13", features = ["io"] }
 rand = "0.9.0"
 
 [dev-dependencies]

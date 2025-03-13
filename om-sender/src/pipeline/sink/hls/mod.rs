@@ -1,74 +1,16 @@
-use futures::TryStreamExt;
 use gst::{glib, prelude::*};
-use http_body_util::{combinators::BoxBody, BodyExt, Full, StreamBody};
-use hyper::{body::Frame, Response};
 use log::{debug, error, trace};
 use m3u8_rs::{MasterPlaylist, VariantStream};
 use rand::Rng;
 use std::path::PathBuf;
-use tokio::sync::mpsc::Sender;
-use tokiort::TokioIo;
+use tokio::{
+    io::{AsyncReadExt, AsyncWriteExt},
+    sync::mpsc::Sender,
+};
 use url_utils::decode_path;
 
-mod tokiort;
 mod url_utils;
 
-fn get_codec_name(sink: &gst::Element) -> String {
-    let pad = sink.static_pad("sink").unwrap();
-    let caps = pad.sticky_event::<gst::event::Caps>(0).unwrap();
-    gst_pbutils::codec_utils_caps_get_mime_codec(caps.caps())
-        .unwrap()
-        .to_string()
-}
-
-async fn request_handler(
-    req: hyper::Request<hyper::body::Incoming>,
-    mut base_path: PathBuf,
-) -> hyper::Result<hyper::Response<BoxBody<bytes::Bytes, std::io::Error>>> {
-    if req.method() != hyper::Method::GET {
-        return Ok(hyper::Response::builder()
-            .status(hyper::StatusCode::METHOD_NOT_ALLOWED)
-            .body(
-                Full::new("Method Not Allowed".into())
-                    .map_err(|e| match e {})
-                    .boxed(),
-            )
-            .unwrap());
-    }
-
-    let uri = decode_path(&req.uri().path().trim_start_matches("/").replace("..", "")).unwrap();
-
-    base_path.push(&uri);
-
-    // TODO: traces should probably only compile on debug builds
-    // trace!("HTTP request for: {uri:?} ({})", base_path.display());
-
-    let Ok(file) = tokio::fs::File::open(&base_path).await else {
-        error!("File not found: {}", base_path.display());
-        return Ok(hyper::Response::builder()
-            .status(hyper::StatusCode::NOT_FOUND)
-            .body(
-                Full::new("Not Found".into())
-                    .map_err(|e| match e {})
-                    .boxed(),
-            )
-            .unwrap());
-    };
-
-    let reader_stream = tokio_util::io::ReaderStream::new(file);
-
-    let stream_body = StreamBody::new(reader_stream.map_ok(Frame::data));
-    let boxed_body = stream_body.boxed();
-
-    let response = Response::builder()
-        .status(hyper::StatusCode::OK)
-        .body(boxed_body)
-        .unwrap();
-
-    Ok(response)
-}
-
-// TODO: rewrite to use custom http server
 async fn serve_dir(base: PathBuf, event_tx: Sender<crate::Event>) {
     let listener = tokio::net::TcpListener::bind("0.0.0.0:0").await.unwrap();
 
@@ -82,21 +24,78 @@ async fn serve_dir(base: PathBuf, event_tx: Sender<crate::Event>) {
         .unwrap();
 
     loop {
-        let (stream, _) = listener.accept().await.unwrap();
-        let io = TokioIo::new(stream);
+        let (mut stream, _) = listener.accept().await.unwrap();
 
-        let dir = base.clone();
-        tokio::task::spawn(async move {
-            if let Err(err) = hyper::server::conn::http1::Builder::new()
-                .serve_connection(
-                    io,
-                    hyper::service::service_fn(move |req| request_handler(req, dir.clone())),
-                )
-                .await
-            {
-                error!("Failed to serve connection: {err}");
+        let mut request_buf = Vec::new();
+        let mut buf = [0; 4096];
+        loop {
+            let bytes_read = stream.read(&mut buf).await.unwrap();
+            request_buf.extend_from_slice(&buf);
+            if bytes_read < buf.len() {
+                break;
             }
-        });
+        }
+
+        let request = http::Request::parse(&request_buf).unwrap();
+
+        if request.start_line.method != http::RequestMethod::Get {
+            let response = http::Response {
+                start_line: http::ResponseStartLine {
+                    version: http::HttpVersion::One,
+                    status: http::StatusCode::NotImplemented,
+                },
+                headers: vec![],
+                body: None,
+            };
+            stream.write_all(&response.serialize()).await.unwrap();
+            continue;
+        }
+
+        let uri = decode_path(
+            &request
+                .start_line
+                .target
+                .trim_start_matches("/")
+                .replace("..", ""),
+        )
+        .unwrap();
+
+        let mut base_path = base.clone();
+
+        base_path.push(&uri);
+
+        let Ok(mut file) = tokio::fs::File::open(&base_path).await else {
+            error!("File not found: {}", base_path.display());
+            let response = http::Response {
+                start_line: http::ResponseStartLine {
+                    version: http::HttpVersion::One,
+                    status: http::StatusCode::NotFound,
+                },
+                headers: vec![],
+                body: None
+            };
+
+            stream.write_all(&response.serialize()).await.unwrap();
+
+            continue;
+        };
+
+        let mut file_buf = Vec::new();
+        file.read_to_end(&mut file_buf).await.unwrap();
+
+        let response = http::Response {
+            start_line: http::ResponseStartLine {
+                version: http::HttpVersion::One,
+                status: http::StatusCode::Ok,
+            },
+            headers: vec![
+                http::Header { key: "Content-Type".to_owned(), value: "application/octet-stream".to_owned() },
+                http::Header { key: "Content-Length".to_owned(), value: file_buf.len().to_string() },
+            ],
+            body: Some(file_buf),
+        };
+
+        stream.write_all(&response.serialize()).await.unwrap();
     }
 }
 
@@ -110,6 +109,14 @@ fn generate_rand_tmp_dir_path() -> PathBuf {
             return path;
         }
     }
+}
+
+fn get_codec_name(sink: &gst::Element) -> String {
+    let pad = sink.static_pad("sink").unwrap();
+    let caps = pad.sticky_event::<gst::event::Caps>(0).unwrap();
+    gst_pbutils::codec_utils_caps_get_mime_codec(caps.caps())
+        .unwrap()
+        .to_string()
 }
 
 pub struct Hls {

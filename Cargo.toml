@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = [ "fcast-lib", "om-common", "om-receiver", "om-sender", "om-scap", "om-scap-gstreamer"]
+members = [ "fcast-lib", "om-common", "om-receiver", "om-sender", "om-scap", "om-scap-gstreamer", "http"]
 
 [workspace.dependencies]
 gst-video = { package = "gstreamer-video", version = "0.23.5" }
