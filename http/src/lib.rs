@@ -201,13 +201,13 @@ impl Header {
         Ok(Self { key, value })
     }
 
-    pub fn serialize_with_crlf(&self) -> Vec<u8> {
-        let mut buf = Vec::new();
+    pub fn serialize_with_crlf_into(&self, buf: &mut Vec<u8>) {
+        // let mut buf = Vec::new();
         buf.extend_from_slice(self.key.as_bytes());
         buf.extend_from_slice(b": ");
         buf.extend_from_slice(self.value.as_bytes());
         buf.extend_from_slice(b"\r\n");
-        buf
+        // buf
     }
 }
 
@@ -326,31 +326,33 @@ pub struct ResponseStartLine {
 }
 
 impl ResponseStartLine {
-    pub fn serialize_with_crlf(&self) -> Vec<u8> {
-        let mut buf = Vec::new();
+    pub fn serialize_with_crlf_into(&self, buf: &mut Vec<u8>) {
+        // let mut buf = Vec::new();
         buf.extend_from_slice(self.version.to_str().as_bytes());
         buf.push(b' ');
         buf.extend_from_slice(self.status.to_str().as_bytes());
         buf.extend_from_slice(b"\r\n");
 
-        buf
+        // buf
     }
 }
 
 #[derive(Debug, PartialEq, Eq)]
-pub struct Response {
+pub struct Response<'a> {
     pub start_line: ResponseStartLine,
     pub headers: Vec<Header>,
-    pub body: Option<Vec<u8>>,
+    pub body: Option<&'a [u8]>,
 }
 
-impl Response {
-    pub fn serialize(&self) -> Vec<u8> {
-        let mut buf = Vec::new();
-        buf.extend_from_slice(&self.start_line.serialize_with_crlf());
+impl Response<'_> {
+    pub fn serialize_into(&self, buf: &mut Vec<u8>) {
+        // let mut buf = Vec::new();
+        self.start_line.serialize_with_crlf_into(buf);
+        // buf.extend_from_slice(&self.start_line.serialize_with_crlf());
 
         for header in &self.headers {
-            buf.extend_from_slice(&header.serialize_with_crlf());
+            header.serialize_with_crlf_into(buf);
+            // buf.extend_from_slice(&header.serialize_with_crlf());
         }
 
         buf.extend_from_slice(b"\r\n");
@@ -359,7 +361,7 @@ impl Response {
             buf.extend_from_slice(&body);
         }
 
-        buf
+        // buf
     }
 }
 
@@ -570,69 +572,86 @@ mod tests {
 
     #[test]
     fn serialize_header() {
-        assert_eq!(
-            Header::parse(b"Key: Value").unwrap().serialize_with_crlf(),
-            b"Key: Value\r\n".to_vec(),
-        );
-        assert_eq!(
+        {
+            let mut buf = Vec::new();
+            Header::parse(b"Key: Value")
+                .unwrap()
+                .serialize_with_crlf_into(&mut buf);
+            assert_eq!(&buf, b"Key: Value\r\n");
+        }
+        {
+            let mut buf = Vec::new();
             Header::parse(b"Content-Length: 123456")
                 .unwrap()
-                .serialize_with_crlf(),
-            b"Content-Length: 123456\r\n".to_vec(),
-        );
+                .serialize_with_crlf_into(&mut buf);
+            assert_eq!(&buf, b"Content-Length: 123456\r\n");
+        }
     }
 
     #[test]
     fn serialize_response_start_line() {
-        assert_eq!(
+        {
+            let mut buf = Vec::new();
             ResponseStartLine {
                 version: HttpVersion::OneDotOne,
-                status: StatusCode::Ok
+                status: StatusCode::Ok,
             }
-            .serialize_with_crlf(),
-            b"HTTP/1.1 200 OK\r\n"
-        );
-        assert_eq!(
+            .serialize_with_crlf_into(&mut buf);
+            assert_eq!(&buf, b"HTTP/1.1 200 OK\r\n");
+        }
+        {
+            let mut buf = Vec::new();
             ResponseStartLine {
                 version: HttpVersion::ZeroDotNine,
                 status: StatusCode::InternalServerError,
             }
-            .serialize_with_crlf(),
-            b"HTTP/0.9 500 Internal Server Error\r\n"
-        );
+            .serialize_with_crlf_into(&mut buf);
+            assert_eq!(
+                &buf,
+                b"HTTP/0.9 500 Internal Server Error\r\n"
+            );
+        }
     }
 
     #[test]
     fn serialize_response() {
-        assert_eq!(
+        {
+            let mut buf = Vec::new();
             Response {
                 start_line: ResponseStartLine {
                     version: HttpVersion::One,
-                    status: StatusCode::Ok
+                    status: StatusCode::Ok,
                 },
                 headers: vec![header!("Content-Length", "0")],
                 body: None,
             }
-            .serialize(),
-            b"HTTP/1.0 200 OK\r\n\
-              Content-Length: 0\r\n\
-              \r\n"
-        );
-        assert_eq!(
+            .serialize_into(&mut buf);
+            assert_eq!(
+                &buf,
+                b"HTTP/1.0 200 OK\r\n\
+                Content-Length: 0\r\n\
+                \r\n"
+            );
+        }
+        {
+            let mut buf = Vec::new();
             Response {
                 start_line: ResponseStartLine {
                     version: HttpVersion::One,
                     status: StatusCode::Ok
                 },
                 headers: vec![header!("Content-Length", "10")],
-                body: Some(b"AAAAAAAAAA".to_vec()),
+                body: Some(b"AAAAAAAAAA"),
             }
-            .serialize(),
-            b"HTTP/1.0 200 OK\r\n\
-              Content-Length: 10\r\n\
-              \r\n\
-              AAAAAAAAAA"
-        );
+            .serialize_into(&mut buf);
+            assert_eq!(
+                &buf,
+                b"HTTP/1.0 200 OK\r\n\
+                Content-Length: 10\r\n\
+                \r\n\
+                AAAAAAAAAA"
+            );
+        }
     }
 
     fn headers_are_same(h1: &[Header], h2: &[Header]) -> bool {
@@ -722,7 +741,11 @@ mod tests {
                 body: None,
             };
 
-            stream.write_all(&response.serialize()).unwrap();
+            let mut response_buf = Vec::new();
+            response.serialize_into(&mut response_buf);
+
+            // stream.write_all(&response.serialize()).unwrap();
+            stream.write_all(&response_buf).unwrap();
 
             stream.shutdown(std::net::Shutdown::Both).unwrap();
         });

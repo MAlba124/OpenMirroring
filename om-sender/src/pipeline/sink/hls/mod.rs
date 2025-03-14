@@ -23,10 +23,17 @@ async fn serve_dir(base: PathBuf, event_tx: Sender<crate::Event>) {
         .await
         .unwrap();
 
+    let mut request_buf = Vec::new();
+    let mut response_buf = Vec::new();
+    let mut file_buf = Vec::new();
+
     loop {
+        request_buf.clear();
+        file_buf.clear();
+        response_buf.clear();
+
         let (mut stream, _) = listener.accept().await.unwrap();
 
-        let mut request_buf = Vec::new();
         let mut buf = [0; 4096];
         loop {
             let bytes_read = stream.read(&mut buf).await.unwrap();
@@ -47,21 +54,33 @@ async fn serve_dir(base: PathBuf, event_tx: Sender<crate::Event>) {
                 headers: vec![],
                 body: None,
             };
-            stream.write_all(&response.serialize()).await.unwrap();
+            response.serialize_into(&mut response_buf);
+            stream.write_all(&response_buf).await.unwrap();
             continue;
         }
 
-        let uri = decode_path(
+        let Ok(uri) = decode_path(
             &request
                 .start_line
                 .target
                 .trim_start_matches("/")
                 .replace("..", ""),
-        )
-        .unwrap();
+        ) else {
+            error!("Failed to decode path {}", request.start_line.target);
+            let response = http::Response {
+                start_line: http::ResponseStartLine {
+                    version: http::HttpVersion::One,
+                    status: http::StatusCode::InternalServerError,
+                },
+                headers: vec![],
+                body: None,
+            };
+            response.serialize_into(&mut response_buf);
+            stream.write_all(&response_buf).await.unwrap();
+            continue;
+        };
 
         let mut base_path = base.clone();
-
         base_path.push(&uri);
 
         let Ok(mut file) = tokio::fs::File::open(&base_path).await else {
@@ -72,15 +91,13 @@ async fn serve_dir(base: PathBuf, event_tx: Sender<crate::Event>) {
                     status: http::StatusCode::NotFound,
                 },
                 headers: vec![],
-                body: None
+                body: None,
             };
-
-            stream.write_all(&response.serialize()).await.unwrap();
-
+            response.serialize_into(&mut response_buf);
+            stream.write_all(&response_buf).await.unwrap();
             continue;
         };
 
-        let mut file_buf = Vec::new();
         file.read_to_end(&mut file_buf).await.unwrap();
 
         let response = http::Response {
@@ -89,13 +106,19 @@ async fn serve_dir(base: PathBuf, event_tx: Sender<crate::Event>) {
                 status: http::StatusCode::Ok,
             },
             headers: vec![
-                http::Header { key: "Content-Type".to_owned(), value: "application/octet-stream".to_owned() },
-                http::Header { key: "Content-Length".to_owned(), value: file_buf.len().to_string() },
+                http::Header {
+                    key: "Content-Type".to_owned(),
+                    value: "application/octet-stream".to_owned(),
+                },
+                http::Header {
+                    key: "Content-Length".to_owned(),
+                    value: file_buf.len().to_string(),
+                },
             ],
-            body: Some(file_buf),
+            body: Some(&file_buf),
         };
-
-        stream.write_all(&response.serialize()).await.unwrap();
+        response.serialize_into(&mut response_buf);
+        stream.write_all(&response_buf).await.unwrap();
     }
 }
 
