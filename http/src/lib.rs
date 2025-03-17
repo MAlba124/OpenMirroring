@@ -187,7 +187,7 @@ impl Header {
         i += 2;
 
         // Check that there is a space between the <key>: and the <value>
-        if i - 1 >= header.len() || header[i - 1] != b' ' {
+        if i > header.len() || header[i - 1] != b' ' {
             return Err(HttpError::InvalidHeaderValue);
         }
 
@@ -212,7 +212,7 @@ impl Header {
 }
 
 #[inline]
-fn extract_line<'a>(buf: &'a [u8]) -> Option<&'a [u8]> {
+fn extract_line(buf: &[u8]) -> Option<&[u8]> {
     let mut i = 0;
     while i < buf.len() && buf[i] != b'\r' {
         i += 1;
@@ -222,7 +222,7 @@ fn extract_line<'a>(buf: &'a [u8]) -> Option<&'a [u8]> {
         return None;
     }
 
-    return Some(&buf[0..i]);
+    Some(&buf[0..i])
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -358,7 +358,7 @@ impl Response<'_> {
         buf.extend_from_slice(b"\r\n");
 
         if let Some(body) = &self.body {
-            buf.extend_from_slice(&body);
+            buf.extend_from_slice(body);
         }
 
         // buf
@@ -606,10 +606,7 @@ mod tests {
                 status: StatusCode::InternalServerError,
             }
             .serialize_with_crlf_into(&mut buf);
-            assert_eq!(
-                &buf,
-                b"HTTP/0.9 500 Internal Server Error\r\n"
-            );
+            assert_eq!(&buf, b"HTTP/0.9 500 Internal Server Error\r\n");
         }
     }
 
@@ -638,7 +635,7 @@ mod tests {
             Response {
                 start_line: ResponseStartLine {
                     version: HttpVersion::One,
-                    status: StatusCode::Ok
+                    status: StatusCode::Ok,
                 },
                 headers: vec![header!("Content-Length", "10")],
                 body: Some(b"AAAAAAAAAA"),
@@ -724,7 +721,7 @@ mod tests {
             );
             assert!(headers_are_same(
                 &request.headers,
-                &vec![
+                &[
                     header!("user-agent", "test"),
                     header!("accept", "*/*"),
                     header!("host", "127.0.0.1:26969"),

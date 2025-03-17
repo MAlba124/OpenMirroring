@@ -1,7 +1,4 @@
-use std::sync::{Arc, Mutex};
-
-use super::Options;
-use crate::{frame::Frame, pool::FramePool};
+use super::{OnFormatChangedCb, OnFrameCb, Options};
 
 #[cfg(target_os = "macos")]
 pub mod mac;
@@ -17,8 +14,6 @@ pub type ChannelItem = (
     screencapturekit::cm_sample_buffer::CMSampleBuffer,
     screencapturekit::sc_output_handler::SCStreamOutputType,
 );
-#[cfg(not(target_os = "macos"))]
-pub type ChannelItem = Frame;
 
 pub struct Engine {
     #[cfg(target_os = "macos")]
@@ -35,9 +30,9 @@ pub struct Engine {
 
 impl Engine {
     pub fn new(
-        options: &Options,
-        tx: crossbeam_channel::Sender<ChannelItem>,
-        pool: Arc<Mutex<FramePool>>,
+        options: Options,
+        on_format_changed: OnFormatChangedCb,
+        on_frame: OnFrameCb,
     ) -> Engine {
         #[cfg(target_os = "macos")]
         {
@@ -55,7 +50,7 @@ impl Engine {
 
         #[cfg(target_os = "linux")]
         {
-            let linux = linux::create_capturer(options, tx, pool);
+            let linux = linux::create_capturer(options, on_format_changed, on_frame);
             Engine { linux }
         }
     }
@@ -95,12 +90,12 @@ impl Engine {
         }
     }
 
-    pub fn process_channel_item(&self, data: ChannelItem) -> Option<Frame> {
-        #[cfg(target_os = "macos")]
-        {
-            mac::process_sample_buffer(data.0, data.1, self.options.output_type)
-        }
-        #[cfg(not(target_os = "macos"))]
-        Some(data)
-    }
+    // pub fn process_channel_item(&self, data: ChannelItem) -> Option<Frame> {
+    //     #[cfg(target_os = "macos")]
+    //     {
+    //         mac::process_sample_buffer(data.0, data.1, self.options.output_type)
+    //     }
+    //     #[cfg(not(target_os = "macos"))]
+    //     Some(data)
+    // }
 }

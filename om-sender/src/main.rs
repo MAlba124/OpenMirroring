@@ -104,6 +104,20 @@ fn build_ui(app: &Application) {
     let pipeline_weak = RefCell::new(Some(pipeline.inner.downgrade()));
     let event_tx_clone = event_tx.clone();
     let (fin_tx, fin_rx) = tokio::sync::oneshot::channel::<()>();
+    // gio::spawn_blocking(move || {
+    //     om_common::runtime().block_on(async {
+    //         event_loop(
+    //             pipeline,
+    //             main_view,
+    //             event_rx,
+    //             event_tx_clone,
+    //             tx_clone,
+    //             selected_tx,
+    //             fin_tx,
+    //         )
+    //         .await;
+    //     });
+    // });
     glib::spawn_future_local(async move {
         event_loop(
             pipeline,
@@ -168,12 +182,16 @@ fn build_ui(app: &Application) {
         }
     });
 
-    om_common::runtime().spawn(session(session_rx, event_tx));
+    let _ = std::thread::spawn(move || {
+        session(session_rx, event_tx);
+    });
+    // om_common::runtime().spawn(session(session_rx, event_tx));
 }
 
 fn main() -> glib::ExitCode {
     env_logger::Builder::from_default_env()
         .filter_module("om_sender", log::LevelFilter::Debug)
+        .filter_module("om_scap", log::LevelFilter::Debug)
         .init();
 
     gst::init().unwrap();

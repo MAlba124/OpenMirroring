@@ -2572,7 +2572,6 @@ version = "0.0.8"
 dependencies = [
  "cocoa",
  "core-graphics-helmer-fork",
- "crossbeam-channel",
  "dbus",
  "log",
  "objc",
@@ -2592,6 +2591,7 @@ dependencies = [
 name = "om-scap-gstreamer"
 version = "0.1.0"
 dependencies = [
+ "crossbeam-channel",
  "ctrlc",
  "gst-plugin-version-helper 0.8.2",
  "gstreamer 0.23.5",

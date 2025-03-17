@@ -1,27 +1,21 @@
 // TODO: migrate windows over to this new frame scheme
 // TODO: dma buf (https://docs.pipewire.org/page_dma_buf.html)
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq)]
 pub enum FrameFormat {
     RGBx,
     XBGR,
     BGRx,
     BGRA,
+    RGBA,
 }
 
-#[derive(Debug)]
-pub enum FrameData {
-    Vec(Vec<u8>),
-    PoolBuffer(Option<crate::pool::Buffer>),
-}
-
-#[derive(Debug)]
-pub struct Frame {
-    pub display_time: u64,
+#[derive(Debug, PartialEq, Eq)]
+pub struct FrameInfo {
+    pub format: FrameFormat,
     pub width: u32,
     pub height: u32,
-    pub format: FrameFormat,
-    pub data: FrameData,
+    // TODO: rotation
 }
 
 pub fn remove_alpha_channel(frame_data: Vec<u8>) -> Vec<u8> {

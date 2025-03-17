@@ -118,10 +118,13 @@ async fn gui_event_loop(
                 debug!("Playback stopped");
             }
             GuiEvent::SetVolume(new_volume) => {
-                video_view.playbin.set_property("volume", new_volume.clamp(0.0, 1.0));
+                video_view
+                    .playbin
+                    .set_property("volume", new_volume.clamp(0.0, 1.0));
             }
             GuiEvent::Seek(seek_to) => {
-                if video_view.pipeline
+                if video_view
+                    .pipeline
                     .seek_simple(
                         SeekFlags::ACCURATE | SeekFlags::FLUSH,
                         gst::ClockTime::from_seconds_f64(seek_to),

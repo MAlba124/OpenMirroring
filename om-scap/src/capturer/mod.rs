@@ -1,13 +1,14 @@
 pub mod engine;
 
-use std::{
-    error::Error,
-    sync::{Arc, Mutex},
-};
+use std::error::Error;
 
-use engine::ChannelItem;
+use crate::{frame::FrameInfo, has_permission, is_supported, targets::Target};
 
-use crate::{frame::Frame, has_permission, is_supported, targets::Target};
+/// Presentation timestamp
+pub type Pts = u64;
+
+pub type OnFormatChangedCb = Box<dyn FnMut(FrameInfo) + Send + Sync>;
+pub type OnFrameCb = Box<dyn FnMut(Pts, &[u8]) + Send + Sync>;
 
 #[derive(Debug, Clone, Copy, Default)]
 pub enum Resolution {
@@ -69,8 +70,6 @@ pub struct Options {
 /// Screen capturer class
 pub struct Capturer {
     engine: engine::Engine,
-    rx: crossbeam_channel::Receiver<ChannelItem>,
-    pub pool: Arc<Mutex<crate::pool::FramePool>>,
 }
 
 #[derive(Debug)]
@@ -94,7 +93,11 @@ impl Error for CapturerBuildError {}
 
 impl Capturer {
     /// Build a new [Capturer] instance with the provided options
-    pub fn build(options: Options) -> Result<Capturer, CapturerBuildError> {
+    pub fn build(
+        options: Options,
+        on_format_changed: OnFormatChangedCb,
+        on_frame: OnFrameCb,
+    ) -> Result<Capturer, CapturerBuildError> {
         if !is_supported() {
             return Err(CapturerBuildError::NotSupported);
         }
@@ -103,12 +106,9 @@ impl Capturer {
             return Err(CapturerBuildError::PermissionNotGranted);
         }
 
-        // let (tx, rx) = mpsc::channel();
-        let (tx, rx) = crossbeam_channel::bounded(25);
-        let pool = Arc::new(Mutex::new(crate::pool::FramePool::new()));
-        let engine = engine::Engine::new(&options, tx, Arc::clone(&pool));
+        let engine = engine::Engine::new(options, on_format_changed, on_frame);
 
-        Ok(Capturer { engine, rx, pool })
+        Ok(Capturer { engine })
     }
 
     // TODO
@@ -121,18 +121,6 @@ impl Capturer {
     /// Stop the capturer
     pub fn stop_capture(&mut self) {
         self.engine.stop();
-    }
-
-    /// Get the next captured frame
-    // pub fn get_next_frame(&self) -> Result<Frame, mpsc::RecvError> {
-    pub fn get_next_frame(&self) -> Result<Frame, crossbeam_channel::RecvError> {
-        loop {
-            let res = self.rx.recv()?;
-
-            if let Some(frame) = self.engine.process_channel_item(res) {
-                return Ok(frame);
-            }
-        }
     }
 
     pub fn raw(&self) -> RawCapturer {

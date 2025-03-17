@@ -1,17 +1,26 @@
 use fcast_lib::{models, models::Header, packet::Packet};
 use log::debug;
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
-use tokio::net::TcpStream;
+use std::io::{Read, Write};
+use std::net::TcpStream;
 use tokio::sync::mpsc::{Receiver, Sender};
 
 use crate::{Event, Message};
 
 const HEADER_BUFFER_SIZE: usize = 5;
 
-async fn read_packet_from_stream(stream: &mut TcpStream) -> Result<Packet, tokio::io::Error> {
+fn read_packet_from_stream(stream: &mut TcpStream) -> Result<Option<Packet>, String> {
     let mut header_buf: [u8; HEADER_BUFFER_SIZE] = [0; HEADER_BUFFER_SIZE];
 
-    stream.read_exact(&mut header_buf).await?;
+    match stream.read_exact(&mut header_buf) {
+        Ok(_) => (),
+        Err(err)
+            if err.kind() == std::io::ErrorKind::WouldBlock
+                || err.kind() == std::io::ErrorKind::TimedOut =>
+        {
+            return Ok(None)
+        }
+        Err(err) => panic!("{err}"),
+    }
 
     let header = Header::decode(header_buf);
 
@@ -19,66 +28,62 @@ async fn read_packet_from_stream(stream: &mut TcpStream) -> Result<Packet, tokio
 
     if header.size > 0 {
         let mut body_buf = vec![0; header.size as usize];
-        stream.read_exact(&mut body_buf).await?;
-        body_string =
-            String::from_utf8(body_buf).map_err(|e| tokio::io::Error::other(e.to_string()))?;
+        stream.read_exact(&mut body_buf).unwrap();
+        body_string = String::from_utf8(body_buf).unwrap();
     }
 
-    Packet::decode(header, &body_string).map_err(|e| tokio::io::Error::other(e.to_string()))
+    Ok(Some(Packet::decode(header, &body_string).unwrap()))
 }
 
-async fn send_packet(stream: &mut TcpStream, packet: Packet) -> Result<(), tokio::io::Error> {
+fn send_packet(stream: &mut TcpStream, packet: Packet) -> Result<(), String> {
     let bytes = packet.encode();
-    stream.write_all(&bytes).await?;
+    stream.write_all(&bytes).unwrap();
     Ok(())
 }
 
-pub async fn session(mut msg_rx: Receiver<Message>, event_tx: Sender<Event>) {
-    let mut stream = TcpStream::connect("127.0.0.1:46899").await.unwrap();
-    // let mut stream = TcpStream::connect("192.168.1.23:46899").await.unwrap();
+pub fn session(mut msg_rx: Receiver<Message>, event_tx: Sender<Event>) {
+    let mut stream = TcpStream::connect("127.0.0.1:46899").unwrap();
+    stream
+        .set_read_timeout(Some(std::time::Duration::from_millis(25)))
+        .unwrap();
     loop {
-        tokio::select! {
-            packet = read_packet_from_stream(&mut stream) => {
-                match packet {
-                    Ok(packet) => match packet {
-                        Packet::Ping => {
-                            send_packet(&mut stream, Packet::Pong).await.unwrap();
-                        }
-                        _ => {
-                            event_tx.send(Event::Packet(packet)).await.unwrap();
-                        }
-                    },
-                    Err(err) => panic!("{err}"),
+        if let Some(packet) = read_packet_from_stream(&mut stream).unwrap() {
+            match packet {
+                Packet::Ping => {
+                    send_packet(&mut stream, Packet::Ping).unwrap();
+                }
+                _ => {
+                    event_tx.blocking_send(Event::Packet(packet)).unwrap();
                 }
             }
-            msg = msg_rx.recv() => match msg {
-                Some(msg) => {
-                    debug!("{msg:?}");
-                    match msg {
-                        Message::Play { mime, uri } => {
-                            let packet = Packet::from(
-                                models::PlayMessage {
-                                    // container: GST_WEBRTC_MIME_TYPE.to_owned(),
-                                    container: mime,
-                                    url: Some(uri),
-                                    content: None,
-                                    time: None,
-                                    speed: None,
-                                    headers: None
-                                }
-                            );
-                            send_packet(&mut stream, packet).await.unwrap();
-                        }
-                        Message::Quit => break,
-                        Message::Stop => send_packet(&mut stream, Packet::Stop).await.unwrap(),
+        }
+
+        use tokio::sync::mpsc::error::TryRecvError;
+        match msg_rx.try_recv() {
+            Ok(msg) => {
+                debug!("Got message: {msg:?}");
+                match msg {
+                    Message::Play { mime, uri } => {
+                        let packet = Packet::from(models::PlayMessage {
+                            container: mime,
+                            url: Some(uri),
+                            content: None,
+                            time: None,
+                            speed: None,
+                            headers: None,
+                        });
+                        send_packet(&mut stream, packet).unwrap();
                     }
+                    Message::Quit => break,
+                    Message::Stop => send_packet(&mut stream, Packet::Stop).unwrap(),
                 }
-                None => panic!("rx closed"), // TODO
             }
+            Err(err) if err == TryRecvError::Empty => (),
+            Err(err) => panic!("{err}"),
         }
     }
 
     debug!("Session terminated");
 
-    event_tx.send(Event::Quit).await.unwrap();
+    event_tx.blocking_send(Event::Quit).unwrap();
 }

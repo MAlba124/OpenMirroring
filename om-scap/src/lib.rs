@@ -2,7 +2,6 @@
 
 pub mod capturer;
 pub mod frame;
-mod pool;
 mod targets;
 mod utils;
 

@@ -56,12 +56,15 @@ impl SelectSource {
                 let selected = sources_drop_down.selected() as usize;
                 let sink_type = sink_drop_down.selected() as usize;
                 let event_tx = event_tx.clone();
-                om_common::runtime().block_on(async move {
-                    event_tx
-                        .send(Event::SelectSource(selected, sink_type))
-                        .await
-                        .unwrap();
-                });
+                event_tx
+                    .blocking_send(Event::SelectSource(selected, sink_type))
+                    .unwrap();
+                // om_common::runtime().block_on(async move {
+                //     event_tx
+                //         .send(Event::SelectSource(selected, sink_type))
+                //         .await
+                //         .unwrap();
+                // });
             }
         ));
 

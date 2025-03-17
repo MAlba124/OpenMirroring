@@ -1,7 +1,7 @@
 use std::{
     sync::{
         atomic::{AtomicU8, Ordering},
-        Arc, Mutex,
+        Arc,
     },
     thread::JoinHandle,
 };
@@ -10,13 +10,20 @@ use log::error;
 use xcb::{x, Xid};
 
 use crate::{
-    capturer::Options,
-    frame::{self, Frame},
+    capturer::{OnFormatChangedCb, OnFrameCb, Options},
+    frame::{self, FrameInfo},
     targets::{linux::get_default_x_display, LinuxDisplay, LinuxWindow},
     Target,
 };
 
 use super::{error::LinCapError, LinuxCapturerImpl};
+
+fn current_time_nanos() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_nanos() as u64
+}
 
 pub struct X11Capturer {
     capturer_join_handle: Option<JoinHandle<Result<(), xcb::Error>>>,
@@ -126,8 +133,11 @@ fn grab(
     conn: &xcb::Connection,
     target: &Target,
     show_cursor: bool,
-    pool: &Arc<Mutex<crate::pool::FramePool>>,
-) -> Result<Frame, xcb::Error> {
+    base_time: u64,
+    current_frame_info: &mut Option<FrameInfo>,
+    on_format_changed: &mut OnFormatChangedCb,
+    on_frame: &mut OnFrameCb,
+) -> Result<(), xcb::Error> {
     let (x, y, width, height, window, is_win) = match &target {
         Target::Window(win) => {
             let LinuxWindow::X11 { raw_handle } = win.raw else {
@@ -154,6 +164,7 @@ fn grab(
         }
     };
 
+    // TODO: SHM
     let img_cookie = conn.send_request(&x::GetImage {
         format: x::ImageFormat::ZPixmap,
         drawable: x::Drawable::Window(window),
@@ -166,23 +177,14 @@ fn grab(
 
     let img = conn.wait_for_reply(img_cookie)?;
 
-    let display_time = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .expect("Unix epoch is in the past")
-        .as_nanos() as u64;
+    let display_time = current_time_nanos() - base_time;
 
-    let mut pool = pool.lock().unwrap();
-    let mut img_buffer = pool.get((width as usize) * (height as usize) * 4);
-    drop(pool);
-
-    let img_data = img.data();
-    assert_eq!(img_buffer.data.len(), img_data.len());
-    img_buffer.data.copy_from_slice(img_data);
+    let mut img_data = img.data().to_vec();
 
     if show_cursor {
         draw_cursor(
             conn,
-            &mut img_buffer.data,
+            &mut img_data,
             x,
             y,
             width as i16,
@@ -192,13 +194,23 @@ fn grab(
         )?;
     }
 
-    Ok(Frame {
-        display_time,
+    let frame_info = FrameInfo {
+        format: frame::FrameFormat::BGRx,
         width: width as u32,
         height: height as u32,
-        format: frame::FrameFormat::BGRx,
-        data: frame::FrameData::PoolBuffer(Some(img_buffer)),
-    })
+    };
+
+    if let Some(current_frame_info) = current_frame_info {
+        if *current_frame_info != frame_info {
+            (on_format_changed)(frame_info);
+        }
+    } else {
+        (on_format_changed)(frame_info);
+    }
+
+    (on_frame)(display_time, &img_data);
+
+    Ok(())
 }
 
 fn query_xfixes_version(conn: &xcb::Connection) -> Result<(), xcb::Error> {
@@ -212,9 +224,9 @@ fn query_xfixes_version(conn: &xcb::Connection) -> Result<(), xcb::Error> {
 
 impl X11Capturer {
     pub fn new(
-        options: &Options,
-        tx: crossbeam_channel::Sender<Frame>,
-        pool: Arc<Mutex<crate::pool::FramePool>>
+        options: Options,
+        mut on_format_changed: OnFormatChangedCb,
+        mut on_frame: OnFrameCb,
     ) -> Result<Self, LinCapError> {
         let (conn, screen_num) = xcb::Connection::connect_with_xlib_display_and_extensions(
             &[xcb::Extension::RandR, xcb::Extension::XFixes],
@@ -245,12 +257,21 @@ impl X11Capturer {
                 std::thread::sleep(std::time::Duration::from_millis(10));
             }
 
+            let base_time = current_time_nanos();
+            let mut current_format_info = None;
             let frame_time = std::time::Duration::from_secs_f32(1.0 / framerate);
             while capturer_state_clone.load(Ordering::Acquire) == 1 {
                 let start = std::time::Instant::now();
 
-                let frame = grab(&conn, &target, show_cursor, &pool)?;
-                tx.send(frame).unwrap();
+                grab(
+                    &conn,
+                    &target,
+                    show_cursor,
+                    base_time,
+                    &mut current_format_info,
+                    &mut on_format_changed,
+                    &mut on_frame,
+                )?;
 
                 let elapsed = start.elapsed();
                 if elapsed < frame_time {

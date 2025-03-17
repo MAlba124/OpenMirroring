@@ -70,13 +70,20 @@ impl Pipeline {
         src.connect("select-source", false, move |vals| {
             let event_tx = event_tx_clone.clone();
             let selected_rx = Arc::clone(&selected_rx);
-            om_common::runtime().block_on(async move {
-                let sources = vals[1].get::<Vec<String>>().unwrap();
-                event_tx.send(Event::Sources(sources)).await.unwrap();
-                let mut selected_rx = selected_rx.lock().unwrap();
-                let res = selected_rx.recv().await.unwrap() as u64;
-                Some(res.to_value())
-            })
+
+            let sources = vals[1].get::<Vec<String>>().unwrap();
+            event_tx.blocking_send(Event::Sources(sources)).unwrap();
+            let mut selected_rx = selected_rx.lock().unwrap();
+            let res = selected_rx.blocking_recv().unwrap() as u64;
+            Some(res.to_value())
+
+            // om_common::runtime().block_on(async move {
+            //     let sources = vals[1].get::<Vec<String>>().unwrap();
+            //     event_tx.send(Event::Sources(sources)).await.unwrap();
+            //     let mut selected_rx = selected_rx.lock().unwrap();
+            //     let res = selected_rx.recv().await.unwrap() as u64;
+            //     Some(res.to_value())
+            // })
         });
 
         let pipeline = gst::Pipeline::new();
@@ -149,9 +156,10 @@ impl Pipeline {
                                 && state_changed.current() == gst::State::Playing
                             {
                                 hls.hls.write_manifest_file();
-                                om_common::runtime().block_on(async {
-                                    event_tx.send(Event::HlsStreamReady).await.unwrap();
-                                });
+                                event_tx.blocking_send(Event::HlsStreamReady).unwrap();
+                                // om_common::runtime().block_on(async {
+                                // event_tx.send(Event::HlsStreamReady).await.unwrap();
+                                // });
                             }
                         }
                         _ => (),

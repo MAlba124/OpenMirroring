@@ -22,8 +22,12 @@ impl ToString for Addr {
 
 pub fn get_all_ip_addresses() -> Vec<Addr> {
     #[cfg(target_os = "windows")]
-    { win::get_all_ip_addresses() }
+    {
+        win::get_all_ip_addresses()
+    }
 
     #[cfg(not(target_os = "windows"))]
-    { rest::get_all_ip_addresses() }
+    {
+        rest::get_all_ip_addresses()
+    }
 }

@@ -1,12 +1,9 @@
-// TODO: look into TLS
-
 use tokio::sync::mpsc::Sender;
 
 pub mod handlers;
 pub mod protocol;
 pub mod server;
 
-// pub async fn run_server(prod_peer_tx: tokio::sync::oneshot::Sender<String>) {
 pub async fn run_server(prod_peer_tx: Sender<crate::Event>) {
     let server = server::Server::spawn(handlers::Handler::new, prod_peer_tx);
     // TODO: use random port

@@ -3,13 +3,13 @@ use std::{
     sync::{
         atomic::{AtomicBool, AtomicU8},
         mpsc::{sync_channel, SyncSender},
-        Arc, Mutex,
+        Arc,
     },
     thread::JoinHandle,
     time::Duration,
 };
 
-use log::error;
+use log::{error, warn};
 use pipewire as pw;
 use pw::{
     context::Context,
@@ -32,20 +32,18 @@ use pw::{
 };
 
 use crate::{
-    capturer::Options,
-    frame::{self, Frame},
-    pool::FramePool,
+    capturer::{OnFormatChangedCb, OnFrameCb, Options},
+    frame::FrameInfo,
     targets::get_main_display,
 };
 
 use super::{error::LinCapError, LinuxCapturerImpl};
 
-#[derive(Clone)]
 struct ListenerUserData {
-    pub tx: crossbeam_channel::Sender<Frame>,
-    pub format: spa::param::video::VideoInfoRaw,
     pub stream_state_changed_to_error: Arc<AtomicBool>,
-    pub pool: Arc<Mutex<FramePool>>,
+    pub on_format_changed: OnFormatChangedCb,
+    pub on_frame: OnFrameCb,
+    pub base_time: Option<u64>,
 }
 
 fn param_changed_callback(
@@ -69,11 +67,26 @@ fn param_changed_callback(
         return;
     }
 
-    user_data
-        .format
-        .parse(param)
-        // TODO: Tell library user of the error
-        .expect("Failed to parse format parameter");
+    let mut format = spa::param::video::VideoInfoRaw::new();
+    format.parse(param).unwrap();
+
+    let color_format = match format.format() {
+        VideoFormat::RGBx => crate::frame::FrameFormat::RGBx,
+        VideoFormat::xBGR => crate::frame::FrameFormat::XBGR,
+        VideoFormat::BGRx => crate::frame::FrameFormat::BGRx,
+        VideoFormat::RGBA => crate::frame::FrameFormat::RGBA,
+        _ => unreachable!(),
+    };
+
+    let new_info = FrameInfo {
+        format: color_format,
+        width: format.size().width,
+        height: format.size().height,
+    };
+
+    log::debug!("New info: {new_info:?}");
+
+    (user_data.on_format_changed)(new_info);
 }
 
 fn state_changed_callback(
@@ -117,43 +130,27 @@ fn process_callback(stream: &StreamRef, user_data: &mut ListenerUserData) {
             if buffer.is_null() {
                 break 'outer;
             }
-            let timestamp = unsafe { get_timestamp(buffer) };
+
+            let mut timestamp = unsafe { get_timestamp(buffer) } as u64;
+
+            if let Some(base_time) = user_data.base_time {
+                timestamp -= base_time;
+            } else {
+                user_data.base_time = Some(timestamp);
+                timestamp = 0;
+            }
 
             let n_datas = unsafe { (*buffer).n_datas };
             if n_datas < 1 {
                 return;
             }
-            let frame_size = user_data.format.size();
 
             let datas_size = unsafe { (*(*buffer).datas).maxsize as usize };
             let datas = unsafe {
                 std::slice::from_raw_parts((*(*buffer).datas).data as *mut u8, datas_size)
             };
 
-            let mut pool = user_data.pool.lock().unwrap();
-            let mut buffer = pool.get(datas_size);
-            drop(pool);
-
-            assert_eq!(buffer.data.len(), datas.len());
-            buffer.data.copy_from_slice(datas);
-
-            let format = match user_data.format.format() {
-                VideoFormat::RGBx => crate::frame::FrameFormat::RGBx,
-                VideoFormat::RGB => crate::frame::FrameFormat::RGBx,
-                VideoFormat::xBGR => crate::frame::FrameFormat::RGBx,
-                VideoFormat::BGRx => crate::frame::FrameFormat::RGBx,
-                _ => panic!("Unsupported frame format received"),
-            };
-
-            if let Err(err) = user_data.tx.send(Frame {
-                display_time: timestamp as u64,
-                width: frame_size.width,
-                height: frame_size.height,
-                format,
-                data: frame::FrameData::PoolBuffer(Some(buffer)),
-            }) {
-                error!("Failed to send frame: {err}");
-            }
+            (user_data.on_frame)(timestamp, datas);
         }
     } else {
         error!("Out of buffers");
@@ -164,12 +161,12 @@ fn process_callback(stream: &StreamRef, user_data: &mut ListenerUserData) {
 
 fn pipewire_capturer(
     options: Options,
-    tx: crossbeam_channel::Sender<Frame>,
     ready_sender: &SyncSender<bool>,
     stream_id: u32,
     capturer_state: Arc<AtomicU8>,
     stream_state_changed_to_error: Arc<AtomicBool>,
-    pool: Arc<Mutex<FramePool>>,
+    on_format_changed: OnFormatChangedCb,
+    on_frame: OnFrameCb,
 ) -> Result<(), LinCapError> {
     pw::init();
 
@@ -178,10 +175,10 @@ fn pipewire_capturer(
     let core = context.connect(None)?;
 
     let user_data = ListenerUserData {
-        tx,
-        format: Default::default(),
         stream_state_changed_to_error: Arc::clone(&stream_state_changed_to_error),
-        pool,
+        on_format_changed,
+        on_frame,
+        base_time: None,
     };
 
     let stream = pw::stream::Stream::new(
@@ -195,7 +192,7 @@ fn pipewire_capturer(
     )?;
 
     let _listener = stream
-        .add_local_listener_with_user_data(user_data.clone())
+        .add_local_listener_with_user_data(user_data)
         .state_changed(state_changed_callback)
         .param_changed(param_changed_callback)
         .process(process_callback)
@@ -238,8 +235,15 @@ fn pipewire_capturer(
             }
         ),
         pw::spa::pod::property!(
-            FormatProperties::VideoMaxFramerate,
+            FormatProperties::VideoFramerate,
+            Choice,
+            Range,
             Fraction,
+            pw::spa::utils::Fraction {
+                num: options.fps,
+                denom: 1
+            },
+            pw::spa::utils::Fraction { num: 0, denom: 1 },
             pw::spa::utils::Fraction {
                 num: options.fps,
                 denom: 1
@@ -301,6 +305,8 @@ fn pipewire_capturer(
         pw_loop.iterate(Duration::from_millis(100));
     }
 
+    warn!("FINISHED");
+
     Ok(())
 }
 
@@ -316,9 +322,9 @@ pub struct WaylandCapturer {
 impl WaylandCapturer {
     // TODO: Error handling
     pub fn new(
-        options: &Options,
-        tx: crossbeam_channel::Sender<Frame>,
-        pool: Arc<Mutex<FramePool>>,
+        options: Options,
+        on_format_changed: OnFormatChangedCb,
+        on_frame: OnFrameCb,
     ) -> Self {
         let capturer_state = Arc::new(AtomicU8::new(0));
         let stream_state_changed_to_error = Arc::new(AtomicBool::new(false));
@@ -346,20 +352,18 @@ impl WaylandCapturer {
             }
         };
 
-        // TODO: Fix this hack
-        let options = options.clone();
         let capturer_state_clone = Arc::clone(&capturer_state);
         let stream_state_changed_to_error_clone = Arc::clone(&stream_state_changed_to_error);
         let (ready_sender, ready_recv) = sync_channel(1);
         let capturer_join_handle = std::thread::spawn(move || {
             let res = pipewire_capturer(
                 options,
-                tx,
                 &ready_sender,
                 stream_id,
                 capturer_state_clone,
                 stream_state_changed_to_error_clone,
-                pool,
+                on_format_changed,
+                on_frame,
             );
             if res.is_err() {
                 ready_sender.send(false)?;
