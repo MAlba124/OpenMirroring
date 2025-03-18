@@ -26,31 +26,19 @@ impl Primary {
 
         vbox.append(&preview_stack);
 
-        let start_button = gtk::Button::builder().label("Start casting").build();
-        let event_tx_clone = event_tx.clone();
-        start_button.connect_clicked(move |_| {
-            glib::spawn_future_local(glib::clone!(
-                #[strong]
-                event_tx_clone,
-                async move {
-                    event_tx_clone.send(Event::Start).await.unwrap();
-                }
-            ));
-        });
-        vbox.append(&start_button);
+        let cast_button = gtk::Button::builder().label("Start casting").build();
 
-        let stop_button = gtk::Button::builder().label("Stop casting").build();
         let event_tx_clone = event_tx.clone();
-        stop_button.connect_clicked(move |_| {
-            glib::spawn_future_local(glib::clone!(
-                #[strong]
-                event_tx_clone,
-                async move {
-                    event_tx_clone.send(Event::Stop).await.unwrap();
-                }
-            ));
+        cast_button.connect_clicked(move |btn| {
+            if btn.label().unwrap() == "Start casting" {
+                event_tx_clone.blocking_send(Event::Start).unwrap();
+                btn.set_label("Stop casting");
+            } else {
+                event_tx_clone.blocking_send(Event::Stop).unwrap();
+                btn.set_label("Start casting");
+            }
         });
-        vbox.append(&stop_button);
+        vbox.append(&cast_button);
 
         let enable_preview = gtk::CheckButton::builder()
             .active(true)
@@ -59,17 +47,10 @@ impl Primary {
 
         let event_tx_clone = event_tx.clone();
         enable_preview.connect_toggled(move |btn| {
-            let new = btn.property::<bool>("active");
-            glib::spawn_future_local(glib::clone!(
-                #[strong]
-                event_tx_clone,
-                async move {
-                    match new {
-                        true => event_tx_clone.send(Event::EnablePreview).await.unwrap(),
-                        false => event_tx_clone.send(Event::DisablePreview).await.unwrap(),
-                    }
-                }
-            ));
+            match btn.property::<bool>("active") {
+                true => event_tx_clone.blocking_send(Event::EnablePreview).unwrap(),
+                false => event_tx_clone.blocking_send(Event::DisablePreview).unwrap(),
+            }
         });
 
         vbox.append(&enable_preview);
