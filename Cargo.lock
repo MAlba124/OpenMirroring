@@ -2267,6 +2267,7 @@ dependencies = [
  "cocoa",
  "core-graphics-helmer-fork",
  "dbus",
+ "libc",
  "log",
  "objc",
  "pipewire",

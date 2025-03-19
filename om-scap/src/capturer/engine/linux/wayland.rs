@@ -9,7 +9,7 @@ use std::{
     time::Duration,
 };
 
-use log::{error, debug};
+use log::{debug, error};
 use pipewire as pw;
 use pw::{
     context::Context,

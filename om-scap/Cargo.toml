@@ -40,6 +40,6 @@ objc = "0.2.7"
 pipewire = "0.8.0"
 dbus = "0.9.7"
 rand = "0.8.5"
-# xcb = { version = "1.4.0", features = ["randr", "xlib_xcb", "xfixes", "shm"] } # TODO: shm
-xcb = { version = "1.4.0", features = ["randr", "xlib_xcb", "xfixes"] }
+xcb = { version = "1.4.0", features = ["randr", "xlib_xcb", "xfixes", "shm"] }
 x11 = "2.21.0"
+libc = "0.2"

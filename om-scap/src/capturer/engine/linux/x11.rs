@@ -1,3 +1,5 @@
+// TODO: on gnome when a window is captured and made fullscreen/not fullscreen it crashes.
+
 use std::{
     sync::{
         atomic::{AtomicU8, Ordering},
@@ -17,6 +19,60 @@ use crate::{
 };
 
 use super::{error::LinCapError, LinuxCapturerImpl};
+
+struct ShmBuf {
+    pub id: u32,
+    data: *mut u8,
+    pub size: usize,
+}
+
+impl ShmBuf {
+    pub fn null() -> Self {
+        Self {
+            id: 0,
+            data: std::ptr::null_mut(),
+            size: 0,
+        }
+    }
+
+    pub fn new(size: usize) -> Self {
+        // Last 9 bits is access permissions
+        let id = unsafe { libc::shmget(libc::IPC_PRIVATE, size, libc::IPC_CREAT | 0o6_0_0) };
+
+        if id == -1 {
+            todo!();
+        }
+
+        let data = unsafe { libc::shmat(id, std::ptr::null(), 0) as *mut u8 };
+
+        if data.is_null() {
+            todo!();
+        }
+
+        Self {
+            id: id as u32,
+            data,
+            size,
+        }
+    }
+
+    pub fn slice(&self) -> &[u8] {
+        unsafe { std::slice::from_raw_parts(self.data, self.size) }
+    }
+
+    pub fn slice_mut(&mut self) -> &mut [u8] {
+        unsafe { std::slice::from_raw_parts_mut(self.data, self.size) }
+    }
+}
+
+impl Drop for ShmBuf {
+    fn drop(&mut self) {
+        unsafe {
+            libc::shmdt(self.data as *const libc::c_void);
+            libc::shmctl(self.id as i32, libc::IPC_RMID, std::ptr::null_mut());
+        }
+    }
+}
 
 fn current_time_nanos() -> u64 {
     std::time::SystemTime::now()
@@ -137,6 +193,8 @@ fn grab(
     current_frame_info: &mut Option<FrameInfo>,
     on_format_changed: &mut OnFormatChangedCb,
     on_frame: &mut OnFrameCb,
+    shm_seg: &xcb::shm::Seg,
+    shm_buf: &mut ShmBuf,
 ) -> Result<(), xcb::Error> {
     let (x, y, width, height, window, is_win) = match &target {
         Target::Window(win) => {
@@ -164,27 +222,46 @@ fn grab(
         }
     };
 
-    // TODO: SHM
-    let img_cookie = conn.send_request(&x::GetImage {
-        format: x::ImageFormat::ZPixmap,
+    let frame_size = width as usize * height as usize * 4;
+
+    if shm_buf.size != frame_size {
+        if shm_buf.size != 0 {
+            conn.send_and_check_request(&xcb::shm::Detach { shmseg: *shm_seg })?;
+        }
+
+        *shm_buf = ShmBuf::new(frame_size);
+
+        conn.send_and_check_request(&xcb::shm::Attach {
+            shmseg: *shm_seg,
+            shmid: shm_buf.id,
+            read_only: false,
+        })?;
+    }
+
+    let img_cookie = conn.send_request(&xcb::shm::GetImage {
         drawable: x::Drawable::Window(window),
         x,
         y,
         width,
         height,
         plane_mask: u32::MAX,
+        format: x::ImageFormat::ZPixmap as u8,
+        shmseg: *shm_seg,
+        offset: 0,
     });
 
     let img = conn.wait_for_reply(img_cookie)?;
 
-    let display_time = current_time_nanos() - base_time;
+    if img.size() as usize != shm_buf.size {
+        todo!();
+    }
 
-    let mut img_data = img.data().to_vec();
+    let display_time = current_time_nanos() - base_time;
 
     if show_cursor {
         draw_cursor(
             conn,
-            &mut img_data,
+            shm_buf.slice_mut(),
             x,
             y,
             width as i16,
@@ -208,7 +285,7 @@ fn grab(
         (on_format_changed)(frame_info);
     }
 
-    (on_frame)(display_time, &img_data);
+    (on_frame)(display_time, shm_buf.slice());
 
     Ok(())
 }
@@ -229,7 +306,11 @@ impl X11Capturer {
         mut on_frame: OnFrameCb,
     ) -> Result<Self, LinCapError> {
         let (conn, screen_num) = xcb::Connection::connect_with_xlib_display_and_extensions(
-            &[xcb::Extension::RandR, xcb::Extension::XFixes],
+            &[
+                xcb::Extension::RandR,
+                xcb::Extension::XFixes,
+                xcb::Extension::Shm,
+            ],
             &[],
         )
         .map_err(|e| LinCapError::new(e.to_string()))?;
@@ -257,6 +338,9 @@ impl X11Capturer {
                 std::thread::sleep(std::time::Duration::from_millis(10));
             }
 
+            let shm_seg = conn.generate_id::<xcb::shm::Seg>();
+            let mut shm_buf = ShmBuf::null();
+
             let base_time = current_time_nanos();
             let mut current_format_info = None;
             let frame_time = std::time::Duration::from_secs_f32(1.0 / framerate);
@@ -271,6 +355,8 @@ impl X11Capturer {
                     &mut current_format_info,
                     &mut on_format_changed,
                     &mut on_frame,
+                    &shm_seg,
+                    &mut shm_buf,
                 )?;
 
                 let elapsed = start.elapsed();
