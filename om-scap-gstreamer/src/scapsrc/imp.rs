@@ -33,7 +33,8 @@ enum Event {
     Frame(gst::Buffer),
 }
 
-fn frame_format_to_gst(format: &scap::frame::FrameFormat) -> gst_video::VideoFormat {
+#[inline]
+const fn frame_format_to_gst(format: &scap::frame::FrameFormat) -> gst_video::VideoFormat {
     match format {
         scap::frame::FrameFormat::RGBx => gst_video::VideoFormat::Rgbx,
         scap::frame::FrameFormat::XBGR => gst_video::VideoFormat::Xbgr,
@@ -59,20 +60,11 @@ impl Default for Settings {
     }
 }
 
+#[derive(Default)]
 struct State {
     info: Option<gst_video::VideoInfo>,
     width: i32,
     height: i32,
-}
-
-impl Default for State {
-    fn default() -> Self {
-        Self {
-            info: None,
-            width: 0,
-            height: 0,
-        }
-    }
 }
 
 pub struct ScapSrc {
@@ -379,15 +371,16 @@ impl BaseSrcImpl for ScapSrc {
 
             gst::info!(CAT, imp = self, "Performing internal preroll");
             new_capturer.start_capture();
-            match event_rx.recv() {
-                Ok(event) => match event {
-                    Event::NewCaps(caps) => {
-                        println!("{caps:?}");
-                        self.obj().set_caps(&caps).unwrap();
-                    }
-                    Event::Frame(_) => unreachable!(),
-                },
-                Err(err) => panic!("{err}"),
+            match event_rx.recv().map_err(|err| {
+                gst::error_msg!(gst::LibraryError::Init, ["Failed to get format: {err}"])
+            })? {
+                Event::NewCaps(caps) => self.obj().set_caps(&caps).map_err(|_| {
+                    gst::error_msg!(
+                        gst::LibraryError::Init,
+                        ["Failed to set caps while performing internal preroll"]
+                    )
+                })?,
+                Event::Frame(_) => unreachable!(),
             }
         }
 
@@ -396,23 +389,16 @@ impl BaseSrcImpl for ScapSrc {
 
         *capturer = Some(new_capturer);
 
-        gst::debug!(CAT, imp = self, "Capturer created");
-
-        Ok(())
+        Ok(gst::debug!(CAT, imp = self, "Capturer created"))
     }
 
     fn stop(&self) -> Result<(), gst::ErrorMessage> {
-        match self.capturer.lock().unwrap().take() {
-            Some(mut c) => c.stop_capture(),
-            None => {
-                return Err(gst::error_msg!(
-                    gst::LibraryError::Shutdown,
-                    ["Missing capturer"]
-                ));
-            }
-        }
+        let mut capturer = self.capturer.lock().unwrap().take().ok_or(gst::error_msg!(
+            gst::LibraryError::Shutdown,
+            ["Missing capturer"]
+        ))?;
 
-        Ok(())
+        Ok(capturer.stop_capture())
     }
 
     fn set_caps(&self, caps: &gst::Caps) -> Result<(), gst::LoggableError> {
@@ -422,23 +408,22 @@ impl BaseSrcImpl for ScapSrc {
 
         gst::debug!(CAT, imp = self, "Configuring for caps {}", caps);
 
-        let (new_width, new_height) = (info.width(), info.height());
-
-        self.obj().set_blocksize(4 * new_width * new_height);
-
         let mut buffer_pool = self.buffer_pool.lock().unwrap();
         let config = buffer_pool.config();
         let params = config.params().unwrap();
         let now_size = info.size();
-        if params.0 != Some(info.to_caps().unwrap()) || params.1 as usize != now_size {
-            buffer_pool.set_active(false).unwrap();
+        if params.0 != Some(info.to_caps()?) || params.1 as usize != now_size {
+            buffer_pool.set_active(false)?;
             let new_pool = gst_video::VideoBufferPool::new();
             let mut config = new_pool.config();
-            config.set_params(Some(&info.to_caps().unwrap()), info.size() as u32, 0, 0);
-            new_pool.set_config(config).unwrap();
-            new_pool.set_active(true).unwrap();
+            config.set_params(Some(&info.to_caps()?), info.size() as u32, 0, 0);
+            new_pool.set_config(config)?;
+            new_pool.set_active(true)?;
             *buffer_pool = new_pool.upcast();
         }
+
+        let (new_width, new_height) = (info.width(), info.height());
+        self.obj().set_blocksize(4 * new_width * new_height);
 
         let mut state = self.state.lock().unwrap();
         state.info = Some(info);
@@ -451,6 +436,7 @@ impl BaseSrcImpl for ScapSrc {
     fn query(&self, query: &mut gst::QueryRef) -> bool {
         use gst::QueryViewMut;
         let settings = self.settings.lock().unwrap();
+
         match query.view_mut() {
             QueryViewMut::Caps(q) if settings.perform_internal_preroll => {
                 gst::info!(CAT, imp = self, "Returning caps");
@@ -475,19 +461,14 @@ impl PushSrcImpl for ScapSrc {
         let rx = self.event_rx.lock().map_err(|_| gst::FlowError::Error)?;
         let rx = rx.as_ref().ok_or(gst::FlowError::Error)?;
 
-        let buffer = {
-            'lop: loop {
-                match rx.recv().map_err(|_| gst::FlowError::Error)? {
-                    Event::NewCaps(caps) => {
-                        self.obj()
-                            .set_caps(&caps)
-                            .map_err(|_| gst::FlowError::Error)?;
-                    }
-                    Event::Frame(buffer) => break 'lop buffer,
-                }
+        loop {
+            match rx.recv().map_err(|_| gst::FlowError::Error)? {
+                Event::NewCaps(caps) => self
+                    .obj()
+                    .set_caps(&caps)
+                    .map_err(|_| gst::FlowError::Error)?,
+                Event::Frame(buffer) => return Ok(CreateSuccess::NewBuffer(buffer)),
             }
-        };
-
-        Ok(CreateSuccess::NewBuffer(buffer))
+        }
     }
 }
