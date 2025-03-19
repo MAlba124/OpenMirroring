@@ -4,16 +4,16 @@ members = [ "fcast-lib", "om-common", "om-receiver", "om-sender", "om-scap", "om
 
 [workspace.dependencies]
 gst-video = { package = "gstreamer-video", version = "0.23.5" }
-gst-webrtc = { package = "gst-plugin-webrtc", git = "https://github.com/GStreamer/gst-plugins-rs", rev = "a34efda2018a6e241bb3372bd767a79f58bdbe6f", default-features = false, features = ["v1_22"] }
-gst-rtp = { package = "gst-plugin-rtp", git = "https://github.com/GStreamer/gst-plugins-rs", rev = "a34efda2018a6e241bb3372bd767a79f58bdbe6f" }
+gst-webrtc = { package = "gst-plugin-webrtc", version = "0.13.5", default-features = false, features = ["v1_22"] }
+gst-rtp = { package = "gst-plugin-rtp", version = "0.13.5" }
 gst-gtk4 = { package = "gst-plugin-gtk4", version = "0.13.4" }
 gst = { package = "gstreamer", version = "0.23.5" }
-gtk4 = { version = "0.9.6", features = ["v4_16"] }
-tokio = { version = "1.42.0", features = ["net", "io-util", "macros", "sync", "rt-multi-thread", "time"] }
+gtk4 = { version = "0.9.6", features = ["v4_6"] }
+tokio = { version = "1", features = ["net", "io-util", "macros", "sync", "rt-multi-thread", "time"] }
 log = "0.4.22"
 env_logger = "0.11.6"
-serde = { version = "1.0", features = ["derive"] }
-serde_json = "1.0.133"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
 
 [profile.release]
 lto = true

@@ -13,8 +13,8 @@ gst-gtk4 = { workspace = true }
 gst-video = { workspace = true }
 gst-webrtc = { workspace = true }
 gst-rtp = { workspace = true }
-gst-hlssink3= { package = "gst-plugin-hlssink3", git = "https://github.com/GStreamer/gst-plugins-rs", rev = "a34efda2018a6e241bb3372bd767a79f58bdbe6f" }
-gst-fmp4= { package = "gst-plugin-fmp4", git = "https://github.com/GStreamer/gst-plugins-rs", rev = "a34efda2018a6e241bb3372bd767a79f58bdbe6f" }
+gst-hlssink3 = { package = "gst-plugin-hlssink3", version = "0.13.5" }
+gst-fmp4 = { package = "gst-plugin-fmp4", version = "0.13.5" }
 gst-pbutils = { package = "gstreamer-pbutils", version = "0.23.5", features = [ "v1_22" ] }
 m3u8-rs = "6.0.0"
 gio = "0.20.9"

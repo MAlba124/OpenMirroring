@@ -9,7 +9,7 @@ use std::{
     time::Duration,
 };
 
-use log::{error, warn};
+use log::{error, debug};
 use pipewire as pw;
 use pw::{
     context::Context,
@@ -235,18 +235,24 @@ fn pipewire_capturer(
             }
         ),
         pw::spa::pod::property!(
-            FormatProperties::VideoFramerate,
+            FormatProperties::VideoMaxFramerate,
             Choice,
             Range,
             Fraction,
             pw::spa::utils::Fraction {
+                // Default
                 num: options.fps,
-                denom: 1
+                denom: 1,
             },
-            pw::spa::utils::Fraction { num: 0, denom: 1 },
             pw::spa::utils::Fraction {
+                // Min
+                num: 0,
+                denom: 1,
+            },
+            pw::spa::utils::Fraction {
+                // Max
                 num: options.fps,
-                denom: 1
+                denom: 1,
             }
         ),
     );
@@ -305,7 +311,7 @@ fn pipewire_capturer(
         pw_loop.iterate(Duration::from_millis(100));
     }
 
-    warn!("FINISHED");
+    debug!("Finished");
 
     Ok(())
 }

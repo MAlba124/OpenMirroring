@@ -16,7 +16,6 @@ keywords = ["screen", "recording", "video", "capture", "media"]
 categories = ["graphics", "multimedia", "multimedia::video"]
 
 [dependencies]
-sysinfo = "0.30.0"
 log = { workspace = true }
 
 [target.'cfg(target_os = "windows")'.dependencies]
@@ -29,6 +28,7 @@ windows = { version = "0.58", features = [
 ] }
 
 [target.'cfg(target_os = "macos")'.dependencies]
+sysinfo = "0.30.0"
 tao-core-video-sys = "0.2.0"
 core-graphics-helmer-fork = "0.24.0"
 screencapturekit = "0.2.8"

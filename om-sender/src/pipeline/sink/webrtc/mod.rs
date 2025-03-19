@@ -1,4 +1,4 @@
-use gst::prelude::GstBinExtManual;
+use gst::prelude::{GstBinExtManual, ObjectExt};
 use tokio::sync::mpsc::Sender;
 
 mod signaller;
@@ -16,9 +16,10 @@ impl Webrtc {
 
         let sink = gst::ElementFactory::make("webrtcsink")
             .name("webrtc_sink")
-            .property("signalling-server-host", "127.0.0.1")
-            .property("signalling-server-port", 8443u32)
             .build()?;
+
+        let signaller = sink.property::<gst_webrtc::signaller::Signaller>("signaller");
+        signaller.set_property("uri", "ws://127.0.0.1:8443");
 
         pipeline.add_many([&sink])?;
 

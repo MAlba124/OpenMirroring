@@ -1,5 +1,6 @@
 // Copyright (C) 2024-2025 Marcus L. Hanestad <marlhan@proton.me>
 
+use std::sync::mpsc::Receiver;
 use std::sync::Arc;
 use std::sync::LazyLock;
 use std::sync::Mutex;
@@ -78,7 +79,7 @@ pub struct ScapSrc {
     settings: Mutex<Settings>,
     capturer: Mutex<Option<Capturer>>,
     state: Arc<Mutex<State>>,
-    event_rx: Mutex<Option<crossbeam_channel::Receiver<Event>>>,
+    event_rx: Mutex<Option<Receiver<Event>>>,
     buffer_pool: Arc<Mutex<gst::BufferPool>>,
 }
 
@@ -309,7 +310,7 @@ impl BaseSrcImpl for ScapSrc {
             &[&targets.iter().map(|t| t.title()).collect::<Vec<String>>()],
         );
 
-        let (event_tx, event_rx) = crossbeam_channel::bounded::<Event>(10);
+        let (event_tx, event_rx) = std::sync::mpsc::sync_channel::<Event>(10);
 
         let event_tx_clone = event_tx.clone();
         let on_format_changed = move |new_format: FrameInfo| {
