@@ -15,7 +15,6 @@ mod sink;
 
 use sink::{HlsSink, WebrtcSink};
 
-#[allow(dead_code)]
 enum SinkState {
     Unset,
     WebRTC(WebrtcSink),
@@ -76,14 +75,6 @@ impl Pipeline {
             let mut selected_rx = selected_rx.lock().unwrap();
             let res = selected_rx.blocking_recv().unwrap() as u64;
             Some(res.to_value())
-
-            // om_common::runtime().block_on(async move {
-            //     let sources = vals[1].get::<Vec<String>>().unwrap();
-            //     event_tx.send(Event::Sources(sources)).await.unwrap();
-            //     let mut selected_rx = selected_rx.lock().unwrap();
-            //     let res = selected_rx.recv().await.unwrap() as u64;
-            //     Some(res.to_value())
-            // })
         });
 
         let pipeline = gst::Pipeline::new();
@@ -149,20 +140,14 @@ impl Pipeline {
                     };
 
                     let mut s = s.lock().unwrap();
-                    match *s {
-                        SinkState::Hls(ref mut hls) => {
-                            if state_changed.src() == Some(pipeline.upcast_ref())
-                                && state_changed.old() == gst::State::Paused
-                                && state_changed.current() == gst::State::Playing
-                            {
-                                hls.hls.write_manifest_file();
-                                event_tx.blocking_send(Event::HlsStreamReady).unwrap();
-                                // om_common::runtime().block_on(async {
-                                // event_tx.send(Event::HlsStreamReady).await.unwrap();
-                                // });
-                            }
+                    if let SinkState::Hls(ref mut hls) = *s {
+                        if state_changed.src() == Some(pipeline.upcast_ref())
+                            && state_changed.old() == gst::State::Paused
+                            && state_changed.current() == gst::State::Playing
+                        {
+                            hls.hls.write_manifest_file();
+                            event_tx.blocking_send(Event::HlsStreamReady).unwrap();
                         }
-                        _ => (),
                     }
                 }
                 MessageView::Eos(..) => app.quit(),
@@ -242,9 +227,8 @@ impl Pipeline {
 
     pub fn shutdown(&self) {
         let s = self.sink_state.lock().unwrap();
-        match *s {
-            SinkState::Hls(ref sink) => sink.hls.shutdown(),
-            _ => (),
+        if let SinkState::Hls(ref sink) = *s {
+            sink.hls.shutdown();
         }
     }
 

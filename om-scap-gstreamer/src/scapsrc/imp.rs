@@ -389,7 +389,9 @@ impl BaseSrcImpl for ScapSrc {
 
         *capturer = Some(new_capturer);
 
-        Ok(gst::debug!(CAT, imp = self, "Capturer created"))
+        gst::debug!(CAT, imp = self, "Capturer created");
+
+        Ok(())
     }
 
     fn stop(&self) -> Result<(), gst::ErrorMessage> {
@@ -398,7 +400,9 @@ impl BaseSrcImpl for ScapSrc {
             ["Missing capturer"]
         ))?;
 
-        Ok(capturer.stop_capture())
+        capturer.stop_capture();
+
+        Ok(())
     }
 
     fn set_caps(&self, caps: &gst::Caps) -> Result<(), gst::LoggableError> {

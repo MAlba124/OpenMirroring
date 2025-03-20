@@ -1,12 +1,7 @@
 use gtk::prelude::*;
 use gtk4 as gtk;
 
-#[allow(dead_code)]
-pub struct LoadingSources {
-    vbox: gtk::Box,
-    spinner: gtk::Spinner,
-    label: gtk::Label,
-}
+pub struct LoadingSources(gtk::Box);
 
 impl LoadingSources {
     pub fn new() -> Self {
@@ -22,18 +17,12 @@ impl LoadingSources {
         vbox.append(&spinner);
         vbox.append(&label);
 
-        spinner.start();
-
-        Self {
-            vbox,
-            spinner,
-            label,
-        }
+        Self(vbox)
     }
 }
 
 impl super::View for LoadingSources {
     fn main_widget(&self) -> &gtk4::Widget {
-        self.vbox.upcast_ref()
+        self.0.upcast_ref()
     }
 }

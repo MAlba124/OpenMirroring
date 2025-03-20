@@ -46,11 +46,9 @@ impl Primary {
             .build();
 
         let event_tx_clone = event_tx.clone();
-        enable_preview.connect_toggled(move |btn| {
-            match btn.property::<bool>("active") {
-                true => event_tx_clone.blocking_send(Event::EnablePreview).unwrap(),
-                false => event_tx_clone.blocking_send(Event::DisablePreview).unwrap(),
-            }
+        enable_preview.connect_toggled(move |btn| match btn.property::<bool>("active") {
+            true => event_tx_clone.blocking_send(Event::EnablePreview).unwrap(),
+            false => event_tx_clone.blocking_send(Event::DisablePreview).unwrap(),
         });
 
         vbox.append(&enable_preview);

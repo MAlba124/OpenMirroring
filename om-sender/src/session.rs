@@ -78,7 +78,7 @@ pub fn session(mut msg_rx: Receiver<Message>, event_tx: Sender<Event>) {
                     Message::Stop => send_packet(&mut stream, Packet::Stop).unwrap(),
                 }
             }
-            Err(err) if err == TryRecvError::Empty => (),
+            Err(TryRecvError::Empty) => (),
             Err(err) => panic!("{err}"),
         }
     }

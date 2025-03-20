@@ -31,10 +31,8 @@ fn get_default_addr() -> om_common::net::Addr {
     om_common::net::Addr::V4(Ipv4Addr::LOCALHOST)
 }
 
-#[allow(dead_code)]
 pub struct HlsSink {
     pub queue: gst::Element,
-    convert: gst::Element,
     pub hls: hls::Hls,
     pub server_port: Option<u16>,
 }
@@ -58,32 +56,24 @@ impl HlsSink {
 
         Ok(Self {
             queue,
-            convert,
             hls,
             server_port: None,
         })
     }
 
     pub fn get_play_msg(&self) -> Option<crate::Message> {
-        if let Some(server_port) = self.server_port {
-            Some(crate::Message::Play {
-                mime: HLS_MIME_TYPE.to_owned(),
-                uri: format!(
-                    "http://{}:{server_port}/manifest.m3u8",
-                    get_default_addr().to_string()
-                ),
-            })
-        } else {
-            None
-        }
+        self.server_port.map(|server_port| crate::Message::Play {
+            mime: HLS_MIME_TYPE.to_owned(),
+            uri: format!(
+                "http://{}:{server_port}/manifest.m3u8",
+                get_default_addr().to_string()
+            ),
+        })
     }
 }
 
-#[allow(dead_code)]
 pub struct WebrtcSink {
     pub queue: gst::Element,
-    convert: gst::Element,
-    webrtc: webrtc::Webrtc,
     pub producer_id: Option<String>,
 }
 
@@ -106,23 +96,19 @@ impl WebrtcSink {
 
         Ok(Self {
             queue,
-            convert,
-            webrtc,
             producer_id: None,
         })
     }
 
     pub fn get_play_msg(&self) -> Option<crate::Message> {
-        if let Some(producer_id) = &self.producer_id {
-            Some(crate::Message::Play {
+        self.producer_id
+            .as_ref()
+            .map(|producer_id| crate::Message::Play {
                 mime: GST_WEBRTC_MIME_TYPE.to_owned(),
                 uri: format!(
                     "gstwebrtc://{}:8443?peer-id={producer_id}",
                     get_default_addr().to_string()
                 ),
             })
-        } else {
-            None
-        }
     }
 }

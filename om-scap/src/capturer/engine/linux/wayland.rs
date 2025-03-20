@@ -9,8 +9,8 @@ use std::{
     time::Duration,
 };
 
-use log::{debug, error};
-use pipewire as pw;
+use log::{debug, error, warn};
+use pipewire::{self as pw, spa::buffer::DataType};
 use pw::{
     context::Context,
     main_loop::MainLoop,
@@ -75,6 +75,7 @@ fn param_changed_callback(
         VideoFormat::xBGR => crate::frame::FrameFormat::XBGR,
         VideoFormat::BGRx => crate::frame::FrameFormat::BGRx,
         VideoFormat::RGBA => crate::frame::FrameFormat::RGBA,
+        VideoFormat::BGRA => crate::frame::FrameFormat::BGRA,
         _ => unreachable!(),
     };
 
@@ -142,15 +143,25 @@ fn process_callback(stream: &StreamRef, user_data: &mut ListenerUserData) {
 
             let n_datas = unsafe { (*buffer).n_datas };
             if n_datas < 1 {
-                return;
+                break 'outer;
             }
 
-            let datas_size = unsafe { (*(*buffer).datas).maxsize as usize };
-            let datas = unsafe {
-                std::slice::from_raw_parts((*(*buffer).datas).data as *mut u8, datas_size)
-            };
-
-            (user_data.on_frame)(timestamp, datas);
+            let datas = unsafe { (*buffer).datas as *mut pw::spa::buffer::Data };
+            if datas.is_null() {
+                error!("Data is null");
+                break 'outer;
+            }
+            let data = unsafe { std::slice::from_raw_parts_mut(datas, n_datas as usize) };
+            let data = &mut data[0];
+            match data.type_() {
+                DataType::DmaBuf => {
+                    warn!("Got dmabuf data, not implemented yet");
+                }
+                DataType::MemPtr | DataType::MemFd => {
+                    (user_data.on_frame)(timestamp, data.data().unwrap());
+                }
+                _ => warn!("Got data of type: {:?}, ignoring", data.type_()),
+            }
         }
     } else {
         error!("Out of buffers");
@@ -208,10 +219,12 @@ fn pipewire_capturer(
             Choice,
             Enum,
             Id,
+            pw::spa::param::video::VideoFormat::RGBA, // First element is discarded?
             pw::spa::param::video::VideoFormat::RGBA,
             pw::spa::param::video::VideoFormat::RGBx,
             pw::spa::param::video::VideoFormat::BGRx,
             pw::spa::param::video::VideoFormat::xBGR,
+            pw::spa::param::video::VideoFormat::BGRA,
         ),
         pw::spa::pod::property!(
             FormatProperties::VideoSize,

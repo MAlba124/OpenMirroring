@@ -1,8 +1,6 @@
 use gtk4::{self as gtk, prelude::BoxExt, prelude::Cast};
 
-pub struct LoadingHlsStream {
-    vbox: gtk::Box,
-}
+pub struct LoadingHlsStream(gtk::Box);
 
 impl LoadingHlsStream {
     pub fn new() -> Self {
@@ -17,12 +15,12 @@ impl LoadingHlsStream {
         vbox.append(&spinner);
         vbox.append(&label);
 
-        Self { vbox }
+        Self(vbox)
     }
 }
 
 impl super::View for LoadingHlsStream {
     fn main_widget(&self) -> &gtk4::Widget {
-        self.vbox.upcast_ref()
+        self.0.upcast_ref()
     }
 }
