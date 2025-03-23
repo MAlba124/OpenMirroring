@@ -1,7 +1,7 @@
-use std::{
-    fmt::Debug,
-    sync::{Arc, Mutex},
-};
+use std::fmt::Debug;
+
+#[cfg(target_os = "linux")]
+use std::sync::{Arc, Mutex};
 
 #[cfg(target_os = "macos")]
 mod mac;

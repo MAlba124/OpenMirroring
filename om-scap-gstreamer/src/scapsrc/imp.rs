@@ -349,7 +349,10 @@ impl BaseSrcImpl for ScapSrc {
                 .unwrap()
                 .set_pts(gst::ClockTime::from_nseconds(pts));
 
-            event_tx.send(Event::Frame(buffer)).unwrap();
+            //event_tx.send(Event::Frame(buffer)).unwrap();
+            // If the channel is full, just drop the frame
+            // TODO: handle error
+            let _ = event_tx.try_send(Event::Frame(buffer));
         };
 
         let mut new_capturer = Capturer::build(

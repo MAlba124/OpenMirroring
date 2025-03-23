@@ -9,7 +9,7 @@ mod webrtc;
 const GST_WEBRTC_MIME_TYPE: &str = "application/x-gst-webrtc";
 const HLS_MIME_TYPE: &str = "application/vnd.apple.mpegurl";
 
-fn get_default_addr() -> om_common::net::Addr {
+fn get_default_ipv4_addr() -> om_common::net::Addr {
     let addrs = om_common::net::get_all_ip_addresses();
     for addr in addrs {
         match addr {
@@ -19,12 +19,7 @@ fn get_default_addr() -> om_common::net::Addr {
                 }
                 return addr;
             }
-            om_common::net::Addr::V6(v6) => {
-                if v6.is_loopback() {
-                    continue;
-                }
-                return addr;
-            }
+            _ => (),
         }
     }
 
@@ -66,7 +61,7 @@ impl HlsSink {
             mime: HLS_MIME_TYPE.to_owned(),
             uri: format!(
                 "http://{}:{server_port}/manifest.m3u8",
-                get_default_addr().to_string()
+                get_default_ipv4_addr().to_string()
             ),
         })
     }
@@ -107,7 +102,7 @@ impl WebrtcSink {
                 mime: GST_WEBRTC_MIME_TYPE.to_owned(),
                 uri: format!(
                     "gstwebrtc://{}:8443?peer-id={producer_id}",
-                    get_default_addr().to_string()
+                    get_default_ipv4_addr().to_string()
                 ),
             })
     }

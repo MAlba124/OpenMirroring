@@ -7,7 +7,7 @@ edition = "2021"
 tokio = { workspace = true }
 
 [target.'cfg(target_os = "windows")'.dependencies]
-windows = "0.60.0"
+windows = { version = "0.60.0", features = ["Win32_Networking_WinSock", "Win32_NetworkManagement_Ndis", "Win32_NetworkManagement_IpHelper"] }
 
 [target.'cfg(not(target_os = "windows"))'.dependencies]
 pnet_datalink = "0.35.0"

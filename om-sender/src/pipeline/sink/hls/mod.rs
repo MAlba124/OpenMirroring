@@ -162,7 +162,8 @@ impl Hls {
             .property("bitrate", 2_048_000 / 1000u32)
             .property("key-int-max", i32::MAX as u32)
             .property_from_str("tune", "zerolatency")
-            .property_from_str("speed-preset", "superfast")
+            .property_from_str("speed-preset", "medium")
+            // .property_from_str("speed-preset", "superfast")
             .build()?;
         let enc_caps = gst::ElementFactory::make("capsfilter")
             .property(
@@ -202,9 +203,8 @@ impl Hls {
             .property("location", location.to_str().unwrap())
             .property("enable-program-date-time", true)
             .property("sync", true)
-            // Give upstream 150ms to encode and stuff
-            // TODO: find out what the minimum is
-            .property("latency", 150000000u64)
+            // Setting no latency seems to be working, might become a problem later?
+            .property("latency", 0u64)
             .build()?;
 
         sink.connect_closure(
