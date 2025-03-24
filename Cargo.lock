@@ -430,6 +430,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "5b63caa9aa9397e2d9480a9b13673856c78d8ac123288526c37d7839f2a86990"
 
 [[package]]
+name = "common"
+version = "0.1.0"
+dependencies = [
+ "ipnetwork",
+ "pnet_datalink",
+ "tokio",
+ "windows 0.60.0",
+]
+
+[[package]]
 name = "concurrent-queue"
 version = "2.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2234,102 +2244,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "om-common"
-version = "0.1.0"
-dependencies = [
- "ipnetwork",
- "pnet_datalink",
- "tokio",
- "windows 0.60.0",
-]
-
-[[package]]
-name = "om-receiver"
-version = "0.1.0"
-dependencies = [
- "env_logger 0.11.6",
- "fcast-lib",
- "gst-plugin-gtk4",
- "gst-plugin-rtp",
- "gst-plugin-webrtc",
- "gstreamer",
- "gstreamer-video",
- "gtk4",
- "log",
- "om-common",
- "tokio",
-]
-
-[[package]]
-name = "om-scap"
-version = "0.0.8"
-dependencies = [
- "cocoa",
- "core-graphics-helmer-fork",
- "dbus",
- "libc",
- "log",
- "objc",
- "pipewire",
- "rand 0.9.0",
- "screencapturekit",
- "screencapturekit-sys",
- "sysinfo",
- "tao-core-video-sys",
- "windows 0.58.0",
- "windows-capture",
- "x11",
- "xcb",
-]
-
-[[package]]
-name = "om-scap-gstreamer"
-version = "0.1.0"
-dependencies = [
- "ctrlc",
- "gst-plugin-version-helper",
- "gstreamer",
- "gstreamer-base",
- "gstreamer-video",
- "om-scap",
-]
-
-[[package]]
-name = "om-sender"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "async-tungstenite",
- "bytes",
- "env_logger 0.11.6",
- "fcast-lib",
- "futures",
- "gio",
- "gst-plugin-fmp4",
- "gst-plugin-gtk4",
- "gst-plugin-hlssink3",
- "gst-plugin-rtp",
- "gst-plugin-webrtc",
- "gstreamer",
- "gstreamer-pbutils",
- "gstreamer-video",
- "gtk4",
- "http 0.1.0",
- "log",
- "m3u8-rs",
- "om-common",
- "om-scap-gstreamer",
- "pin-project-lite",
- "quickcheck",
- "quickcheck_macros",
- "serde",
- "serde_json",
- "thiserror 2.0.11",
- "tokio",
- "uuid",
-]
-
-[[package]]
 name = "once_cell"
 version = "1.20.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2686,6 +2600,23 @@ dependencies = [
 ]
 
 [[package]]
+name = "receiver"
+version = "0.1.0"
+dependencies = [
+ "common",
+ "env_logger 0.11.6",
+ "fcast-lib",
+ "gst-plugin-gtk4",
+ "gst-plugin-rtp",
+ "gst-plugin-webrtc",
+ "gstreamer",
+ "gstreamer-video",
+ "gtk4",
+ "log",
+ "tokio",
+]
+
+[[package]]
 name = "redox_syscall"
 version = "0.5.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2789,6 +2720,40 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6ea1a2d0a644769cc99faa24c3ad26b379b786fe7c36fd3c546254801650e6dd"
 
 [[package]]
+name = "scap"
+version = "0.0.8"
+dependencies = [
+ "cocoa",
+ "core-graphics-helmer-fork",
+ "dbus",
+ "libc",
+ "log",
+ "objc",
+ "pipewire",
+ "rand 0.9.0",
+ "screencapturekit",
+ "screencapturekit-sys",
+ "sysinfo",
+ "tao-core-video-sys",
+ "windows 0.58.0",
+ "windows-capture",
+ "x11",
+ "xcb",
+]
+
+[[package]]
+name = "scap-gstreamer"
+version = "0.1.0"
+dependencies = [
+ "ctrlc",
+ "gst-plugin-version-helper",
+ "gstreamer",
+ "gstreamer-base",
+ "gstreamer-video",
+ "scap",
+]
+
+[[package]]
 name = "schannel"
 version = "0.1.27"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2854,6 +2819,41 @@ name = "semver"
 version = "1.0.25"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f79dfe2d285b0488816f30e700a7438c5a73d816b5b7d3ac72fbc48b0d185e03"
+
+[[package]]
+name = "sender"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "async-tungstenite",
+ "bytes",
+ "common",
+ "env_logger 0.11.6",
+ "fcast-lib",
+ "futures",
+ "gio",
+ "gst-plugin-fmp4",
+ "gst-plugin-gtk4",
+ "gst-plugin-hlssink3",
+ "gst-plugin-rtp",
+ "gst-plugin-webrtc",
+ "gstreamer",
+ "gstreamer-pbutils",
+ "gstreamer-video",
+ "gtk4",
+ "http 0.1.0",
+ "log",
+ "m3u8-rs",
+ "pin-project-lite",
+ "quickcheck",
+ "quickcheck_macros",
+ "scap-gstreamer",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.11",
+ "tokio",
+ "uuid",
+]
 
 [[package]]
 name = "serde"

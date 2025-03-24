@@ -1,5 +1,5 @@
 [package]
-name = "om-receiver"
+name = "receiver"
 version = "0.1.0"
 edition = "2021"
 
@@ -14,4 +14,4 @@ gst-rtp = { workspace = true }
 gst-gtk4 = { workspace = true }
 gtk4 = { workspace = true }
 fcast-lib = { path = "../fcast-lib" }
-om-common = { path = "../om-common" }
+common = { path = "../common" }

@@ -9,11 +9,11 @@ mod webrtc;
 const GST_WEBRTC_MIME_TYPE: &str = "application/x-gst-webrtc";
 const HLS_MIME_TYPE: &str = "application/vnd.apple.mpegurl";
 
-fn get_default_ipv4_addr() -> om_common::net::Addr {
-    let addrs = om_common::net::get_all_ip_addresses();
+fn get_default_ipv4_addr() -> common::net::Addr {
+    let addrs = common::net::get_all_ip_addresses();
     for addr in addrs {
         match addr {
-            om_common::net::Addr::V4(v4) => {
+            common::net::Addr::V4(v4) => {
                 if v4.is_loopback() {
                     continue;
                 }
@@ -23,7 +23,7 @@ fn get_default_ipv4_addr() -> om_common::net::Addr {
         }
     }
 
-    om_common::net::Addr::V4(Ipv4Addr::LOCALHOST)
+    common::net::Addr::V4(Ipv4Addr::LOCALHOST)
 }
 
 pub struct HlsSink {

@@ -3,16 +3,16 @@ use gtk::prelude::*;
 use gtk::{glib, Application, ApplicationWindow};
 use gtk4 as gtk;
 use log::{debug, error, trace, warn};
-use om_sender::session::session;
-use om_sender::views::{StateChange, View};
+use sender::session::session;
+use sender::views::{StateChange, View};
 
 use std::cell::RefCell;
 
-use om_sender::{Event, Message};
+use sender::{Event, Message};
 
 async fn event_loop(
-    mut pipeline: om_sender::pipeline::Pipeline,
-    main_view: om_sender::views::Main,
+    mut pipeline: sender::pipeline::Pipeline,
+    main_view: sender::views::Main,
     mut event_rx: tokio::sync::mpsc::Receiver<Event>,
     event_tx: tokio::sync::mpsc::Sender<Event>,
     tx: tokio::sync::mpsc::Sender<Message>,
@@ -80,9 +80,9 @@ fn build_ui(app: &Application) {
     let (selected_tx, selected_rx) = tokio::sync::mpsc::channel::<usize>(1);
 
     let (pipeline, gst_widget) =
-        om_sender::pipeline::Pipeline::new(event_tx.clone(), selected_rx).unwrap();
+        sender::pipeline::Pipeline::new(event_tx.clone(), selected_rx).unwrap();
 
-    let main_view = om_sender::views::Main::new(event_tx.clone(), gst_widget);
+    let main_view = sender::views::Main::new(event_tx.clone(), gst_widget);
 
     let (session_tx, session_rx) = tokio::sync::mpsc::channel::<Message>(100);
 
@@ -178,7 +178,7 @@ fn main() -> glib::ExitCode {
         .init();
 
     gst::init().unwrap();
-    scap_gstreamer::plugin_register_static().unwrap();
+    scapgst::plugin_register_static().unwrap();
     gst_gtk4::plugin_register_static().unwrap();
     gst_rtp::plugin_register_static().unwrap();
     gst_webrtc::plugin_register_static().unwrap();
@@ -186,7 +186,7 @@ fn main() -> glib::ExitCode {
     gst_fmp4::plugin_register_static().unwrap();
 
     let app = Application::builder()
-        .application_id("com.github.malba124.OpenMirroring.om-sender")
+        .application_id("com.github.malba124.OpenMirroring.sender")
         .build();
 
     app.connect_activate(build_ui);

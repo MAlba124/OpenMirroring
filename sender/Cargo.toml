@@ -1,5 +1,5 @@
 [package]
-name = "om-sender"
+name = "sender"
 version = "0.1.0"
 edition = "2021"
 
@@ -25,10 +25,10 @@ futures = "0.3"
 thiserror = "2"
 pin-project-lite = "0.2"
 bytes = "1.10.1"
-om-common = { path = "../om-common" }
+common = { path = "../common" }
 fcast-lib = { path = "../fcast-lib" }
 http = { path = "../http" }
-scap-gstreamer = { package = "om-scap-gstreamer", path = "../om-scap-gstreamer" }
+scap-gstreamer = { path = "../scap-gstreamer" }
 serde = { workspace = true }
 serde_json = { workspace = true }
 

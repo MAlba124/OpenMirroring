@@ -2,10 +2,10 @@ use fcast_lib::models::PlaybackUpdateMessage;
 use fcast_lib::packet::Packet;
 use gst::{prelude::*, SeekFlags};
 use log::{debug, error, warn};
-use om_common::runtime;
-use om_receiver::dispatcher::Dispatcher;
-use om_receiver::session::Session;
-use om_receiver::{AtomicF64, Event, GuiEvent};
+use common::runtime;
+use receiver::dispatcher::Dispatcher;
+use receiver::session::Session;
+use receiver::{AtomicF64, Event, GuiEvent};
 
 use std::cell::RefCell;
 use std::net::Ipv4Addr;
@@ -83,7 +83,7 @@ async fn event_loop(
 }
 
 async fn gui_event_loop(
-    video_view: om_receiver::video::VideoView,
+    video_view: receiver::video::VideoView,
     label_view: gtk::Label,
     mut gui_event_rx: tokio::sync::mpsc::Receiver<GuiEvent>,
     stack: gtk::Stack,
@@ -178,14 +178,14 @@ async fn gui_event_loop(
 
 fn build_ui(app: &Application) {
     let mut ips: Vec<Ipv4Addr> = Vec::new();
-    for ip in om_common::net::get_all_ip_addresses() {
+    for ip in common::net::get_all_ip_addresses() {
         match ip {
-            om_common::net::Addr::V4(v4) => ips.push(v4),
-            om_common::net::Addr::V6(v6) => warn!("Found IPv6 address ({v6:?}), ignoring"),
+            common::net::Addr::V4(v4) => ips.push(v4),
+            common::net::Addr::V6(v6) => warn!("Found IPv6 address ({v6:?}), ignoring"),
         }
     }
 
-    let video_view = om_receiver::video::VideoView::new().unwrap();
+    let video_view = receiver::video::VideoView::new().unwrap();
     let label_view = gtk::Label::new(Some(&format!("Listening on {ips:?}:46899")));
     let stack = gtk::Stack::new();
     stack.add_child(&label_view);
@@ -270,7 +270,7 @@ fn main() -> glib::ExitCode {
     gst_gtk4::plugin_register_static().unwrap();
 
     let app = Application::builder()
-        .application_id("com.github.malba124.OpenMirroring.om-receiver")
+        .application_id("com.github.malba124.OpenMirroring.receiver")
         .build();
 
     app.connect_activate(build_ui);

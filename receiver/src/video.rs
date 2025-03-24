@@ -79,7 +79,7 @@ impl VideoView {
                         .map_err(|_| glib::ControlFlow::Break)
                         .unwrap(); // TODO
                     let get_clone = gui_event_tx.clone();
-                    om_common::runtime().spawn(async move {
+                    common::runtime().spawn(async move {
                         get_clone.send(GuiEvent::Eos).await.unwrap();
                     });
                 }
@@ -111,7 +111,7 @@ impl VideoView {
         let pipeline_weak = self.pipeline.downgrade();
         glib::timeout_add_local(std::time::Duration::from_millis(1000), move || {
             let event_tx = event_tx.clone();
-            om_common::runtime().block_on(async {
+            common::runtime().block_on(async {
                 let Some(pipeline) = pipeline_weak.upgrade() else {
                     return glib::ControlFlow::Break;
                 };

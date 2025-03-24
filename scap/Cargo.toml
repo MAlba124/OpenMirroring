@@ -1,5 +1,5 @@
 [package]
-name = "om-scap"
+name = "scap"
 description = "Modern, high-performance screen capture library for Rust. Cross-platform."
 version = "0.0.8"
 edition = "2021"

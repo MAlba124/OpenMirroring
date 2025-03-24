@@ -12,7 +12,7 @@ impl Webrtc {
         pipeline: &gst::Pipeline,
         event_tx: Sender<crate::Event>,
     ) -> Result<Self, gst::glib::BoolError> {
-        om_common::runtime().spawn(signaller::run_server(event_tx));
+        common::runtime().spawn(signaller::run_server(event_tx));
 
         let sink = gst::ElementFactory::make("webrtcsink")
             .name("webrtc_sink")
