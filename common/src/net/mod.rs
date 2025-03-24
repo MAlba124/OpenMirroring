@@ -1,4 +1,4 @@
-use std::net::{Ipv4Addr, Ipv6Addr};
+use std::{fmt::Display, net::{Ipv4Addr, Ipv6Addr}};
 
 #[cfg(target_os = "windows")]
 mod win;
@@ -11,11 +11,11 @@ pub enum Addr {
     V6(Ipv6Addr),
 }
 
-impl ToString for Addr {
-    fn to_string(&self) -> String {
+impl Display for Addr {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Addr::V4(v4) => v4.to_string(),
-            Addr::V6(v6) => format!("[{v6}]"),
+            Addr::V4(v4) => write!(f, "{v4}"),
+            Addr::V6(v6) => write!(f, "[{v6}]"),
         }
     }
 }

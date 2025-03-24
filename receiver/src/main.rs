@@ -1,8 +1,8 @@
+use common::runtime;
 use fcast_lib::models::PlaybackUpdateMessage;
 use fcast_lib::packet::Packet;
 use gst::{prelude::*, SeekFlags};
 use log::{debug, error, warn};
-use common::runtime;
 use receiver::dispatcher::Dispatcher;
 use receiver::session::Session;
 use receiver::{AtomicF64, Event, GuiEvent};
@@ -32,16 +32,8 @@ async fn event_loop(
     while let Some(event) = rx.recv().await {
         debug!("Got event: {event:?}");
         match event {
-            Event::CreateSessionRequest {
-                net_stream_mutex,
-                id,
-            } => {
+            Event::CreateSessionRequest { stream, id } => {
                 debug!("Got CreateSessionRequest id={id}");
-                let stream = net_stream_mutex
-                    .lock()
-                    .unwrap()
-                    .take()
-                    .expect("Always Some");
                 runtime().spawn(Session::new(stream, tx.clone(), id).work(updates_tx.subscribe()));
             }
             Event::Pause => gui_tx.send(GuiEvent::Pause).await.unwrap(),
@@ -261,7 +253,7 @@ fn build_ui(app: &Application) {
 
 fn main() -> glib::ExitCode {
     env_logger::Builder::from_default_env()
-        .filter_module("om_receiver", log::LevelFilter::Debug)
+        .filter_module("receiver", log::LevelFilter::Debug)
         .init();
 
     gst::init().unwrap();

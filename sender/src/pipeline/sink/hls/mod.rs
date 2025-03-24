@@ -67,7 +67,7 @@ async fn serve_dir(
                 }
 
                 let Ok(uri) = decode_path(
-                    &request
+                    request
                         .start_line
                         .target
                         .trim_start_matches("/")
@@ -109,7 +109,7 @@ async fn serve_dir(
                                     value: file_contents.len().to_string(),
                                 },
                             ],
-                            body: Some(&file_contents),
+                            body: Some(file_contents),
                         };
                         response.serialize_into(&mut response_buf);
                         stream.write_all(&response_buf).await.unwrap();

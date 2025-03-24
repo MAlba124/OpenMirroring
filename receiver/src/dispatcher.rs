@@ -1,5 +1,3 @@
-use std::sync::{Arc, Mutex};
-
 use log::info;
 use tokio::net::{TcpListener, ToSocketAddrs};
 
@@ -29,12 +27,9 @@ impl Dispatcher {
         let mut id: SessionId = 0;
 
         loop {
-            let (net_stream, _) = self.listener.accept().await?;
+            let (stream, _) = self.listener.accept().await?;
             self.event_tx
-                .send(Event::CreateSessionRequest {
-                    net_stream_mutex: Arc::new(Mutex::new(Some(net_stream))),
-                    id,
-                })
+                .send(Event::CreateSessionRequest { stream, id })
                 .await
                 .unwrap();
             id += 1;

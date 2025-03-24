@@ -12,14 +12,11 @@ const HLS_MIME_TYPE: &str = "application/vnd.apple.mpegurl";
 fn get_default_ipv4_addr() -> common::net::Addr {
     let addrs = common::net::get_all_ip_addresses();
     for addr in addrs {
-        match addr {
-            common::net::Addr::V4(v4) => {
-                if v4.is_loopback() {
-                    continue;
-                }
-                return addr;
+        if let common::net::Addr::V4(v4) = addr {
+            if v4.is_loopback() {
+                continue;
             }
-            _ => (),
+            return addr;
         }
     }
 
@@ -61,7 +58,7 @@ impl HlsSink {
             mime: HLS_MIME_TYPE.to_owned(),
             uri: format!(
                 "http://{}:{server_port}/manifest.m3u8",
-                get_default_ipv4_addr().to_string()
+                get_default_ipv4_addr(),
             ),
         })
     }
@@ -102,7 +99,7 @@ impl WebrtcSink {
                 mime: GST_WEBRTC_MIME_TYPE.to_owned(),
                 uri: format!(
                     "gstwebrtc://{}:8443?peer-id={producer_id}",
-                    get_default_ipv4_addr().to_string()
+                    get_default_ipv4_addr(),
                 ),
             })
     }

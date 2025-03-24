@@ -2,10 +2,7 @@ use fcast_lib::models::{
     PlayMessage, PlaybackState, SeekMessage, SetSpeedMessage, SetVolumeMessage,
 };
 use session::SessionId;
-use std::sync::{
-    atomic::{AtomicU64, Ordering},
-    Arc, Mutex,
-};
+use std::sync::atomic::{AtomicU64, Ordering};
 use tokio::net::TcpStream;
 
 pub mod dispatcher;
@@ -27,7 +24,7 @@ pub enum GuiEvent {
 #[derive(Debug)]
 pub enum Event {
     CreateSessionRequest {
-        net_stream_mutex: Arc<Mutex<Option<TcpStream>>>,
+        stream: TcpStream,
         id: SessionId,
     },
     Pause,
