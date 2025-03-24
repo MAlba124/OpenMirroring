@@ -2322,7 +2322,6 @@ dependencies = [
  "pin-project-lite",
  "quickcheck",
  "quickcheck_macros",
- "rand 0.9.0",
  "serde",
  "serde_json",
  "thiserror 2.0.11",

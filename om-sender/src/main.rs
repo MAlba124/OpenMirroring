@@ -72,8 +72,6 @@ async fn event_loop(
 
     debug!("Quitting");
 
-    pipeline.shutdown();
-
     fin_tx.send(()).unwrap();
 }
 

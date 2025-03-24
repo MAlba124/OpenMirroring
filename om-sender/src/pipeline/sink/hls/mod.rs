@@ -1,17 +1,22 @@
+use fake_file_writer::FakeFileWriter;
 use gst::{glib, prelude::*};
 use log::{debug, error, trace};
 use m3u8_rs::{MasterPlaylist, VariantStream};
-use rand::Rng;
-use std::path::PathBuf;
+use std::{collections::HashMap, path::PathBuf};
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
-    sync::mpsc::Sender,
+    sync::mpsc::{Receiver, Sender},
 };
 use url_utils::decode_path;
 
+mod fake_file_writer;
 mod url_utils;
 
-async fn serve_dir(base: PathBuf, event_tx: Sender<crate::Event>) {
+async fn serve_dir(
+    base: PathBuf,
+    event_tx: Sender<crate::Event>,
+    mut file_rx: Receiver<fake_file_writer::ChannelElement>,
+) {
     let listener = tokio::net::TcpListener::bind("0.0.0.0:0").await.unwrap();
 
     debug!("HTTP server listening on {:?}", listener.local_addr());
@@ -23,113 +28,121 @@ async fn serve_dir(base: PathBuf, event_tx: Sender<crate::Event>) {
         .await
         .unwrap();
 
+    let mut files: HashMap<String, Vec<u8>> = HashMap::new();
+
     let mut request_buf = Vec::new();
     let mut response_buf = Vec::new();
-    let mut file_buf = Vec::new();
 
     loop {
-        request_buf.clear();
-        file_buf.clear();
-        response_buf.clear();
+        tokio::select! {
+            v = listener.accept() => {
+                let (mut stream, _) = v.unwrap();
 
-        let (mut stream, _) = listener.accept().await.unwrap();
+                request_buf.clear();
+                response_buf.clear();
 
-        let mut buf = [0; 4096];
-        loop {
-            let bytes_read = stream.read(&mut buf).await.unwrap();
-            request_buf.extend_from_slice(&buf);
-            if bytes_read < buf.len() {
-                break;
+                let mut buf = [0; 4096];
+                loop {
+                    let bytes_read = stream.read(&mut buf).await.unwrap();
+                    request_buf.extend_from_slice(&buf);
+                    if bytes_read < buf.len() {
+                        break;
+                    }
+                }
+
+                let request = http::Request::parse(&request_buf).unwrap();
+
+                if request.start_line.method != http::RequestMethod::Get {
+                    let response = http::Response {
+                        start_line: http::ResponseStartLine {
+                            version: http::HttpVersion::One,
+                            status: http::StatusCode::NotImplemented,
+                        },
+                        headers: vec![],
+                        body: None,
+                    };
+                    response.serialize_into(&mut response_buf);
+                    stream.write_all(&response_buf).await.unwrap();
+                    continue;
+                }
+
+                let Ok(uri) = decode_path(
+                    &request
+                        .start_line
+                        .target
+                        .trim_start_matches("/")
+                ) else {
+                    error!("Failed to decode path {}", request.start_line.target);
+                    let response = http::Response {
+                        start_line: http::ResponseStartLine {
+                            version: http::HttpVersion::One,
+                            status: http::StatusCode::InternalServerError,
+                        },
+                        headers: vec![],
+                        body: None,
+                    };
+                    response.serialize_into(&mut response_buf);
+                    stream.write_all(&response_buf).await.unwrap();
+                    continue;
+                };
+
+                let mut base_path = base.clone();
+                base_path.push(&uri);
+
+                let key = base_path.to_string_lossy().to_string();
+
+                match files.get(&key) {
+                    Some(file_contents) => {
+                        let response = http::Response {
+                            start_line: http::ResponseStartLine {
+                                version: http::HttpVersion::One,
+                                status: http::StatusCode::Ok,
+                            },
+                            headers: vec![
+                                // TODO: function
+                                http::Header {
+                                    key: "Content-Type".to_owned(),
+                                    value: "application/octet-stream".to_owned(),
+                                },
+                                http::Header {
+                                    key: "Content-Length".to_owned(),
+                                    value: file_contents.len().to_string(),
+                                },
+                            ],
+                            body: Some(&file_contents),
+                        };
+                        response.serialize_into(&mut response_buf);
+                        stream.write_all(&response_buf).await.unwrap();
+                    }
+                    None => {
+                        error!("File not found: {}", base_path.display());
+                        let response = http::Response {
+                            start_line: http::ResponseStartLine {
+                                version: http::HttpVersion::One,
+                                status: http::StatusCode::NotFound,
+                            },
+                            headers: vec![],
+                            body: None,
+                        };
+                        response.serialize_into(&mut response_buf);
+                        stream.write_all(&response_buf).await.unwrap();
+                        continue;
+                    }
+                }
             }
-        }
-
-        let request = http::Request::parse(&request_buf).unwrap();
-
-        if request.start_line.method != http::RequestMethod::Get {
-            let response = http::Response {
-                start_line: http::ResponseStartLine {
-                    version: http::HttpVersion::One,
-                    status: http::StatusCode::NotImplemented,
-                },
-                headers: vec![],
-                body: None,
-            };
-            response.serialize_into(&mut response_buf);
-            stream.write_all(&response_buf).await.unwrap();
-            continue;
-        }
-
-        let Ok(uri) = decode_path(
-            &request
-                .start_line
-                .target
-                .trim_start_matches("/")
-                .replace("..", ""),
-        ) else {
-            error!("Failed to decode path {}", request.start_line.target);
-            let response = http::Response {
-                start_line: http::ResponseStartLine {
-                    version: http::HttpVersion::One,
-                    status: http::StatusCode::InternalServerError,
-                },
-                headers: vec![],
-                body: None,
-            };
-            response.serialize_into(&mut response_buf);
-            stream.write_all(&response_buf).await.unwrap();
-            continue;
-        };
-
-        let mut base_path = base.clone();
-        base_path.push(&uri);
-
-        let Ok(mut file) = tokio::fs::File::open(&base_path).await else {
-            error!("File not found: {}", base_path.display());
-            let response = http::Response {
-                start_line: http::ResponseStartLine {
-                    version: http::HttpVersion::One,
-                    status: http::StatusCode::NotFound,
-                },
-                headers: vec![],
-                body: None,
-            };
-            response.serialize_into(&mut response_buf);
-            stream.write_all(&response_buf).await.unwrap();
-            continue;
-        };
-
-        file.read_to_end(&mut file_buf).await.unwrap();
-
-        let response = http::Response {
-            start_line: http::ResponseStartLine {
-                version: http::HttpVersion::One,
-                status: http::StatusCode::Ok,
-            },
-            headers: vec![
-                http::Header {
-                    key: "Content-Type".to_owned(),
-                    value: "application/octet-stream".to_owned(),
-                },
-                http::Header {
-                    key: "Content-Length".to_owned(),
-                    value: file_buf.len().to_string(),
-                },
-            ],
-            body: Some(&file_buf),
-        };
-        response.serialize_into(&mut response_buf);
-        stream.write_all(&response_buf).await.unwrap();
-    }
-}
-
-// TODO: Make portable
-fn generate_rand_tmp_dir_path() -> PathBuf {
-    let mut rng = rand::rng();
-    // Spin until we generate a sub directory in /tmp that does not exist
-    loop {
-        let path = PathBuf::from(format!("/tmp/om-{}", rng.random::<u32>()));
-        if !path.exists() {
-            return path;
+            v = file_rx.recv() => {
+                let Some(v) = v else {
+                    continue;
+                };
+                match v.request {
+                    fake_file_writer::Request::Delete => {
+                        files.remove(&v.location);
+                    }
+                    fake_file_writer::Request::Add(vec) => {
+                        files.insert(v.location, vec);
+                    }
+                }
+            }
         }
     }
 }
@@ -143,12 +156,12 @@ fn get_codec_name(sink: &gst::Element) -> String {
 }
 
 pub struct Hls {
-    base_path: PathBuf,
     pub main_path: PathBuf,
     pub enc: gst::Element,
     pub enc_caps: gst::Element,
     pub sink: gst::Element,
     write_playlist: bool,
+    file_tx: Sender<fake_file_writer::ChannelElement>,
 }
 
 impl Hls {
@@ -162,8 +175,7 @@ impl Hls {
             .property("bitrate", 2_048_000 / 1000u32)
             .property("key-int-max", i32::MAX as u32)
             .property_from_str("tune", "zerolatency")
-            .property_from_str("speed-preset", "medium")
-            // .property_from_str("speed-preset", "superfast")
+            .property_from_str("speed-preset", "superfast")
             .build()?;
         let enc_caps = gst::ElementFactory::make("capsfilter")
             .property(
@@ -174,17 +186,17 @@ impl Hls {
             )
             .build()?;
 
-        let base_path = generate_rand_tmp_dir_path();
-        std::fs::create_dir_all(&base_path).unwrap();
+        let base_path = PathBuf::from("/");
 
-        om_common::runtime().spawn(serve_dir(base_path.clone(), event_tx));
+        let (file_tx, file_rx) = tokio::sync::mpsc::channel::<fake_file_writer::ChannelElement>(10);
+
+        om_common::runtime().spawn(serve_dir(base_path.clone(), event_tx, file_rx));
 
         let mut manifest_path = base_path.clone();
         manifest_path.push("manifest.m3u8");
 
         let mut path = base_path.clone();
         path.push("video");
-        std::fs::create_dir_all(&path).unwrap();
 
         let mut playlist_location = path.clone();
         playlist_location.push("manifest.m3u8");
@@ -203,49 +215,66 @@ impl Hls {
             .property("location", location.to_str().unwrap())
             .property("enable-program-date-time", true)
             .property("sync", true)
-            // Setting no latency seems to be working, might become a problem later?
             .property("latency", 0u64)
             .build()?;
 
+        let file_tx_clone = file_tx.clone();
         sink.connect_closure(
             "get-init-stream",
             false,
             glib::closure!(move |sink: &gst::Element, location: &str| {
                 trace!("{}, writing init segment to {location}", sink.name());
-                let file = std::fs::File::create(location).unwrap();
-                gio::WriteOutputStream::new(file).upcast::<gio::OutputStream>()
+                FakeFileWriter::new(location.to_string(), file_tx_clone.clone())
+                    .upcast::<gio::OutputStream>()
             }),
         );
 
+        let file_tx_clone = file_tx.clone();
         sink.connect_closure(
             "get-fragment-stream",
             false,
             glib::closure!(move |sink: &gst::Element, location: &str| {
                 trace!("{}, writing segment to {location}", sink.name());
-                let file = std::fs::File::create(location).unwrap();
-                gio::WriteOutputStream::new(file).upcast::<gio::OutputStream>()
+                FakeFileWriter::new(location.to_string(), file_tx_clone.clone())
+                    .upcast::<gio::OutputStream>()
             }),
         );
 
+        let file_tx_clone = file_tx.clone();
         sink.connect_closure(
             "delete-fragment",
             false,
             glib::closure!(move |sink: &gst::Element, location: &str| {
                 trace!("{}, removing segment {location}", sink.name());
-                std::fs::remove_file(location).unwrap();
-                true
+                file_tx_clone
+                    .blocking_send(fake_file_writer::ChannelElement {
+                        location: location.to_string(),
+                        request: fake_file_writer::Request::Delete,
+                    })
+                    .is_ok()
+            }),
+        );
+
+        let file_tx_clone = file_tx.clone();
+        sink.connect_closure(
+            "get-playlist-stream",
+            false,
+            glib::closure!(move |sink: &gst::Element, location: &str| {
+                trace!("{}, writing playlist to {location}", sink.name());
+                FakeFileWriter::new(location.to_string(), file_tx_clone.clone())
+                    .upcast::<gio::OutputStream>()
             }),
         );
 
         pipeline.add_many([&enc, &enc_caps, &sink])?;
 
         Ok(Self {
-            base_path,
             enc,
             enc_caps,
             sink,
             main_path: manifest_path,
             write_playlist: true,
+            file_tx,
         })
     }
 
@@ -270,16 +299,16 @@ impl Hls {
 
         debug!("Writing master manifest to {}", self.main_path.display());
 
-        let mut file = std::fs::File::create(&self.main_path).unwrap();
-        playlist.write_to(&mut file).unwrap();
+        let mut buf = Vec::new();
+        playlist.write_to(&mut buf).unwrap();
+
+        self.file_tx
+            .blocking_send(fake_file_writer::ChannelElement {
+                location: self.main_path.to_string_lossy().to_string(),
+                request: fake_file_writer::Request::Add(buf),
+            })
+            .unwrap();
 
         self.write_playlist = false;
-    }
-
-    pub fn shutdown(&self) {
-        if let Err(err) = std::fs::remove_dir_all(&self.base_path) {
-            error!("Failed to remove {}: {err}", self.base_path.display());
-        }
-        debug!("Removed stream directory at {}", self.base_path.display());
     }
 }

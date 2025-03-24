@@ -225,13 +225,6 @@ impl Pipeline {
         }
     }
 
-    pub fn shutdown(&self) {
-        let s = self.sink_state.lock().unwrap();
-        if let SinkState::Hls(ref sink) = *s {
-            sink.hls.shutdown();
-        }
-    }
-
     pub fn set_producer_id(&mut self, producer_id: String) {
         let mut s = self.sink_state.lock().unwrap();
         match *s {

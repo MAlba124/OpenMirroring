@@ -50,7 +50,7 @@ pub fn session(mut msg_rx: Receiver<Message>, event_tx: Sender<Event>) {
         if let Some(packet) = read_packet_from_stream(&mut stream).unwrap() {
             match packet {
                 Packet::Ping => {
-                    send_packet(&mut stream, Packet::Ping).unwrap();
+                    send_packet(&mut stream, Packet::Pong).unwrap();
                 }
                 _ => {
                     event_tx.blocking_send(Event::Packet(packet)).unwrap();
