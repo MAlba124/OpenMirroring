@@ -1,4 +1,7 @@
-use std::{fmt::Display, net::{Ipv4Addr, Ipv6Addr}};
+use std::{
+    fmt::Display,
+    net::{Ipv4Addr, Ipv6Addr},
+};
 
 #[cfg(target_os = "windows")]
 mod win;

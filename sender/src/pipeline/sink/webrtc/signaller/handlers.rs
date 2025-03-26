@@ -1,15 +1,15 @@
 // SPDX-License-Identifier: MPL-2.0
 // This file is taken from the gst-plugin-rs project licensed under the MPL-2.0 and modified
 
+use super::protocol as p;
 use futures::prelude::*;
 use futures::ready;
-use super::protocol as p;
+use log::{debug, error};
 use p::PeerStatus;
 use pin_project_lite::pin_project;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::pin::Pin;
 use std::task::{Context as TaskContext, Poll};
-use log::{error, debug};
 
 type PeerId = String;
 
@@ -87,7 +87,11 @@ impl Handler {
         }
     }
 
-    fn handle_peer_message(&mut self, peer_id: &str, peermsg: p::PeerMessage) -> Result<(), String> {
+    fn handle_peer_message(
+        &mut self,
+        peer_id: &str,
+        peermsg: p::PeerMessage,
+    ) -> Result<(), String> {
         let session_id = &peermsg.session_id;
         let session = self
             .sessions
@@ -100,7 +104,10 @@ impl Handler {
             p::PeerMessageInner::Sdp(p::SdpMessage::Offer { .. })
         ) && peer_id == session.consumer
         {
-            return Err(format!(r#"cannot forward offer from "{peer_id}" to "{}" as "{peer_id}" is not the producer"#, session.producer));
+            return Err(format!(
+                r#"cannot forward offer from "{peer_id}" to "{}" as "{peer_id}" is not the producer"#,
+                session.producer
+            ));
         }
 
         self.items.push_back((
