@@ -1,20 +1,15 @@
 // SPDX-License-Identifier: MPL-2.0
 // This file is taken from the gst-plugin-rs project licensed under the MPL-2.0 and modified
 
-use anyhow::{anyhow, Error};
-use anyhow::{bail, Context};
 use futures::prelude::*;
 use futures::ready;
-// use gst_plugin_webrtc_protocol as p;
 use super::protocol as p;
 use p::PeerStatus;
 use pin_project_lite::pin_project;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::pin::Pin;
 use std::task::{Context as TaskContext, Poll};
-// use tracing::log::error;
-// use tracing::{info, instrument, warn};
-use log::{error, info};
+use log::{error, debug};
 
 type PeerId = String;
 
@@ -26,13 +21,13 @@ struct Session {
 }
 
 impl Session {
-    fn other_peer_id(&self, id: &str) -> Result<&str, Error> {
+    fn other_peer_id(&self, id: &str) -> Result<&str, String> {
         if self.producer == id {
             Ok(&self.consumer)
         } else if self.consumer == id {
             Ok(&self.producer)
         } else {
-            bail!("Peer {id} is not part of {}", self.id)
+            Err(format!("Peer {id} is not part of {}", self.id))
         }
     }
 }
@@ -51,7 +46,6 @@ pin_project! {
 }
 
 impl Handler {
-    // #[instrument(level = "debug", skip(stream))]
     /// Create a handler
     pub fn new(
         stream: Pin<Box<dyn Stream<Item = (String, Option<p::IncomingMessage>)> + Send>>,
@@ -66,12 +60,11 @@ impl Handler {
         }
     }
 
-    // #[instrument(level = "trace", skip(self))]
     fn handle(
         mut self: Pin<&mut Self>,
         peer_id: &str,
         msg: p::IncomingMessage,
-    ) -> Result<(), Error> {
+    ) -> Result<(), String> {
         match msg {
             p::IncomingMessage::NewPeer => {
                 self.peers.insert(peer_id.to_string(), Default::default());
@@ -89,17 +82,17 @@ impl Handler {
                 self.start_session(&message.peer_id, peer_id, message.offer.as_deref())
             }
             p::IncomingMessage::Peer(peermsg) => self.handle_peer_message(peer_id, peermsg),
-            p::IncomingMessage::List => self.list_producers(peer_id),
+            p::IncomingMessage::List => Ok(self.list_producers(peer_id)),
             p::IncomingMessage::EndSession(msg) => self.end_session(peer_id, &msg.session_id),
         }
     }
 
-    fn handle_peer_message(&mut self, peer_id: &str, peermsg: p::PeerMessage) -> Result<(), Error> {
+    fn handle_peer_message(&mut self, peer_id: &str, peermsg: p::PeerMessage) -> Result<(), String> {
         let session_id = &peermsg.session_id;
         let session = self
             .sessions
             .get(session_id)
-            .context(format!("Session {session_id} doesn't exist"))?
+            .ok_or(format!("Session {session_id} doesn't exist"))?
             .clone();
 
         if matches!(
@@ -107,10 +100,7 @@ impl Handler {
             p::PeerMessageInner::Sdp(p::SdpMessage::Offer { .. })
         ) && peer_id == session.consumer
         {
-            bail!(
-                r#"cannot forward offer from "{peer_id}" to "{}" as "{peer_id}" is not the producer"#,
-                session.producer,
-            );
+            return Err(format!(r#"cannot forward offer from "{peer_id}" to "{}" as "{peer_id}" is not the producer"#, session.producer));
         }
 
         self.items.push_back((
@@ -144,11 +134,9 @@ impl Handler {
         }
     }
 
-    // #[instrument(level = "debug", skip(self))]
     /// Remove a peer, this can cause sessions to be ended
     fn remove_peer(&mut self, peer_id: &str) {
-        // info!(peer_id = %peer_id, "removing peer");
-        info!("removing peer peer_id={peer_id}");
+        debug!("removing peer peer_id={peer_id}");
         let peer_status = match self.peers.remove(peer_id) {
             Some(peer_status) => peer_status,
             _ => return,
@@ -171,13 +159,12 @@ impl Handler {
         }
     }
 
-    // #[instrument(level = "debug", skip(self))]
     /// End a session between two peers
-    fn end_session(&mut self, peer_id: &str, session_id: &str) -> Result<(), Error> {
+    fn end_session(&mut self, peer_id: &str, session_id: &str) -> Result<(), String> {
         let session = self
             .sessions
             .remove(session_id)
-            .with_context(|| format!("Session {session_id} doesn't exist"))?;
+            .ok_or(format!("Session {session_id} doesn't exist"))?;
 
         self.consumer_sessions
             .entry(session.consumer.clone())
@@ -202,8 +189,7 @@ impl Handler {
     }
 
     /// List producer peers
-    // #[instrument(level = "debug", skip(self))]
-    fn list_producers(&mut self, peer_id: &str) -> Result<(), Error> {
+    fn list_producers(&mut self, peer_id: &str) {
         self.items.push_back((
             peer_id.to_string(),
             p::OutgoingMessage::List {
@@ -219,20 +205,17 @@ impl Handler {
                     .collect(),
             },
         ));
-
-        Ok(())
     }
 
     /// Register peer as a producer
-    // #[instrument(level = "debug", skip(self))]
-    fn set_peer_status(&mut self, peer_id: &str, status: &p::PeerStatus) -> Result<(), Error> {
+    fn set_peer_status(&mut self, peer_id: &str, status: &p::PeerStatus) -> Result<(), String> {
         let old_status = self
             .peers
             .get(peer_id)
-            .context(anyhow!("Peer '{peer_id}' hasn't been welcomed"))?;
+            .ok_or(format!("Peer '{peer_id}' hasn't been welcomed"))?;
 
         if status == old_status {
-            info!("Status for '{peer_id}' hasn't changed");
+            debug!("Status for '{peer_id}' hasn't changed");
 
             return Ok(());
         }
@@ -259,26 +242,23 @@ impl Handler {
             ));
         }
 
-        // info!(peer_id = %peer_id, "registered as a producer");
-        // mark
-        info!("registered as a producer peer_id={peer_id}");
+        debug!("registered as a producer peer_id={peer_id}");
 
         Ok(())
     }
 
     /// Start a session between two peers
-    // #[instrument(level = "debug", skip(self))]
     fn start_session(
         &mut self,
         producer_id: &str,
         consumer_id: &str,
         offer: Option<&str>,
-    ) -> Result<(), Error> {
+    ) -> Result<(), String> {
         self.peers.get(producer_id).map_or_else(
-            || Err(anyhow!("No producer with ID: '{producer_id}'")),
+            || Err(format!("No producer with ID: '{producer_id}'")),
             |peer| {
                 if !peer.producing() {
-                    Err(anyhow!(
+                    Err(format!(
                         "Peer with id {} is not registered as a producer",
                         producer_id
                     ))
@@ -290,7 +270,7 @@ impl Handler {
 
         self.peers
             .get(consumer_id)
-            .map_or_else(|| Err(anyhow!("No consumer with ID: '{consumer_id}'")), Ok)?;
+            .map_or_else(|| Err(format!("No consumer with ID: '{consumer_id}'")), Ok)?;
 
         let session_id = uuid::Uuid::new_v4().to_string();
         self.sessions.insert(
@@ -325,8 +305,7 @@ impl Handler {
             },
         ));
 
-        // info!(id = %session_id, producer_id = %producer_id, consumer_id = %consumer_id, "started a session");
-        info!(
+        debug!(
             "started a session id={session_id} producer_id={producer_id} consumer_id={consumer_id}"
         );
 

@@ -1,13 +1,10 @@
 // SPDX-License-Identifier: MPL-2.0
 // This file is taken from the gst-plugin-rs project licensed under the MPL-2.0 and modified
 
-// TODO: don't depend on these lazy error crates
-
-use anyhow::Error;
 use async_tungstenite::tungstenite::{Message as WsMessage, Utf8Bytes};
 use futures::channel::mpsc;
 use futures::prelude::*;
-use log::{debug, error, info, trace, warn};
+use log::{debug, error, trace, warn};
 use serde::Deserialize;
 use std::collections::HashMap;
 use std::pin::Pin;
@@ -19,7 +16,7 @@ use super::protocol::OutgoingMessage;
 
 struct Peer {
     receive_task_handle: task::JoinHandle<()>,
-    send_task_handle: task::JoinHandle<Result<(), Error>>,
+    send_task_handle: task::JoinHandle<Result<(), String>>,
     sender: mpsc::Sender<String>,
 }
 
@@ -33,10 +30,8 @@ pub struct Server {
     state: Arc<Mutex<State>>,
 }
 
-#[derive(thiserror::Error, Debug)]
 pub enum ServerError {
-    #[error("error during handshake {0}")]
-    Handshake(#[from] async_tungstenite::tungstenite::Error),
+    Handshake,
 }
 
 impl Server {
@@ -46,7 +41,6 @@ impl Server {
         St: Stream<Item = (String, OutgoingMessage)> + Send + Unpin + 'static,
     >(
         factory: Factory,
-        // prod_peer_tx: tokio::sync::oneshot::Sender<String>,
         prod_peer_tx: tokio::sync::mpsc::Sender<crate::Event>,
     ) -> Self {
         let (tx, rx) = mpsc::channel::<(String, Option<Utf8Bytes>)>(1000);
@@ -77,7 +71,7 @@ impl Server {
                 // Handle the first producer that connects
                 match msg {
                     OutgoingMessage::Welcome { ref peer_id } if prod_peer_tx.is_some() => {
-                        info!("Got producer: {peer_id}");
+                        debug!("Got producer: {peer_id}");
                         if let Some(prod_peer_tx) = prod_peer_tx.take() {
                             prod_peer_tx
                                 .send(crate::Event::ProducerConnected(peer_id.clone()))
@@ -138,16 +132,14 @@ impl Server {
             Ok(ws) => ws,
             Err(err) => {
                 warn!("Error during the websocket handshake: {}", err);
-                return Err(ServerError::Handshake(err));
+                return Err(ServerError::Handshake);
             }
         };
 
         let this_id = uuid::Uuid::new_v4().to_string();
-        info!("New WebSocket connection: this_id={this_id}");
+        debug!("New WebSocket connection: this_id={this_id}");
 
-        // 1000 is completely arbitrary, we simply don't want infinite piling
-        // up of messages as with unbounded
-        let (websocket_sender, mut websocket_receiver) = mpsc::channel::<String>(1000);
+        let (websocket_sender, mut websocket_receiver) = mpsc::channel::<String>(10);
 
         let this_id_clone = this_id.clone();
         let (mut ws_sink, mut ws_stream) = ws.split();
@@ -183,7 +175,7 @@ impl Server {
 
             let _ = ws_sink.close().await;
 
-            res.map_err(Into::into)
+            res.map_err(|err| err.to_string())
         });
 
         let mut tx = self.state.lock().unwrap().tx.clone();
@@ -208,7 +200,7 @@ impl Server {
                 }
             }
             while let Some(msg) = ws_stream.next().await {
-                info!("Received message {msg:?}");
+                debug!("Received message {msg:?}");
                 match msg {
                     Ok(WsMessage::Text(msg)) => {
                         if let Some(tx) = tx.as_mut() {
@@ -218,7 +210,7 @@ impl Server {
                         }
                     }
                     Ok(WsMessage::Close(reason)) => {
-                        info!("connection closed: {reason:?} this_id={this_id_clone}");
+                        debug!("connection closed: {reason:?} this_id={this_id_clone}");
                         break;
                     }
                     Ok(WsMessage::Pong(_)) => {
