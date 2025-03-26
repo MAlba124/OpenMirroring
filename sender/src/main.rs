@@ -2,9 +2,11 @@ use gst::prelude::*;
 use gtk::prelude::*;
 use gtk::{glib, Application, ApplicationWindow};
 use gtk4 as gtk;
-use log::{debug, error, trace, warn};
+use log::{debug, error, trace};
 use sender::session::session;
 use sender::views::{StateChange, View};
+use tokio::sync::mpsc::{Receiver, Sender};
+use tokio::sync::oneshot;
 
 use std::cell::RefCell;
 
@@ -13,12 +15,13 @@ use sender::{Event, Message};
 async fn event_loop(
     mut pipeline: sender::pipeline::Pipeline,
     main_view: sender::views::Main,
-    mut event_rx: tokio::sync::mpsc::Receiver<Event>,
-    event_tx: tokio::sync::mpsc::Sender<Event>,
-    tx: tokio::sync::mpsc::Sender<Message>,
-    select_source_tx: tokio::sync::mpsc::Sender<usize>,
-    fin_tx: tokio::sync::oneshot::Sender<()>,
+    mut event_rx: Receiver<Event>,
+    event_tx: Sender<Event>,
+    tx: Sender<Message>,
+    select_source_tx: Sender<usize>,
+    fin_tx: oneshot::Sender<()>,
 ) {
+    let mut selected_source = false;
     while let Some(event) = event_rx.recv().await {
         match event {
             Event::Quit => break,
@@ -54,6 +57,7 @@ async fn event_loop(
             }
             Event::SelectSource(idx, sink_type) => {
                 select_source_tx.send(idx).await.unwrap();
+                selected_source = true;
                 if sink_type == 0 {
                     main_view.change_state(StateChange::SelectSourceToPrimary);
                     pipeline.add_webrtc_sink(event_tx.clone()).unwrap();
@@ -71,6 +75,11 @@ async fn event_loop(
     }
 
     debug!("Quitting");
+
+    if !selected_source {
+        debug!("Source is not selected, sending fake");
+        select_source_tx.send(0).await.unwrap();
+    }
 
     fin_tx.send(()).unwrap();
 }
@@ -101,7 +110,7 @@ fn build_ui(app: &Application) {
     let tx_clone = session_tx.clone();
     let pipeline_weak = RefCell::new(Some(pipeline.inner.downgrade()));
     let event_tx_clone = event_tx.clone();
-    let (fin_tx, fin_rx) = tokio::sync::oneshot::channel::<()>();
+    let (fin_tx, fin_rx) = oneshot::channel::<()>();
     glib::spawn_future_local(async move {
         event_loop(
             pipeline,
@@ -116,7 +125,7 @@ fn build_ui(app: &Application) {
     });
 
     let bus_watch = RefCell::new(Some(bus_watch));
-    let fin_rx = std::sync::Arc::new(std::sync::Mutex::new(Some(fin_rx)));
+    let fin_rx = std::sync::Arc::new(RefCell::new(Some(fin_rx)));
     app.connect_shutdown(move |_| {
         debug!("Shutting down");
 
@@ -124,51 +133,44 @@ fn build_ui(app: &Application) {
 
         drop(bus_watch.borrow_mut().take());
 
-        if let Some(pipeline) = pipeline_weak.borrow_mut().take() {
-            if let Some(pipeline) = pipeline.upgrade() {
-                // TODO: If the source is not selected, this just blocks forever
-                pipeline
-                    .set_state(gst::State::Null)
-                    .expect("Unable to set the pipeline to the `Null` state");
-            }
+        let pipeline = pipeline_weak
+            .borrow_mut()
+            .take()
+            .unwrap()
+            .upgrade()
+            .unwrap();
 
-            // Since the event-loop runs on the main thread and glib does not have a `runtime::block_on`
-            // alternative (i think), we need to create a MainLoop that we use to wait for the future
-            // spawned below to finish.
-            let main_loop = glib::MainLoop::new(None, false);
+        // Since the event-loop runs on the main thread and glib does not have a `runtime::block_on`
+        // alternative (i think), we need to create a MainLoop that we use to wait for the future
+        // spawned below to finish.
+        let main_loop = glib::MainLoop::new(None, false);
 
-            glib::spawn_future_local(glib::clone!(
-                #[strong]
-                fin_rx,
-                #[strong]
-                session_tx,
-                #[strong]
-                main_loop,
-                async move {
-                    if !session_tx.is_closed() {
-                        session_tx.send(Message::Quit).await.unwrap();
-                        if let Some(fin_rx) = fin_rx.lock().unwrap().take() {
-                            debug!("Waiting for fin signal...");
-                            fin_rx.await.unwrap();
-                            debug!("Got fin signal")
-                        } else {
-                            warn!("Missing fin signal receiver");
-                        }
-                    } else {
-                        debug!("Tx was closed, weird");
+        glib::spawn_future_local(glib::clone!(
+            #[strong]
+            fin_rx,
+            #[strong]
+            session_tx,
+            #[strong]
+            main_loop,
+            async move {
+                if !session_tx.is_closed() {
+                    session_tx.send(Message::Quit).await.unwrap();
+                    if let Some(fin_rx) = fin_rx.borrow_mut().take() {
+                        fin_rx.await.unwrap();
                     }
-                    debug!("Quitting main loop");
-                    main_loop.quit();
                 }
-            ));
+                main_loop.quit();
+            }
+        ));
 
-            main_loop.run();
-        }
+        main_loop.run();
+
+        pipeline
+            .set_state(gst::State::Null)
+            .expect("Unable to set the pipeline to the `Null` state");
     });
 
-    let _ = std::thread::spawn(move || {
-        session(session_rx, event_tx);
-    });
+    common::runtime().spawn(session(session_rx, event_tx));
 }
 
 fn main() -> glib::ExitCode {

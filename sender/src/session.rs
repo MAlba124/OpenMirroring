@@ -1,26 +1,20 @@
 use fcast_lib::{models, models::Header, packet::Packet};
 use log::debug;
-use std::io::{Read, Write};
-use std::net::TcpStream;
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::net::TcpStream;
 use tokio::sync::mpsc::{Receiver, Sender};
 
 use crate::{Event, Message};
 
 const HEADER_BUFFER_SIZE: usize = 5;
 
-fn read_packet_from_stream(stream: &mut TcpStream) -> Result<Option<Packet>, String> {
+async fn read_packet_from_stream(stream: &mut TcpStream) -> Result<Packet, String> {
     let mut header_buf: [u8; HEADER_BUFFER_SIZE] = [0; HEADER_BUFFER_SIZE];
 
-    match stream.read_exact(&mut header_buf) {
-        Ok(_) => (),
-        Err(err)
-            if err.kind() == std::io::ErrorKind::WouldBlock
-                || err.kind() == std::io::ErrorKind::TimedOut =>
-        {
-            return Ok(None)
-        }
-        Err(err) => panic!("{err}"),
-    }
+    stream
+        .read_exact(&mut header_buf)
+        .await
+        .map_err(|err| err.to_string())?;
 
     let header = Header::decode(header_buf);
 
@@ -28,39 +22,39 @@ fn read_packet_from_stream(stream: &mut TcpStream) -> Result<Option<Packet>, Str
 
     if header.size > 0 {
         let mut body_buf = vec![0; header.size as usize];
-        stream.read_exact(&mut body_buf).unwrap();
-        body_string = String::from_utf8(body_buf).unwrap();
+        stream
+            .read_exact(&mut body_buf)
+            .await
+            .map_err(|err| err.to_string())?;
+        body_string = String::from_utf8(body_buf).map_err(|err| err.to_string())?;
     }
 
-    Ok(Some(Packet::decode(header, &body_string).unwrap()))
+    Ok(Packet::decode(header, &body_string).map_err(|err| err.to_string())?)
 }
 
-fn send_packet(stream: &mut TcpStream, packet: Packet) -> Result<(), String> {
+async fn send_packet(stream: &mut TcpStream, packet: Packet) -> Result<(), String> {
     let bytes = packet.encode();
-    stream.write_all(&bytes).unwrap();
+    stream.write_all(&bytes).await.unwrap();
     Ok(())
 }
 
-pub fn session(mut msg_rx: Receiver<Message>, event_tx: Sender<Event>) {
-    let mut stream = TcpStream::connect("127.0.0.1:46899").unwrap();
-    stream
-        .set_read_timeout(Some(std::time::Duration::from_millis(25)))
-        .unwrap();
+pub async fn session(mut msg_rx: Receiver<Message>, event_tx: Sender<Event>) {
+    let mut stream = TcpStream::connect("127.0.0.1:46899").await.unwrap();
     loop {
-        if let Some(packet) = read_packet_from_stream(&mut stream).unwrap() {
-            match packet {
-                Packet::Ping => {
-                    send_packet(&mut stream, Packet::Pong).unwrap();
-                }
-                _ => {
-                    event_tx.blocking_send(Event::Packet(packet)).unwrap();
+        tokio::select! {
+            packet = read_packet_from_stream(&mut stream) => {
+                let packet = packet.unwrap();
+                match packet {
+                    Packet::Ping => {
+                        send_packet(&mut stream, Packet::Pong).await.unwrap();
+                    }
+                    _ => {
+                        event_tx.send(Event::Packet(packet)).await.unwrap();
+                    }
                 }
             }
-        }
-
-        use tokio::sync::mpsc::error::TryRecvError;
-        match msg_rx.try_recv() {
-            Ok(msg) => {
+            msg = msg_rx.recv() => {
+                let msg = msg.unwrap();
                 debug!("Got message: {msg:?}");
                 match msg {
                     Message::Play { mime, uri } => {
@@ -72,18 +66,16 @@ pub fn session(mut msg_rx: Receiver<Message>, event_tx: Sender<Event>) {
                             speed: None,
                             headers: None,
                         });
-                        send_packet(&mut stream, packet).unwrap();
+                        send_packet(&mut stream, packet).await.unwrap();
                     }
                     Message::Quit => break,
-                    Message::Stop => send_packet(&mut stream, Packet::Stop).unwrap(),
+                    Message::Stop => send_packet(&mut stream, Packet::Stop).await.unwrap(),
                 }
             }
-            Err(TryRecvError::Empty) => (),
-            Err(err) => panic!("{err}"),
         }
     }
 
     debug!("Session terminated");
 
-    event_tx.blocking_send(Event::Quit).unwrap();
+    event_tx.send(Event::Quit).await.unwrap();
 }
