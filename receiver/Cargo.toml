@@ -9,8 +9,6 @@ log = { workspace = true }
 env_logger = { workspace = true }
 gst = { workspace = true }
 gst-video = { workspace = true }
-gst-webrtc = { workspace = true }
-gst-rtp = { workspace = true }
 gst-gtk4 = { workspace = true }
 gtk4 = { workspace = true }
 fcast-lib = { path = "../fcast-lib" }

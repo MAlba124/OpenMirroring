@@ -182,10 +182,7 @@ fn main() -> glib::ExitCode {
     gst::init().unwrap();
     scapgst::plugin_register_static().unwrap();
     gst_gtk4::plugin_register_static().unwrap();
-    gst_rtp::plugin_register_static().unwrap();
     gst_webrtc::plugin_register_static().unwrap();
-    gst_hlssink3::plugin_register_static().unwrap();
-    gst_fmp4::plugin_register_static().unwrap();
 
     let app = Application::builder()
         .application_id("com.github.malba124.OpenMirroring.sender")

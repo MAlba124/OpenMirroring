@@ -211,12 +211,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8f68f53c83ab957f72c32642f3868eec03eb974d1fb82e453128456482613d36"
 
 [[package]]
-name = "bitstream-io"
-version = "2.3.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7c12d1856e42f0d817a835fe55853957c85c8c8a470114029143d3f12671446e"
-
-[[package]]
 name = "block"
 version = "0.1.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -236,12 +230,6 @@ name = "bumpalo"
 version = "3.17.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1628fb46dfa0b37568d12e5edd512553eccf6a22a78e8bde00bb4aed84d5bdbf"
-
-[[package]]
-name = "byte-slice-cast"
-version = "1.2.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c3ac9f8b63eca6fd385229b3675f6cc0dc5c8a5c8a54a59d4f52ffd670d87b0c"
 
 [[package]]
 name = "byteorder"
@@ -588,15 +576,6 @@ dependencies = [
  "libc",
  "libdbus-sys",
  "winapi",
-]
-
-[[package]]
-name = "deranged"
-version = "0.3.11"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b42b6fa04a440b495c8b04d0e71b707c585f83cb9cb28cf8cd0d976c315e31b4"
-dependencies = [
- "powerfmt",
 ]
 
 [[package]]
@@ -1140,23 +1119,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "gst-plugin-fmp4"
-version = "0.13.5"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6ea89e0097b02b220c41c5973c7a7b3733a2166b32c883c8221b7cc915be57d5"
-dependencies = [
- "anyhow",
- "bitstream-io",
- "gst-plugin-version-helper",
- "gstreamer",
- "gstreamer-audio",
- "gstreamer-base",
- "gstreamer-pbutils",
- "gstreamer-video",
- "once_cell",
-]
-
-[[package]]
 name = "gst-plugin-gtk4"
 version = "0.13.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1172,55 +1134,6 @@ dependencies = [
  "gtk4",
  "once_cell",
  "windows-sys 0.59.0",
-]
-
-[[package]]
-name = "gst-plugin-hlssink3"
-version = "0.13.5"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4d6c48a17fe63ec8bc420cb81c7b06071d5dc4517a1ccdc3c11181b10ff68e63"
-dependencies = [
- "chrono",
- "gio",
- "gst-plugin-version-helper",
- "gstreamer",
- "gstreamer-app",
- "m3u8-rs",
- "once_cell",
- "sprintf",
-]
-
-[[package]]
-name = "gst-plugin-rtp"
-version = "0.13.5"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "be4232834a935ab75e8e9e0003ca8400f3a35b71a2abd9a6464c16a0147c651a"
-dependencies = [
- "anyhow",
- "atomic_refcell",
- "bitstream-io",
- "byte-slice-cast",
- "chrono",
- "futures",
- "gio",
- "gst-plugin-version-helper",
- "gstreamer",
- "gstreamer-audio",
- "gstreamer-base",
- "gstreamer-net",
- "gstreamer-rtp",
- "gstreamer-video",
- "hex",
- "log",
- "once_cell",
- "rand 0.9.0",
- "rtcp-types",
- "rtp-types",
- "slab",
- "smallvec",
- "thiserror 2.0.11",
- "time",
- "tokio",
 ]
 
 [[package]]
@@ -1672,12 +1585,6 @@ name = "heck"
 version = "0.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "2304e00983f87ffb38b55b444b5e3b60a884b5d30c0fca7d82fe33449bbe55ea"
-
-[[package]]
-name = "hex"
-version = "0.4.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7f24254aa9a54b5c858eaee2f5bccdb46aaf0e486a595ed5fd8f86ba55232a70"
 
 [[package]]
 name = "http"
@@ -2161,12 +2068,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "num-conv"
-version = "0.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "51d515d32fb182ee37cda2ccdcb92950d6a3c2893aa280e540671c2cd0f3b1d9"
-
-[[package]]
 name = "num-integer"
 version = "0.1.46"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2458,12 +2359,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "powerfmt"
-version = "0.2.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "439ee305def115ba05938db6eb1644ff94165c5ab5e9420d1c1bcedbba909391"
-
-[[package]]
 name = "ppv-lite86"
 version = "0.2.20"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2607,8 +2502,6 @@ dependencies = [
  "env_logger 0.11.6",
  "fcast-lib",
  "gst-plugin-gtk4",
- "gst-plugin-rtp",
- "gst-plugin-webrtc",
  "gstreamer",
  "gstreamer-video",
  "gtk4",
@@ -2653,25 +2546,6 @@ name = "regex-syntax"
 version = "0.8.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "2b15c43186be67a4fd63bee50d0303afffcef381492ebe2c5d87f324e1b8815c"
-
-[[package]]
-name = "rtcp-types"
-version = "0.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ce5248489db464de29835170cd1f6e19933146b0016789effc59cb53d9f13844"
-dependencies = [
- "thiserror 1.0.69",
-]
-
-[[package]]
-name = "rtp-types"
-version = "0.1.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7bb90df8268abfe08452ef2dae9e867a54edfdaa71b3127ef47d8b031f77ac73"
-dependencies = [
- "smallvec",
- "thiserror 1.0.69",
-]
 
 [[package]]
 name = "rustc-demangle"
@@ -2831,10 +2705,7 @@ dependencies = [
  "fcast-lib",
  "futures",
  "gio",
- "gst-plugin-fmp4",
  "gst-plugin-gtk4",
- "gst-plugin-hlssink3",
- "gst-plugin-rtp",
  "gst-plugin-webrtc",
  "gstreamer",
  "gstreamer-pbutils",
@@ -2954,15 +2825,6 @@ checksum = "c970269d99b64e60ec3bd6ad27270092a5394c4e309314b18ae3fe575695fbe8"
 dependencies = [
  "libc",
  "windows-sys 0.52.0",
-]
-
-[[package]]
-name = "sprintf"
-version = "0.4.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "46781e6f401f1557f5b4560284baf7268bd9ca531e9e387120a8695fe5bc1fb1"
-dependencies = [
- "thiserror 1.0.69",
 ]
 
 [[package]]
@@ -3122,25 +2984,6 @@ dependencies = [
  "quote",
  "syn 2.0.98",
 ]
-
-[[package]]
-name = "time"
-version = "0.3.37"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "35e7868883861bd0e56d9ac6efcaaca0d6d5d82a2a7ec8209ff492c07cf37b21"
-dependencies = [
- "deranged",
- "num-conv",
- "powerfmt",
- "serde",
- "time-core",
-]
-
-[[package]]
-name = "time-core"
-version = "0.1.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ef927ca75afb808a4d64dd374f00a2adf8d0fcff8e7b184af886c3c87ec4a3f3"
 
 [[package]]
 name = "tinystr"

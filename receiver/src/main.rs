@@ -257,8 +257,6 @@ fn main() -> glib::ExitCode {
         .init();
 
     gst::init().unwrap();
-    gst_webrtc::plugin_register_static().unwrap();
-    gst_rtp::plugin_register_static().unwrap();
     gst_gtk4::plugin_register_static().unwrap();
 
     let app = Application::builder()
