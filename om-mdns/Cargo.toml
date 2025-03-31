@@ -1,0 +1,8 @@
+[package]
+name = "om-mdns"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+hostname = "0.4.0"
+dns-parser = "0.8.0"
