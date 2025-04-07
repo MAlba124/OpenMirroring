@@ -22,6 +22,8 @@ impl SelectReceiver {
         let drop_down = gtk::DropDown::builder().build();
         let button = gtk::Button::with_label("Ok");
 
+        // TODO: input IPA and port for non broadcasted receivers
+
         button.connect_clicked(glib::clone!(
             #[weak]
             drop_down,
