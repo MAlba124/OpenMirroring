@@ -12,12 +12,18 @@ The suite consists of two programs, a sender and a receiver, that both implement
 
 The current platform support matrix looks like this:
 
+#### Desktop
+
 |            |Linux (Wayland)  |Linux (X11)  |Windows  |MacOS     |
 |------------|-----------------|-------------|---------|----------|
 |OMSender    |Yes              |Yes          |Yes      |No        |
 |OMReceiver  |Yes              |Yes          |Yes      |Untested  |
 
-OMSender can also pair with other FCast receivers by selecting the HLS option under `Select protocol` when selecting source.
+OMSender can cast to other FCast receivers as well.
+
+#### Mobile
+
+TODO
 
 ### Installing
 
