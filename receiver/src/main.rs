@@ -172,8 +172,8 @@ fn build_ui(app: &Application) {
     let mut ips: Vec<Ipv4Addr> = Vec::new();
     for ip in common::net::get_all_ip_addresses() {
         match ip {
-            common::net::Addr::V4(v4) => ips.push(v4),
-            common::net::Addr::V6(v6) => warn!("Found IPv6 address ({v6:?}), ignoring"),
+            std::net::IpAddr::V4(v4) => ips.push(v4),
+            std::net::IpAddr::V6(v6) => warn!("Found IPv6 address ({v6:?}), ignoring"),
         }
     }
 
@@ -202,7 +202,7 @@ fn build_ui(app: &Application) {
 
     let event_tx_clone = event_tx.clone();
     runtime().spawn(async move {
-        Dispatcher::new("0.0.0.0:46899", event_tx_clone)
+        Dispatcher::new(event_tx_clone)
             .await
             .unwrap()
             .run()

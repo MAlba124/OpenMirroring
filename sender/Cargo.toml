@@ -26,6 +26,7 @@ http = { path = "../http" }
 scap-gstreamer = { path = "../scap-gstreamer" }
 serde = { workspace = true }
 serde_json = { workspace = true }
+simple-mdns = { workspace = true }
 
 [dev-dependencies]
 quickcheck = "1"

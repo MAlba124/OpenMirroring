@@ -312,6 +312,8 @@ impl BaseSrcImpl for ScapSrc {
                     .build()
                     .unwrap();
 
+            gst::debug!(CAT, "Got new format: {new_video_info:?}");
+
             let new_caps = new_video_info.to_caps().unwrap();
 
             event_tx_clone.send(Event::NewCaps(new_caps)).unwrap();
@@ -322,7 +324,7 @@ impl BaseSrcImpl for ScapSrc {
         let on_frame = move |pts: Pts, data: &[u8]| {
             let buffer_pool = buffer_pool_clone.lock().unwrap();
             let Ok(buffer) = buffer_pool.acquire_buffer(None) else {
-                // TODO: logging
+                gst::error!(CAT, "Failed to acquire buffer");
                 return;
             };
             drop(buffer_pool);
@@ -413,7 +415,7 @@ impl BaseSrcImpl for ScapSrc {
             gst::loggable_error!(CAT, "Failed to build `VideoInfo` from caps {}", caps)
         })?;
 
-        gst::debug!(CAT, imp = self, "Configuring for caps {}", caps);
+        gst::debug!(CAT, imp = self, "Configuring for caps: {}", caps);
 
         let mut buffer_pool = self.buffer_pool.lock().unwrap();
         let config = buffer_pool.config();
@@ -446,7 +448,7 @@ impl BaseSrcImpl for ScapSrc {
 
         match query.view_mut() {
             QueryViewMut::Caps(q) if settings.perform_internal_preroll => {
-                gst::info!(CAT, imp = self, "Returning caps");
+                gst::debug!(CAT, imp = self, "Returning caps");
                 let state = self.state.lock().unwrap();
                 if let Some(info) = &state.info.as_ref() {
                     q.set_result(Some(&info.to_caps().unwrap()));

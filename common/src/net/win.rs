@@ -1,3 +1,5 @@
+use std::net::IpAddr;
+
 use windows::Win32::Foundation::ERROR_BUFFER_OVERFLOW;
 use windows::Win32::Foundation::NO_ERROR;
 use windows::Win32::NetworkManagement::IpHelper::GetAdaptersAddresses;
@@ -12,7 +14,7 @@ use windows::Win32::Networking::WinSock::SOCKADDR_IN6;
 const AF_INET_VAL: u16 = AF_INET.0;
 const AF_INET6_VAL: u16 = AF_INET6.0;
 
-pub fn get_all_ip_addresses() -> Vec<super::Addr> {
+pub fn get_all_ip_addresses() -> Vec<IpAddr> {
     let family = AF_UNSPEC.0 as u32;
     let flag = GAA_FLAG_INCLUDE_PREFIX;
 
@@ -51,7 +53,7 @@ pub fn get_all_ip_addresses() -> Vec<super::Addr> {
                     AF_INET_VAL => {
                         let sockaddr_in = unsafe { &*(address as *const SOCKADDR_IN) };
                         let addr_bytes = unsafe { sockaddr_in.sin_addr.S_un.S_addr.to_ne_bytes() };
-                        addrs.push(super::Addr::V4(std::net::Ipv4Addr::new(
+                        addrs.push(IpAddr::V4(std::net::Ipv4Addr::new(
                             addr_bytes[0],
                             addr_bytes[1],
                             addr_bytes[2],
@@ -61,7 +63,7 @@ pub fn get_all_ip_addresses() -> Vec<super::Addr> {
                     AF_INET6_VAL => {
                         let sockaddr_in6 = unsafe { &*(address as *const SOCKADDR_IN6) };
                         let addr_bytes = unsafe { sockaddr_in6.sin6_addr.u.Byte };
-                        addrs.push(super::Addr::V6(std::net::Ipv6Addr::from(addr_bytes)));
+                        addrs.push(IpAddr::V6(std::net::Ipv6Addr::from(addr_bytes)));
                     }
                     _ => (),
                 }

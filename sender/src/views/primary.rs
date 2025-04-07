@@ -17,7 +17,9 @@ impl Primary {
         event_tx: Sender<Event>,
         gst_widget: gst_gtk4::RenderWidget,
     ) -> Result<Self, glib::BoolError> {
-        let vbox = gtk::Box::new(gtk::Orientation::Vertical, 0);
+        let vbox = gtk::Box::builder()
+            .orientation(gtk::Orientation::Vertical)
+            .build();
         let preview_stack = gtk::Stack::new();
         let preview_disabled_label = gtk::Label::new(Some("Preview disabled"));
 

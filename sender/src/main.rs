@@ -3,25 +3,29 @@ use gtk::prelude::*;
 use gtk::{glib, Application, ApplicationWindow};
 use gtk4 as gtk;
 use log::{debug, error, trace};
+use sender::discovery::discover;
 use sender::session::session;
 use sender::views::{StateChange, View};
 use tokio::sync::mpsc::{Receiver, Sender};
 use tokio::sync::oneshot;
 
 use std::cell::RefCell;
+use std::collections::HashMap;
+use std::net::SocketAddr;
 
 use sender::{Event, Message};
 
 async fn event_loop(
     mut pipeline: sender::pipeline::Pipeline,
-    main_view: sender::views::Main,
+    mut main_view: sender::views::Main,
     mut event_rx: Receiver<Event>,
     event_tx: Sender<Event>,
-    tx: Sender<Message>,
+    session_tx: Sender<Message>,
     select_source_tx: Sender<usize>,
     fin_tx: oneshot::Sender<()>,
 ) {
     let mut selected_source = false;
+    let mut receivers: HashMap<String, Vec<SocketAddr>> = HashMap::new();
     while let Some(event) = event_rx.recv().await {
         match event {
             Event::Quit => break,
@@ -31,13 +35,13 @@ async fn event_loop(
             }
             Event::Start => {
                 if let Some(play_msg) = pipeline.get_play_msg() {
-                    tx.send(play_msg).await.unwrap();
+                    session_tx.send(play_msg).await.unwrap();
                 } else {
                     error!("Could not get stream uri");
                 }
             }
             Event::Stop => {
-                tx.send(Message::Stop).await.unwrap();
+                session_tx.send(Message::Stop).await.unwrap();
             }
             Event::EnablePreview => {
                 main_view
@@ -55,22 +59,47 @@ async fn event_loop(
                 debug!("Available sources: {sources:?}");
                 main_view.change_state(StateChange::LoadingSourcesToSelectSources(sources));
             }
-            Event::SelectSource(idx, sink_type) => {
+            Event::SelectSource(idx) => {
                 select_source_tx.send(idx).await.unwrap();
                 selected_source = true;
-                if sink_type == 0 {
-                    main_view.change_state(StateChange::SelectSourceToPrimary);
-                    pipeline.add_webrtc_sink(event_tx.clone()).unwrap();
-                } else {
-                    main_view.change_state(StateChange::SelectSourceToLoadingHlsStream);
-                    pipeline.add_hls_sink(event_tx.clone()).unwrap();
-                }
+                main_view.change_state(StateChange::SelectSourceToSelectReceiver);
             }
             Event::Packet(packet) => {
                 trace!("Unhandled packet: {packet:?}");
             }
             Event::HlsServerAddr { port } => pipeline.set_server_port(port),
-            Event::HlsStreamReady => main_view.change_state(StateChange::LoadingHlsStreamToPrimary),
+            Event::HlsStreamReady => (),
+            Event::ReceiverAvailable(receiver) => {
+                if receivers
+                    .insert(receiver.name.clone(), receiver.addresses)
+                    .is_some()
+                {
+                    debug!("Receiver dup {}", receiver.name);
+                }
+                main_view.select_receiver.add_receiver(receiver.name);
+            }
+            Event::SelectReceiver(receiver) => {
+                let Some(addresses) = receivers.get(&receiver) else {
+                    error!("No receiver with id {receiver}");
+                    continue;
+                };
+
+                if receiver.starts_with("OpenMirroring") {
+                    pipeline.add_webrtc_sink(event_tx.clone()).unwrap();
+                } else {
+                    pipeline.add_hls_sink(event_tx.clone()).unwrap();
+                }
+
+                main_view.change_state(StateChange::SelectReceiverToConnectingToReceiver);
+                session_tx
+                    .send(Message::Connect(addresses[0]))
+                    .await
+                    .unwrap();
+            }
+            Event::ConnectedToReceiver => {
+                debug!("Succesfully connected to receiver");
+                main_view.change_state(StateChange::ConnectingToReceiverToPrimary);
+            }
         }
     }
 
@@ -170,7 +199,8 @@ fn build_ui(app: &Application) {
             .expect("Unable to set the pipeline to the `Null` state");
     });
 
-    common::runtime().spawn(session(session_rx, event_tx));
+    common::runtime().spawn(session(session_rx, event_tx.clone()));
+    common::runtime().spawn(discover(event_tx));
 }
 
 fn main() -> glib::ExitCode {

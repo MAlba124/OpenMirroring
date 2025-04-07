@@ -6,8 +6,11 @@ pub mod server;
 
 pub async fn run_server(prod_peer_tx: Sender<crate::Event>) {
     let server = server::Server::spawn(handlers::Handler::new, prod_peer_tx);
+
     // TODO: use random port
     let listener = tokio::net::TcpListener::bind("0.0.0.0:8443").await.unwrap();
+
+    log::debug!("WebRTC signaller running");
 
     while let Ok((stream, address)) = listener.accept().await {
         let mut server_clone = server.clone();

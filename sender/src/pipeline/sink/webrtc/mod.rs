@@ -1,4 +1,4 @@
-use gst::prelude::{GstBinExtManual, ObjectExt};
+use gst::prelude::*;
 use tokio::sync::mpsc::Sender;
 
 mod signaller;

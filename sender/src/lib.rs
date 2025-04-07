@@ -1,3 +1,6 @@
+use std::net::SocketAddr;
+
+pub mod discovery;
 pub mod pipeline;
 pub mod session;
 pub mod views;
@@ -7,9 +10,17 @@ pub enum Message {
     Play { mime: String, uri: String },
     Quit,
     Stop,
+    Connect(SocketAddr),
+    Disconnect,
 }
 
 pub type ProducerId = String;
+
+#[derive(Debug)]
+pub struct Receiver {
+    pub name: String,
+    pub addresses: Vec<SocketAddr>,
+}
 
 #[derive(Debug)]
 pub enum Event {
@@ -20,8 +31,11 @@ pub enum Event {
     EnablePreview,
     DisablePreview,
     Sources(Vec<String>),
-    SelectSource(usize, usize),
+    SelectSource(usize),
     Packet(fcast_lib::packet::Packet),
     HlsServerAddr { port: u16 },
     HlsStreamReady,
+    ReceiverAvailable(Receiver),
+    SelectReceiver(String),
+    ConnectedToReceiver,
 }

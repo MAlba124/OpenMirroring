@@ -170,7 +170,6 @@ impl Pipeline {
     }
 
     pub fn add_webrtc_sink(&mut self, event_tx: Sender<Event>) -> Result<(), glib::BoolError> {
-        debug!("Adding WebRTC sink");
         let tee_pad = self.tee.request_pad_simple("src_%u").map_or_else(
             || Err(glib::bool_error!("`request_pad_simple()` failed")),
             Ok,
@@ -188,6 +187,8 @@ impl Pipeline {
             .lock()
             .map_err(|err| glib::bool_error!("{err}"))?;
         *s = SinkState::WebRTC(webrtc_);
+
+        debug!("Added WebRTC sink");
 
         Ok(())
     }

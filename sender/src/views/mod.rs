@@ -4,9 +4,11 @@ use tokio::sync::mpsc::Sender;
 
 use crate::Event;
 
+pub mod connecting_to_receiver;
 pub mod loading_hls_stream;
 pub mod loading_sources;
 pub mod primary;
+pub mod select_receiver;
 pub mod select_source;
 
 pub trait View {
@@ -15,16 +17,19 @@ pub trait View {
 
 pub enum StateChange {
     LoadingSourcesToSelectSources(Vec<String>),
-    SelectSourceToPrimary,
-    SelectSourceToLoadingHlsStream,
-    LoadingHlsStreamToPrimary,
+    SelectSourceToSelectReceiver,
+    SelectReceiverToConnectingToReceiver,
+    ConnectingToReceiverToPrimary,
+    SelectReceiverToPrimary,
 }
 
 pub struct Main {
     pub stack: gtk::Stack,
     pub select_source: select_source::SelectSource,
+    pub select_receiver: select_receiver::SelectReceiver,
     pub loading_hls_stream: loading_hls_stream::LoadingHlsStream,
     pub primary: primary::Primary,
+    pub connecting_to_receiver: connecting_to_receiver::ConnectingToReceiver,
 }
 
 impl Main {
@@ -32,39 +37,47 @@ impl Main {
         let stack = gtk::Stack::new();
         let loading_sources = loading_sources::LoadingSources::new();
         let select_source = select_source::SelectSource::new(event_tx.clone());
+        let select_receiver = select_receiver::SelectReceiver::new(event_tx.clone());
         let loading_hls_stream = loading_hls_stream::LoadingHlsStream::new();
         let primary = primary::Primary::new(event_tx, gst_widget).unwrap();
+        let connecting_to_receiver = connecting_to_receiver::ConnectingToReceiver::new();
 
         stack.add_child(loading_sources.main_widget());
         stack.add_child(select_source.main_widget());
+        stack.add_child(select_receiver.main_widget());
         stack.add_child(loading_hls_stream.main_widget());
         stack.add_child(primary.main_widget());
+        stack.add_child(connecting_to_receiver.main_widget());
 
         Self {
             stack,
             select_source,
+            select_receiver,
             loading_hls_stream,
             primary,
+            connecting_to_receiver,
         }
     }
 
     pub fn change_state(&self, state_change: StateChange) {
         match state_change {
             StateChange::LoadingSourcesToSelectSources(sources) => {
-                let sources_list = gtk::StringList::new(
-                    &sources.iter().map(|s| s.as_str()).collect::<Vec<&str>>(),
-                );
-                self.select_source.drop_down.set_model(Some(&sources_list));
+                self.select_source.add_sources(sources);
                 self.stack
                     .set_visible_child(self.select_source.main_widget());
             }
-            StateChange::SelectSourceToPrimary => {
+            StateChange::SelectSourceToSelectReceiver => {
+                self.stack
+                    .set_visible_child(self.select_receiver.main_widget());
+            }
+            StateChange::SelectReceiverToConnectingToReceiver => {
+                self.stack
+                    .set_visible_child(self.connecting_to_receiver.main_widget());
+            }
+            StateChange::SelectReceiverToPrimary => {
                 self.stack.set_visible_child(self.primary.main_widget())
             }
-            StateChange::SelectSourceToLoadingHlsStream => self
-                .stack
-                .set_visible_child(self.loading_hls_stream.main_widget()),
-            StateChange::LoadingHlsStreamToPrimary => {
+            StateChange::ConnectingToReceiverToPrimary => {
                 self.stack.set_visible_child(self.primary.main_widget())
             }
         }

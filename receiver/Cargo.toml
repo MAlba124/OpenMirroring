@@ -11,5 +11,7 @@ gst = { workspace = true }
 gst-video = { workspace = true }
 gst-gtk4 = { workspace = true }
 gtk4 = { workspace = true }
+simple-mdns = { workspace = true }
 fcast-lib = { path = "../fcast-lib" }
 common = { path = "../common" }
+gethostname = "1.0.1"

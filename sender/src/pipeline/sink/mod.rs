@@ -1,4 +1,4 @@
-use std::net::Ipv4Addr;
+use std::net::{IpAddr, Ipv4Addr};
 
 use gst::{glib, prelude::*};
 use tokio::sync::mpsc::Sender;
@@ -9,18 +9,18 @@ mod webrtc;
 const GST_WEBRTC_MIME_TYPE: &str = "application/x-gst-webrtc";
 const HLS_MIME_TYPE: &str = "application/vnd.apple.mpegurl";
 
-fn get_default_ipv4_addr() -> common::net::Addr {
+fn get_default_ipv4_addr() -> Ipv4Addr {
     let addrs = common::net::get_all_ip_addresses();
     for addr in addrs {
-        if let common::net::Addr::V4(v4) = addr {
+        if let IpAddr::V4(v4) = addr {
             if v4.is_loopback() {
                 continue;
             }
-            return addr;
+            return v4;
         }
     }
 
-    common::net::Addr::V4(Ipv4Addr::LOCALHOST)
+    Ipv4Addr::LOCALHOST
 }
 
 pub struct HlsSink {
@@ -45,6 +45,12 @@ impl HlsSink {
 
         pipeline.add_many([&queue, &convert])?;
         gst::Element::link_many([&queue, &convert, &hls.enc, &hls.enc_caps, &hls.sink])?;
+
+        queue.sync_state_with_parent().unwrap();
+        convert.sync_state_with_parent().unwrap();
+        hls.enc.sync_state_with_parent().unwrap();
+        hls.enc_caps.sync_state_with_parent().unwrap();
+        hls.sink.sync_state_with_parent().unwrap();
 
         Ok(Self {
             queue,
@@ -85,6 +91,10 @@ impl WebrtcSink {
 
         pipeline.add_many([&queue, &convert])?;
         gst::Element::link_many([&queue, &convert, &webrtc.sink])?;
+
+        queue.sync_state_with_parent().unwrap();
+        convert.sync_state_with_parent().unwrap();
+        webrtc.sink.sync_state_with_parent().unwrap();
 
         Ok(Self {
             queue,

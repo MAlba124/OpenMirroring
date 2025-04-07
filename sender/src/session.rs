@@ -1,5 +1,7 @@
+use std::net::SocketAddr;
+
 use fcast_lib::{models, models::Header, packet::Packet};
-use log::debug;
+use log::{debug, warn};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
 use tokio::sync::mpsc::{Receiver, Sender};
@@ -8,6 +10,7 @@ use crate::{Event, Message};
 
 const HEADER_BUFFER_SIZE: usize = 5;
 
+/// Attempt to read and decode FCast packet from `stream`.
 async fn read_packet_from_stream(stream: &mut TcpStream) -> Result<Packet, String> {
     let mut header_buf: [u8; HEADER_BUFFER_SIZE] = [0; HEADER_BUFFER_SIZE];
 
@@ -38,10 +41,21 @@ async fn send_packet(stream: &mut TcpStream, packet: Packet) -> Result<(), Strin
     Ok(())
 }
 
-pub async fn session(mut msg_rx: Receiver<Message>, event_tx: Sender<Event>) {
-    let mut stream = TcpStream::connect("127.0.0.1:46899").await.unwrap();
+/// Connect and relay messages to/from receiver.
+///
+/// Returns `true` if [Message::Quit] was received.
+async fn connect_to_receiver(
+    addr: SocketAddr,
+    msg_rx: &mut Receiver<Message>,
+    event_tx: &Sender<Event>,
+) -> bool {
+    let mut stream = TcpStream::connect(addr).await.unwrap();
+
+    event_tx.send(Event::ConnectedToReceiver).await.unwrap();
+
     loop {
         tokio::select! {
+            // TODO: fix as this is an ugly hack and likely not safe
             packet = read_packet_from_stream(&mut stream) => {
                 let packet = packet.unwrap();
                 match packet {
@@ -68,10 +82,27 @@ pub async fn session(mut msg_rx: Receiver<Message>, event_tx: Sender<Event>) {
                         });
                         send_packet(&mut stream, packet).await.unwrap();
                     }
-                    Message::Quit => break,
                     Message::Stop => send_packet(&mut stream, Packet::Stop).await.unwrap(),
+                    Message::Quit => return true,
+                    Message::Disconnect => return false,
+                    _ => warn!("Received invalid message ({msg:?}) for the current session state"),
                 }
             }
+        }
+    }
+}
+
+/// Dispatch receiver connection requests.
+pub async fn session(mut msg_rx: Receiver<Message>, event_tx: Sender<Event>) {
+    while let Some(msg) = msg_rx.recv().await {
+        match msg {
+            Message::Connect(addr) => {
+                if connect_to_receiver(addr, &mut msg_rx, &event_tx).await {
+                    break;
+                }
+            }
+            Message::Quit => break,
+            _ => warn!("Received invalid message ({msg:?}) for the current session state"),
         }
     }
 
