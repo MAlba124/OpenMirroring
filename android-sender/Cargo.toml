@@ -1,0 +1,34 @@
+[package]
+name = "android-sender"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+log = "0.4"
+android_logger = "0.15.0"
+ndk-context = "0.1.1"
+jni = "0.21.1"
+slint = { version = "1.10.0", features = ["backend-android-activity-06"] }
+
+[lib]
+name = "omandroidsender"
+crate-type = ["cdylib"]
+
+[package.metadata.android]
+package = "com.foo.bar"
+build_targets = [ "x86_64-linux-android" ]
+
+# See https://developer.android.com/guide/topics/manifest/uses-sdk-element
+#
+# Defaults to a `min_sdk_version` of 23 and `target_sdk_version` of 30 (or lower if the detected NDK doesn't support this).
+[package.metadata.android.sdk]
+min_sdk_version = 34
+target_sdk_version = 35
+
+# See https://developer.android.com/guide/topics/manifest/uses-feature-element
+#
+# Note: there can be multiple .uses_feature entries.
+[[package.metadata.android.uses_feature]]
+name = "android.hardware.vulkan.level"
+required = true
+version = 1

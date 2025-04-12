@@ -17,14 +17,28 @@
           pkgs = import nixpkgs {
             inherit system overlays;
           };
+
+          rustAndroidTargets = [
+            "aarch64-linux-android"
+            "x86_64-linux-android"
+            "x86_64-unknown-linux-gnu"
+          ];
+
+          rustAndroidToolchain = pkgs.rust-bin.stable.latest.complete.override {
+            targets = rustAndroidTargets;
+          };
         in
         let
           nativeBuildInputs = with pkgs; [
             pkg-config
             clang
             dig
-            rust-bin.stable.latest.default
+            rustAndroidToolchain
             graphviz
+            android-studio
+            cargo-ndk
+            cargo-apk
+            zulu
           ];
           buildInputs = with pkgs; [
             libGL

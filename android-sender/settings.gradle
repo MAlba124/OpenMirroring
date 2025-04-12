@@ -20,5 +20,4 @@ dependencyResolutionManagement {
 }
 
 rootProject.name = "Open Mirroring Sender"
-include(":app")
- 
+include ':app'
