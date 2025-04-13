@@ -1,4 +1,22 @@
 // Top-level build file where you can add configuration options common to all sub-projects/modules.
 plugins {
-alias(libs.plugins.android.application) apply false
+    alias(libs.plugins.android.application) apply false
+}
+
+task check_rust {
+    doLast {
+        exec {
+            workingDir '.'
+            commandLine 'cargo', 'ndk', '--target', 'x86_64-linux-android', 'check'
+        }
+    }
+}
+
+task build_rust {
+    doLast {
+        exec {
+            workingDir '.'
+            commandLine 'cargo', 'ndk', '--target', 'x86_64-linux-android', '-o', 'app/src/main/jniLibs', 'build'
+        }
+    }
 }

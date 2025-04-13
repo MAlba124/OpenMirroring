@@ -72,6 +72,9 @@
                 ''-I"${pkgs.llvmPackages.libclang.lib}/lib/clang/${pkgs.llvmPackages.libclang.version}/include"''
                 "-I ${pkgs.glibc.dev}/include"
             ];
+            ANDROID_HOME = "/home/merb/Android/Sdk";
+            ANDROID_NDK_ROOT = "/home/merb/Android/Sdk/ndk/29.0.13113456";
+
             inherit buildInputs nativeBuildInputs;
           };
         }
