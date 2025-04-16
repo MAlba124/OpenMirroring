@@ -253,7 +253,7 @@ fn build_ui(app: &Application) {
 
 fn main() -> glib::ExitCode {
     env_logger::Builder::from_default_env()
-        .filter_module("receiver", log::LevelFilter::Debug)
+        .filter_module("receiver", common::default_log_level())
         .init();
 
     gst::init().unwrap();

@@ -422,6 +422,7 @@ name = "common"
 version = "0.1.0"
 dependencies = [
  "ipnetwork",
+ "log",
  "pnet_datalink",
  "tokio",
  "windows 0.60.0",

@@ -205,8 +205,8 @@ fn build_ui(app: &Application) {
 
 fn main() -> glib::ExitCode {
     env_logger::Builder::from_default_env()
-        .filter_module("sender", log::LevelFilter::Debug)
-        .filter_module("scap", log::LevelFilter::Debug)
+        .filter_module("sender", common::default_log_level())
+        .filter_module("scap", common::default_log_level())
         .init();
 
     gst::init().unwrap();
