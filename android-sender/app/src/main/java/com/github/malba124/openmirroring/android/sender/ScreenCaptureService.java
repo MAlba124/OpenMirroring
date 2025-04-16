@@ -88,6 +88,8 @@ public class ScreenCaptureService extends Service {
         mediaProjection.registerCallback(projectionCallback, handler);
 
         setupVirtualDisplay();
+
+        nativeCaptureStarted();
     }
 
     private void setupVirtualDisplay() {
@@ -133,6 +135,10 @@ public class ScreenCaptureService extends Service {
     }
 
     public void stopCapture() {
+        if (virtualDisplay == null && imageReader == null && mediaProjection == null) {
+            // Already stopped
+            return;
+        }
         if (virtualDisplay != null) {
             virtualDisplay.release();
             virtualDisplay = null;
@@ -145,7 +151,11 @@ public class ScreenCaptureService extends Service {
             mediaProjection.stop();
             mediaProjection = null;
         }
+
+        nativeCaptureStopped();
+
         stopForeground(true);
+
         stopSelf();
     }
 
@@ -175,4 +185,8 @@ public class ScreenCaptureService extends Service {
             int pixelStride,
             int rowStride
     );
+
+    private native void nativeCaptureStarted();
+
+    private native void nativeCaptureStopped();
 }

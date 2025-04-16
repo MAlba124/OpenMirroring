@@ -1,0 +1,60 @@
+import { StandardButton, Palette, VerticalBox, ListView, HorizontalBox } from "std-widgets.slint";
+
+export component CastDialog inherits PopupWindow {
+    callback closed;
+
+    close-policy: no-auto-close;
+
+    in property <length> parent-width;
+    in property <length> parent-height;
+
+    x: (parent-width - dialog.width) / 2;
+    y: (parent-height - dialog.height) / 2;
+
+    backgroud-layer := Rectangle {
+        background: Palette.control-background;
+        border-radius: 8px;
+        width: dialog.width;
+        height : dialog.height;
+    }
+
+    dialog := Dialog {
+        VerticalLayout {
+            // TODO: Change dynamiclly dependig on number of receivers
+            height: 250px;
+
+            Text {
+                text: "Cast To";
+            }
+
+            if false: ListView {
+                for data in [
+                    { text: "Blue", color: #0000ff, bg: #eeeeee},
+                    { text: "Cyan", color: #00ffff, bg: #222222 },
+                ] : Rectangle {
+                    height: 30px;
+                    background: data.bg;
+                    width: parent.width;
+                    Text {
+                        x: 0;
+                        text: data.text;
+                        color: data.color;
+                    }
+                }
+            }
+            if true: Text{
+                text: "No data";
+            }
+        }
+        StandardButton {
+            kind: ok;
+        }
+        StandardButton {
+            kind: cancel;
+            clicked => {
+                root.close();
+                closed();
+            }
+        }
+    }
+}

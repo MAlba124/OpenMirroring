@@ -3,40 +3,37 @@ use jni::JavaVM;
 
 use log::debug;
 use log::error;
+use log::info;
 
-slint::slint! {
-    import { Button, VerticalBox } from "std-widgets.slint";
+mod discovery;
 
-    export component MainWindow inherits Window {
-        in-out property<string> label_text: "Hello";
-
-        callback request_start_capture;
-
-        VerticalBox {
-            Text {
-                text: label_text;
-            }
-
-            Button {
-                text: "Capture Screen";
-                clicked => {
-                    root.request_start_capture();
-                    label_text = "Running";
-                }
-            }
-        }
-    }
+lazy_static::lazy_static! {
+    pub static ref EVENT_CHAN: (async_channel::Sender<Event>, async_channel::Receiver<Event>) =
+        async_channel::unbounded();
 }
 
-struct State {
-    pub main_window: MainWindow,
+#[macro_export]
+macro_rules! tx {
+    () => {
+        crate::EVENT_CHAN.0
+    };
 }
 
-thread_local! {
-    static STATE: core::cell::RefCell<Option<State>> = Default::default();
+macro_rules! rx {
+    () => {
+        crate::EVENT_CHAN.1
+    };
 }
 
-fn init(app: slint::android::AndroidApp) -> State {
+slint::include_modules!();
+
+pub enum Event {
+    CaptureStarted,
+    CaptureStopped,
+    ReceiverAvailable(String),
+}
+
+fn init(app: slint::android::AndroidApp) -> MainWindow {
     let main_window = MainWindow::new().unwrap();
 
     main_window.on_request_start_capture(move || {
@@ -44,34 +41,60 @@ fn init(app: slint::android::AndroidApp) -> State {
 
         let vm = unsafe {
             let ptr = app.vm_as_ptr() as *mut jni::sys::JavaVM;
-            assert!(!ptr.is_null());
+            assert!(!ptr.is_null(), "JavaVM ptr is null");
             JavaVM::from_raw(ptr).unwrap()
         };
         let activity = unsafe {
             let ptr = app.activity_as_ptr() as *mut jni::sys::_jobject;
-            assert!(!ptr.is_null());
+            assert!(!ptr.is_null(), "Activity ptr is null");
             JObject::from_raw(ptr)
         };
 
         match vm.get_env() {
-            Ok(mut env) => {
-                match env.call_method(activity, "startScreenCapture", "()V", &[]) {
-                    Ok(_) => (),
-                    Err(err) => error!("Failed to call `startScreenCapture`: {err}"),
-                }
-            }
+            Ok(mut env) => match env.call_method(activity, "startScreenCapture", "()V", &[]) {
+                Ok(_) => (),
+                Err(err) => error!("Failed to call `startScreenCapture`: {err}"),
+            },
             Err(err) => error!("Failed to get env from VM: {err}"),
         }
     });
 
-    State {
-        main_window,
+    main_window
+}
+
+async fn event_loop(handle: slint::Weak<MainWindow>) {
+    loop {
+        match rx!().recv().await {
+            Ok(event) => match event {
+                Event::CaptureStarted => {
+                    handle
+                        .upgrade_in_event_loop(move |handle| {
+                            handle.invoke_screen_capture_started();
+                        })
+                        .unwrap();
+                }
+                Event::CaptureStopped => {
+                    handle
+                        .upgrade_in_event_loop(move |handle| {
+                            handle.invoke_screen_capture_stopped();
+                        })
+                        .unwrap();
+                }
+                Event::ReceiverAvailable(n) => info!("Reveiver available: {n}"),
+            },
+            Err(err) => {
+                error!("Failed to receive event: {err}");
+                return;
+            }
+        }
     }
 }
 
 #[no_mangle]
 fn android_main(app: slint::android::AndroidApp) {
-    android_logger::init_once(android_logger::Config::default().with_max_level(log::LevelFilter::Debug));
+    android_logger::init_once(
+        android_logger::Config::default().with_max_level(log::LevelFilter::Debug),
+    );
 
     debug!("Hello from rust");
 
@@ -79,18 +102,46 @@ fn android_main(app: slint::android::AndroidApp) {
 
     slint::android::init(app).unwrap();
 
-    let state = init(app_clone);
+    let main_window = init(app_clone);
 
-    let main_window = state.main_window.clone_strong();
+    let handle_weak = main_window.as_weak();
 
-    STATE.with(|ui| *ui.borrow_mut() = Some(state));
+    common::runtime().spawn(event_loop(handle_weak));
+
+    common::runtime().spawn(discovery::discover());
 
     main_window.run().unwrap();
 }
 
 #[allow(non_snake_case)]
 #[no_mangle]
-pub extern "C" fn Java_com_github_malba124_openmirroring_android_sender_ScreenCaptureService_nativeProcessFrame<'local>(
+pub extern "C" fn Java_com_github_malba124_openmirroring_android_sender_ScreenCaptureService_nativeCaptureStarted<
+    'local,
+>(
+    _env: jni::JNIEnv<'local>,
+    _class: jni::objects::JClass<'local>,
+) {
+    debug!("Screen capture was started");
+    tx!().send_blocking(Event::CaptureStarted).unwrap();
+}
+
+#[allow(non_snake_case)]
+#[no_mangle]
+pub extern "C" fn Java_com_github_malba124_openmirroring_android_sender_ScreenCaptureService_nativeCaptureStopped<
+    'local,
+>(
+    _env: jni::JNIEnv<'local>,
+    _class: jni::objects::JClass<'local>,
+) {
+    debug!("Screen capture was stopped");
+    tx!().send_blocking(Event::CaptureStopped).unwrap();
+}
+
+#[allow(non_snake_case)]
+#[no_mangle]
+pub extern "C" fn Java_com_github_malba124_openmirroring_android_sender_ScreenCaptureService_nativeProcessFrame<
+    'local,
+>(
     _env: jni::JNIEnv<'local>,
     _class: jni::objects::JClass<'local>,
     _buffer: jni::objects::JClass<'local>,

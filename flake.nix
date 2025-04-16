@@ -39,6 +39,7 @@
             cargo-ndk
             cargo-apk
             zulu
+            gnumake
           ];
           buildInputs = with pkgs; [
             libGL
