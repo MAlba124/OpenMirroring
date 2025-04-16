@@ -1,5 +1,3 @@
-use std::net::IpAddr;
-
 use log::info;
 use simple_mdns::async_discovery::ServiceDiscovery;
 use tokio::net::TcpListener;
