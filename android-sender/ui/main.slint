@@ -1,0 +1,62 @@
+import { StandardButton, Button, VerticalBox, Palette } from "std-widgets.slint";
+
+import { CastDialog } from "cast-dialog.slint";
+
+// Maybe have global vars that hold the window size that is updated from native code?
+
+export component MainWindow inherits Window {
+    callback request-start-capture;
+
+    public function screen-capture-started() {
+        vbox.screen-capture-started();
+    }
+
+    public function screen-capture-stopped() {
+        vbox.screen-capture-stopped();
+    }
+
+    vbox := VerticalBox {
+        alignment: center;
+
+        public function screen-capture-started() {
+            start-capture-btn.enabled = false;
+            start-capture-btn.text = "Capturing Screen";
+        }
+
+        public function screen-capture-stopped() {
+            start-capture-btn.enabled = true;
+            start-capture-btn.text = "Capture Screen";
+        }
+
+        start-capture-btn := Button {
+            text: "Capture Screen";
+            clicked => {
+                root.request-start-capture();
+            }
+        }
+        Button {
+            text: "Cast To";
+            clicked => {
+                blur-overlay.visible = true;
+                cast-dialog.show();
+            }
+        }
+    }
+
+    blur-overlay := Rectangle {
+        width: 100%;
+        height: 100%;
+        visible: false;
+        opacity: self.visible ? 0.7 : 0.0;
+        background: black;
+    }
+
+    cast-dialog := CastDialog {
+        parent-width <=> root.width;
+        parent-height <=> root.height;
+
+        closed => {
+            blur-overlay.visible = false;
+        }
+    }
+}
