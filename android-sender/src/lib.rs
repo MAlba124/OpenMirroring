@@ -98,6 +98,10 @@ fn android_main(app: slint::android::AndroidApp) {
 
     debug!("Hello from rust");
 
+    gst::init().unwrap();
+
+    debug!("GStreamer version: {:?}", gst::version());
+
     let app_clone = app.clone();
 
     slint::android::init(app).unwrap();

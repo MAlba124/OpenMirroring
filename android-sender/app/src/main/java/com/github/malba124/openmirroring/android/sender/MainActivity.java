@@ -7,18 +7,30 @@ import android.os.Bundle;
 import android.app.NativeActivity;
 import android.util.Log;
 
+import org.freedesktop.gstreamer.GStreamer;
+
 public class MainActivity extends NativeActivity {
     private static final int REQUEST_CODE = 1;
     public static final String ACTION_RESULT =
             "com.github.malba124.openmirroring.android.sender.SCREEN_CAPTURE_RESULT";
 
     static {
+        System.loadLibrary("gstreamer_android");
         System.loadLibrary("omandroidsender");
     }
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+
+        try {
+            GStreamer.init(this);
+        } catch (Exception e) {
+            Log.e("MAIN_ACTIVITY", "Failed to init GStreamer ${e}");
+            finish();
+            return;
+        }
+
         Log.d("MAIN_ACTIVITY", "Hello from java");
     }
 

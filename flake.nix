@@ -73,8 +73,17 @@
                 ''-I"${pkgs.llvmPackages.libclang.lib}/lib/clang/${pkgs.llvmPackages.libclang.version}/include"''
                 "-I ${pkgs.glibc.dev}/include"
             ];
-            ANDROID_HOME = "/home/merb/Android/Sdk";
-            ANDROID_NDK_ROOT = "/home/merb/Android/Sdk/ndk/29.0.13113456";
+            # TOD: Fix these hacks
+            shellHook = ''
+                set -x
+                export ANDROID_HOME="$HOME/Android/Sdk";
+                export ANDROID_NDK_ROOT="$HOME/Android/Sdk/ndk/29.0.13113456";
+                export GSTREAMER_ROOT_ANDROID="$(pwd)/android-sender/gst-android-1.0-1.26.0";
+                set +x
+
+                # Add more when targeting other archs
+                export PKG_CONFIG_PATH="$PKG_CONFIG_PATH:$GSTREAMER_ROOT_ANDROID/x86_64/lib/pkgconfig"
+            '';
 
             inherit buildInputs nativeBuildInputs;
           };

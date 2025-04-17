@@ -17,6 +17,7 @@ async-stream = "0.3.6"
 futures-util = "0.3.31"
 tokio = { workspace = true }
 common = { path = "../common" }
+gst = { workspace = true }
 
 [build-dependencies]
 slint-build = "1.10.0"

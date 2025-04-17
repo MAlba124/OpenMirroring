@@ -217,6 +217,7 @@ dependencies = [
  "common",
  "futures-core",
  "futures-util",
+ "gstreamer",
  "jni",
  "lazy_static",
  "log",
