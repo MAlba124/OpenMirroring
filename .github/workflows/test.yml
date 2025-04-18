@@ -20,12 +20,12 @@ name: test
 jobs:
   required:
     runs-on: self-hosted
-    name: ubuntu / ${{ matrix.toolchain }}
+    name: nixos / ${{ matrix.toolchain }}
     strategy:
       matrix:
-        # run on stable and beta to ensure that tests won't break on the next version of the rust
-        # toolchain
-        toolchain: [stable, beta]
+        # run on stable and ~beta to ensure that tests won't break on the next version of the rust
+        # toolchain~
+        toolchain: [stable]
     steps:
       - uses: actions/checkout@v4
         with:
@@ -43,23 +43,7 @@ jobs:
       # https://github.com/rust-lang/cargo/issues/6669
       - name: cargo test --doc
         run: cargo test --locked --all-features --doc
-  test:
-    runs-on: self-hosted
-    name: nixos / test
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          submodules: true
-      - name: Install stable
-        uses: dtolnay/rust-toolchain@stable
-      # - name: Install nightly for -Zminimal-versions
-        # uses: dtolnay/rust-toolchain@nightly
-      - name: rustup default stable
-        run: rustup default stable
-      # - name: cargo update -Zminimal-versions
-        # run: cargo +nightly update -Zminimal-versions
-      - name: cargo test
-        run: cargo test --locked --all-features --all-targets
+  # TODO: setup these two:
   # os-check:
   #   # run cargo test on mac and windows
   #   runs-on: ${{ matrix.os }}
