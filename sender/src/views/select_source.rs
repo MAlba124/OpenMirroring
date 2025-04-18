@@ -23,8 +23,8 @@ impl SelectSource {
         let sources_drop_down = gtk::DropDown::builder().build();
         // let sink_drop_down = gtk::DropDown::from_strings(&["WebRTC", "HLS"]);
         // let sink_vbox = gtk::Box::builder()
-            // .orientation(gtk::Orientation::Vertical)
-            // .build();
+        // .orientation(gtk::Orientation::Vertical)
+        // .build();
         // let sink_label = gtk::Label::new(Some("Select protocol"));
         let button = gtk::Button::builder().label("Ok").margin_start(5).build();
         button.connect_clicked(glib::clone!(
