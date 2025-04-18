@@ -52,9 +52,9 @@ fn serialize_obj(obj: spa::pod::Object) -> Vec<u8> {
         std::io::Cursor::new(Vec::new()),
         &spa::pod::Value::Object(obj),
     )
-        .unwrap()
-        .0
-        .into_inner()
+    .unwrap()
+    .0
+    .into_inner()
 }
 
 fn param_changed_callback(
@@ -181,7 +181,6 @@ fn process_callback(stream: &StreamRef, user_data: &mut ListenerUserData) {
             if buffer.is_null() {
                 break 'outer;
             }
-
 
             let mut timestamp = unsafe { get_timestamp(buffer) } as u64;
 
@@ -346,9 +345,7 @@ fn pipewire_capturer(
 
     let fmt_values = serialize_obj(fmt_obj);
 
-    let mut params = [
-        spa::pod::Pod::from_bytes(&fmt_values).unwrap(),
-    ];
+    let mut params = [spa::pod::Pod::from_bytes(&fmt_values).unwrap()];
 
     stream.connect(
         Direction::Input,

@@ -1,5 +1,5 @@
-use std::{collections::HashSet, net::SocketAddrV4};
 use std::net::{Ipv4Addr, SocketAddr};
+use std::{collections::HashSet, net::SocketAddrV4};
 
 use log::{debug, error, warn};
 use simple_mdns::InstanceInformation;
@@ -31,7 +31,10 @@ pub async fn discover(tx: tokio::sync::mpsc::Sender<crate::Event>) {
 
             if addresses.is_empty() {
                 warn!("FCast receiver with no addresses, adding localhost");
-                addresses.push(SocketAddr::V4(SocketAddrV4::new(Ipv4Addr::LOCALHOST, 46899)));
+                addresses.push(SocketAddr::V4(SocketAddrV4::new(
+                    Ipv4Addr::LOCALHOST,
+                    46899,
+                )));
             }
 
             if let Err(err) = tx
