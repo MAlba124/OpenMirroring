@@ -31,10 +31,10 @@ async fn event_loop(
             Event::Quit => break,
             Event::ProducerConnected(id) => {
                 debug!("Got producer peer id: {id}");
-                pipeline.set_producer_id(id);
+                pipeline.set_producer_id(id).await;
             }
             Event::Start => {
-                if let Some(play_msg) = pipeline.get_play_msg() {
+                if let Some(play_msg) = pipeline.get_play_msg().await {
                     session_tx.send(play_msg).await.unwrap();
                 } else {
                     error!("Could not get stream uri");
@@ -56,7 +56,6 @@ async fn event_loop(
                         sources
                             .iter()
                             .map(|s| s.into())
-                            .into_iter()
                             .collect::<Vec<slint::SharedString>>(),
                     ));
                     ui.set_sources_model(model.into());
@@ -70,7 +69,7 @@ async fn event_loop(
             Event::Packet(packet) => {
                 trace!("Unhandled packet: {packet:?}");
             }
-            Event::HlsServerAddr { port } => pipeline.set_server_port(port),
+            Event::HlsServerAddr { port } => pipeline.set_server_port(port).await,
             Event::HlsStreamReady => (),
             Event::ReceiverAvailable(receiver) => {
                 if receivers
@@ -81,8 +80,8 @@ async fn event_loop(
                 }
 
                 let mut receivers_vec = receivers
-                    .iter()
-                    .map(|(name, _)| name.clone())
+                    .keys()
+                    .cloned()
                     .collect::<Vec<String>>();
                 receivers_vec.sort();
                 let receiver_connected_to = receiver_connected_to.clone();
@@ -97,7 +96,6 @@ async fn event_loop(
                                 connected: name == receiver_connected_to,
                                 connecting: *name == receiver_connecting_to,
                             })
-                            .into_iter(),
                     ));
                     ui.set_receivers_model(model.into());
                 })
@@ -110,9 +108,9 @@ async fn event_loop(
                 };
 
                 if receiver.starts_with("OpenMirroring") {
-                    pipeline.add_webrtc_sink(event_tx.clone()).unwrap();
+                    pipeline.add_webrtc_sink(event_tx.clone()).await.unwrap();
                 } else {
-                    pipeline.add_hls_sink(event_tx.clone()).unwrap();
+                    pipeline.add_hls_sink(event_tx.clone()).await.unwrap();
                 }
 
                 receiver_connecting_to = receiver;
@@ -123,8 +121,8 @@ async fn event_loop(
                     .unwrap();
 
                 let mut receivers_vec = receivers
-                    .iter()
-                    .map(|(name, _)| name.clone())
+                    .keys()
+                    .cloned()
                     .collect::<Vec<String>>();
                 receivers_vec.sort();
                 let receiver_connected_to = receiver_connected_to.clone();
@@ -139,7 +137,6 @@ async fn event_loop(
                                 connected: name == receiver_connected_to,
                                 connecting: *name == receiver_connecting_to,
                             })
-                            .into_iter(),
                     ));
                     ui.set_receiver_is_connecting(true);
                     ui.set_receiver_is_connected(false);
@@ -153,8 +150,8 @@ async fn event_loop(
                 receiver_connecting_to = String::new();
 
                 let mut receivers_vec = receivers
-                    .iter()
-                    .map(|(name, _)| name.clone())
+                    .keys()
+                    .cloned()
                     .collect::<Vec<String>>();
                 receivers_vec.sort();
                 let receiver_connected_to = receiver_connected_to.clone();
@@ -169,7 +166,6 @@ async fn event_loop(
                                 connected: name == receiver_connected_to,
                                 connecting: *name == receiver_connecting_to,
                             })
-                            .into_iter(),
                     ));
                     ui.set_receiver_is_connecting(false);
                     ui.set_receiver_is_connected(true);
@@ -222,8 +218,6 @@ fn main() {
 
     let pipeline =
         sender::pipeline::Pipeline::new(&ui, event_tx.clone(), selected_rx, new_frame_cb).unwrap();
-
-    let bus_watch = pipeline.setup_bus_watch(event_tx.clone()).unwrap();
 
     common::runtime().spawn(session(session_rx, event_tx.clone()));
     common::runtime().spawn(discover(event_tx.clone()));
@@ -283,8 +277,6 @@ fn main() {
     }
 
     ui.run().unwrap();
-
-    drop(bus_watch);
 
     common::runtime().block_on(async move {
         if !session_tx.is_closed() {

@@ -32,7 +32,7 @@ async fn read_packet_from_stream(stream: &mut TcpStream) -> Result<Packet, Strin
         body_string = String::from_utf8(body_buf).map_err(|err| err.to_string())?;
     }
 
-    Ok(Packet::decode(header, &body_string).map_err(|err| err.to_string())?)
+    Packet::decode(header, &body_string).map_err(|err| err.to_string())
 }
 
 async fn send_packet(stream: &mut TcpStream, packet: Packet) -> Result<(), String> {

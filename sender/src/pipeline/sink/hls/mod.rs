@@ -278,7 +278,7 @@ impl Hls {
         })
     }
 
-    pub fn write_manifest_file(&mut self) {
+    pub async fn write_manifest_file(&mut self) {
         if !self.write_playlist {
             return;
         }
@@ -303,10 +303,11 @@ impl Hls {
         playlist.write_to(&mut buf).unwrap();
 
         self.file_tx
-            .blocking_send(fake_file_writer::ChannelElement {
+            .send(fake_file_writer::ChannelElement {
                 location: self.main_path.to_string_lossy().to_string(),
                 request: fake_file_writer::Request::Add(buf),
             })
+            .await
             .unwrap();
 
         self.write_playlist = false;
