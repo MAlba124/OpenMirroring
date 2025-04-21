@@ -15,6 +15,7 @@ export component MainWindow inherits Window {
     callback stop-cast();
 
     property <bool> has-source: false;
+    property <bool> preview-enable: true;
     in property <bool> starting-cast: false;
     in property <bool> casting: false;
     in property <image> preview-frame <=> preview-image.source;
@@ -36,23 +37,32 @@ export component MainWindow inherits Window {
     // Maybe have vertical layout when the root width is, say 800 px, horizontal otherwise
     VerticalBox {
         Rectangle {
+            visible: has-source;
             background: Palette.background;
             border-radius: 8px;
-            height: 60%;
-            if !has-source: Text {
-                text: "Preview becomes available when a source is selected";
-            }
+            height: has-source ? 60% : 0%;
             preview-image := Image {
                 width: 100%;
                 height: parent.height;
                 image-fit: contain;
-                visible: has-source;
+                visible: preview-enable;
             }
         }
         vbox := VerticalBox {
             alignment: center;
             HorizontalBox {
                 alignment: center;
+
+                // TODO: Make tooltip apear when hovering buttons
+
+                // Change source
+                if has-source: Button {
+                    icon: @image-url("../../assets/icons/input.svg");
+                    colorize-icon: true;
+                    clicked => {
+                    }
+                }
+
                 Button {
                     icon: @image-url("../../assets/icons/gears.svg");
                     colorize-icon: true;
@@ -61,9 +71,28 @@ export component MainWindow inherits Window {
                         shadow.visible = true;
                     }
                 }
-            }
-            HorizontalBox {
-                alignment: center;
+
+                if has-source && !casting && !starting-cast: Button {
+                    enabled: receiver-is-connected;
+                    icon: @image-url("../../assets/icons/play.svg");
+                    colorize-icon: true;
+                    // text: "Start casting";
+                    clicked => {
+                        start-cast();
+                    }
+                }
+                if has-source && starting-cast: Spinner {
+                    indeterminate: true;
+                }
+                if has-source && casting: Button {
+                    icon: @image-url("../../assets/icons/stop.svg");
+                    colorize-icon: true;
+                    // text: "Stop casting";
+                    clicked => {
+                        stop-cast();
+                    }
+                }
+
                 Button {
                     icon: @image-url("../../assets/icons/cast.svg");
                     colorize-icon: true;
@@ -71,12 +100,6 @@ export component MainWindow inherits Window {
                         cast-dialog.visible = true;
                         shadow.visible = true;
                     }
-                }
-            }
-            if has-source: HorizontalBox {
-                alignment: center;
-                Text {
-                    text: "Have source";
                 }
             }
             if !has-source: HorizontalBox {
@@ -90,25 +113,6 @@ export component MainWindow inherits Window {
                     clicked => {
                         select-source(source-combo.current-index);
                         has-source = true;
-                    }
-                }
-            }
-
-            if has-source: HorizontalBox {
-                alignment: center;
-                if !casting && !starting-cast: Button {
-                    text: "Start casting";
-                    clicked => {
-                        start-cast();
-                    }
-                }
-                if starting-cast: Spinner {
-                    indeterminate: true;
-                }
-                if casting: Button {
-                    text: "Stop casting";
-                    clicked => {
-                        stop-cast();
                     }
                 }
             }

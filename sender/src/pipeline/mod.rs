@@ -13,6 +13,225 @@ mod sink;
 
 use sink::{HlsSink, WebrtcSink};
 
+use gst_gl::prelude::*;
+
+// Taken from the slint gstreamer example at: https://github.com/slint-ui/slint/blob/2edd97bf8b8dc4dc26b578df6b15ea3297447444/examples/gstreamer-player/egl_integration.rs
+struct SlintOpenGLSink {
+    appsink: gst_app::AppSink,
+    glsink: gst::Element,
+    next_frame: Arc<Mutex<Option<(gst_video::VideoInfo, gst::Buffer)>>>,
+    current_frame: Mutex<Option<gst_gl::GLVideoFrame<gst_gl::gl_video_frame::Readable>>>,
+    gst_gl_context: Option<gst_gl::GLContext>,
+}
+
+impl SlintOpenGLSink {
+    pub fn new() -> Self {
+        let appsink = gst_app::AppSink::builder()
+            .caps(
+                &gst_video::VideoCapsBuilder::new()
+                    .features([gst_gl::CAPS_FEATURE_MEMORY_GL_MEMORY])
+                    .format(gst_video::VideoFormat::Rgba)
+                    .field("texture-target", "2D")
+                    .field("pixel-aspect-ratio", gst::Fraction::new(1, 1))
+                    .build(),
+            )
+            .enable_last_sample(false)
+            .max_buffers(1u32)
+            .build();
+
+        let glsink = gst::ElementFactory::make("glsinkbin")
+            .property("sink", &appsink)
+            .build()
+            .expect("Fatal: Unable to create glsink");
+
+        Self {
+            appsink,
+            glsink,
+            next_frame: Default::default(),
+            current_frame: Default::default(),
+            gst_gl_context: None,
+        }
+    }
+
+    pub fn video_sink(&self) -> gst::Element {
+        self.glsink.clone().upcast()
+    }
+
+    pub fn connect(
+        &mut self,
+        graphics_api: &slint::GraphicsAPI<'_>,
+        bus: &gst::Bus,
+        next_frame_available_notifier: Box<dyn Fn() + Send>,
+    ) {
+        let egl = match graphics_api {
+            slint::GraphicsAPI::NativeOpenGL { get_proc_address } => {
+                glutin_egl_sys::egl::Egl::load_with(|symbol| {
+                    get_proc_address(&std::ffi::CString::new(symbol).unwrap())
+                })
+            }
+            _ => panic!("unsupported graphics API"),
+        };
+
+        let (gst_gl_context, gst_gl_display) = unsafe {
+            let platform = gst_gl::GLPlatform::EGL;
+
+            let egl_display = egl.GetCurrentDisplay();
+            let display = gst_gl_egl::GLDisplayEGL::with_egl_display(egl_display as usize).unwrap();
+            let native_context = egl.GetCurrentContext();
+
+            (
+                gst_gl::GLContext::new_wrapped(
+                    &display,
+                    native_context as _,
+                    platform,
+                    gst_gl::GLContext::current_gl_api(platform).0,
+                )
+                .expect("unable to create wrapped GL context"),
+                display,
+            )
+        };
+
+        gst_gl_context
+            .activate(true)
+            .expect("could not activate GStreamer GL context");
+        gst_gl_context
+            .fill_info()
+            .expect("failed to fill GL info for wrapped context");
+
+        self.gst_gl_context = Some(gst_gl_context.clone());
+
+        bus.set_sync_handler({
+            let gst_gl_context = gst_gl_context.clone();
+            move |_, msg| {
+                match msg.view() {
+                    gst::MessageView::NeedContext(ctx) => {
+                        let ctx_type = ctx.context_type();
+                        if ctx_type == *gst_gl::GL_DISPLAY_CONTEXT_TYPE {
+                            if let Some(element) = msg
+                                .src()
+                                .and_then(|source| source.downcast_ref::<gst::Element>())
+                            {
+                                let gst_context = gst::Context::new(ctx_type, true);
+                                gst_context.set_gl_display(&gst_gl_display);
+                                element.set_context(&gst_context);
+                            }
+                        } else if ctx_type == "gst.gl.app_context" {
+                            if let Some(element) = msg
+                                .src()
+                                .and_then(|source| source.downcast_ref::<gst::Element>())
+                            {
+                                let mut gst_context = gst::Context::new(ctx_type, true);
+                                {
+                                    let gst_context = gst_context.get_mut().unwrap();
+                                    let structure = gst_context.structure_mut();
+                                    structure.set("context", &gst_gl_context);
+                                }
+                                element.set_context(&gst_context);
+                            }
+                        }
+                    }
+                    _ => (),
+                }
+
+                gst::BusSyncReply::Drop
+            }
+        });
+
+        let next_frame_ref = self.next_frame.clone();
+
+        self.appsink.set_callbacks(
+            gst_app::AppSinkCallbacks::builder()
+                .new_sample(move |appsink| {
+                    let sample = appsink
+                        .pull_sample()
+                        .map_err(|_| gst::FlowError::Flushing)?;
+
+                    let mut buffer = sample.buffer_owned().unwrap();
+                    {
+                        let context = match (buffer.n_memory() > 0)
+                            .then(|| buffer.peek_memory(0))
+                            .and_then(|m| m.downcast_memory_ref::<gst_gl::GLBaseMemory>())
+                            .map(|m| m.context())
+                        {
+                            Some(context) => context.clone(),
+                            None => {
+                                error!("Got non-GL memory");
+                                return Err(gst::FlowError::Error);
+                            }
+                        };
+
+                        // Sync point to ensure that the rendering in this context will be complete by the time the
+                        // Slint created GL context needs to access the texture.
+                        if let Some(meta) = buffer.meta::<gst_gl::GLSyncMeta>() {
+                            meta.set_sync_point(&context);
+                        } else {
+                            let buffer = buffer.make_mut();
+                            let meta = gst_gl::GLSyncMeta::add(buffer, &context);
+                            meta.set_sync_point(&context);
+                        }
+                    }
+
+                    let Some(info) = sample
+                        .caps()
+                        .and_then(|caps| gst_video::VideoInfo::from_caps(caps).ok())
+                    else {
+                        error!("Got invalid caps");
+                        return Err(gst::FlowError::NotNegotiated);
+                    };
+
+                    let next_frame_ref = next_frame_ref.clone();
+                    *next_frame_ref.lock().unwrap() = Some((info, buffer));
+
+                    next_frame_available_notifier();
+
+                    Ok(gst::FlowSuccess::Ok)
+                })
+                .build(),
+        );
+    }
+
+    pub fn fetch_next_frame(&self) -> Option<slint::Image> {
+        if let Some((info, buffer)) = self.next_frame.lock().unwrap().take() {
+            let sync_meta = buffer.meta::<gst_gl::GLSyncMeta>().unwrap();
+            sync_meta.wait(self.gst_gl_context.as_ref().unwrap());
+
+            if let Ok(frame) = gst_gl::GLVideoFrame::from_buffer_readable(buffer, &info) {
+                *self.current_frame.lock().unwrap() = Some(frame);
+            }
+        }
+
+        self.current_frame
+            .lock()
+            .unwrap()
+            .as_ref()
+            .and_then(|frame| {
+                frame
+                    .texture_id(0)
+                    .ok()
+                    .and_then(|id| id.try_into().ok())
+                    .map(|texture| (frame, texture))
+            })
+            .map(|(frame, texture)| unsafe {
+                slint::BorrowedOpenGLTextureBuilder::new_gl_2d_rgba_texture(
+                    texture,
+                    [frame.width(), frame.height()].into(),
+                )
+                .build()
+            })
+    }
+
+    pub fn deactivate_and_pause(&self) {
+        self.current_frame.lock().unwrap().take();
+        self.next_frame.lock().unwrap().take();
+
+        if let Some(context) = &self.gst_gl_context {
+            context
+                .activate(false)
+                .expect("could not activate GStreamer GL context");
+        }
+    }
+}
+
 enum SinkState {
     Unset,
     WebRTC(WebrtcSink),
@@ -47,59 +266,50 @@ impl Pipeline {
             .property_from_str("leaky", "downstream")
             .property("silent", true) // Don't emit signals, can give better perf.
             .build()?;
-        let preview_convert = gst::ElementFactory::make("videoconvert")
-            .name("preview_convert")
-            .build()?;
-        // The software frame renderer is extremely slow, we need downscaling until we get faster frame renderer
-        let preview_scale = gst::ElementFactory::make("videoscale")
-            .name("preview_scale")
-            .build()?;
-        let appsink = gst_app::AppSink::builder()
-            .caps(
-                &gst_video::VideoCapsBuilder::new()
-                    .format(gst_video::VideoFormat::Rgb)
-                    .width(256)
-                    .height(256 / 2)
-                    .build(),
-            )
-            .build();
 
-        let app_weak = app.as_weak();
-        appsink.set_callbacks(
-            gst_app::AppSinkCallbacks::builder()
-                .new_sample(move |appsink| {
-                    let sample = appsink.pull_sample().map_err(|_| gst::FlowError::Eos)?;
-                    let buffer = sample.buffer_owned().unwrap();
-                    let caps = sample.caps().unwrap();
-                    let video_info = gst_video::VideoInfo::from_caps(caps).unwrap();
-                    let video_frame =
-                        gst_video::VideoFrame::from_buffer_readable(buffer, &video_info).unwrap();
-                    let slint_frame = match video_frame.format() {
-                        gst_video::VideoFormat::Rgb => {
-                            let mut slint_pixel_buffer =
-                                slint::SharedPixelBuffer::<slint::Rgb8Pixel>::new(
-                                    video_frame.width(),
-                                    video_frame.height(),
-                                );
-                            video_frame
-                                .buffer()
-                                .copy_to_slice(0, slint_pixel_buffer.make_mut_bytes())
-                                .unwrap();
-                            slint_pixel_buffer
+        let mut slint_sink = SlintOpenGLSink::new();
+        let appsink = slint_sink.video_sink();
+
+        let pipeline = gst::Pipeline::new();
+
+        app.window()
+            .set_rendering_notifier({
+                let pipeline = pipeline.clone();
+                let app_weak = app.as_weak();
+
+                move |state, graphics_api| match state {
+                    slint::RenderingState::RenderingSetup => {
+                        let app_weak = app_weak.clone();
+                        slint_sink.connect(
+                            graphics_api,
+                            &pipeline.bus().unwrap(),
+                            Box::new(move || {
+                                app_weak
+                                    .upgrade_in_event_loop(move |app| {
+                                        app.window().request_redraw();
+                                    })
+                                    .ok();
+                            }),
+                        );
+
+                        let pipeline = pipeline.clone();
+                        let _ = std::thread::spawn(move || {
+                            debug!("Starting pipeline");
+                            pipeline.set_state(gst::State::Playing).unwrap();
+                        });
+                    }
+                    slint::RenderingState::BeforeRendering => {
+                        if let Some(next_frame) = slint_sink.fetch_next_frame() {
+                            new_frame_cb(app_weak.unwrap(), next_frame);
                         }
-                        _ => unreachable!(),
-                    };
-
-                    app_weak
-                        .upgrade_in_event_loop(move |app| {
-                            new_frame_cb(app, slint::Image::from_rgb8(slint_frame));
-                        })
-                        .unwrap();
-
-                    Ok(gst::FlowSuccess::Ok)
-                })
-                .build(),
-        );
+                    }
+                    slint::RenderingState::RenderingTeardown => {
+                        slint_sink.deactivate_and_pause();
+                    }
+                    _ => (),
+                }
+            })
+            .unwrap();
 
         // https://gitlab.freedesktop.org/gstreamer/gstreamer/-/issues/3993
         src.static_pad("src").unwrap().add_probe(
@@ -127,15 +337,10 @@ impl Pipeline {
             Some(res.to_value())
         });
 
-        let pipeline = gst::Pipeline::new();
-        // pipeline.add_many([&src, &tee, &preview_queue, &preview_convert, &gtksink])?;
-        pipeline.add_many([&src, &tee, &preview_queue, &preview_convert, &preview_scale])?;
-        pipeline.add(&appsink)?;
+        pipeline.add_many([&src, &tee, &preview_queue, &appsink])?;
 
         gst::Element::link_many([&src, &tee])?;
-        // gst::Element::link_many([&preview_queue, &preview_convert, &gtksink])?;
-        gst::Element::link_many([&preview_queue, &preview_convert, &preview_scale])?;
-        preview_scale.link(&appsink)?;
+        gst::Element::link_many([&preview_queue, &appsink])?;
 
         let tee_preview_pad = tee.request_pad_simple("src_%u").map_or_else(
             || Err(glib::bool_error!("`request_pad_simple()` failed")),
@@ -147,16 +352,6 @@ impl Pipeline {
         tee_preview_pad
             .link(&queue_preview_pad)
             .map_err(|err| glib::bool_error!("{err}"))?;
-
-        let pipeline_weak = pipeline.downgrade();
-        // Start pipeline in background to not freeze UI
-        let _ = std::thread::spawn(move || {
-            let Some(pipeline) = pipeline_weak.upgrade() else {
-                panic!("No pipeline");
-            };
-            debug!("Starting pipeline");
-            pipeline.set_state(gst::State::Playing).unwrap();
-        });
 
         let sink_state = Arc::new(Mutex::new(SinkState::Unset));
 

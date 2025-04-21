@@ -43,7 +43,8 @@ async fn event_loop(
                 ui.upgrade_in_event_loop(|ui| {
                     ui.set_starting_cast(false);
                     ui.set_casting(true);
-                }).unwrap();
+                })
+                .unwrap();
             }
             Event::Stop => {
                 session_tx.send(Message::Stop).await.unwrap();
@@ -197,6 +198,12 @@ fn main() {
         .filter_module("scap", common::default_log_level())
         .init();
 
+    slint::BackendSelector::new()
+        .backend_name("winit".into())
+        .require_opengl_es()
+        .select()
+        .unwrap();
+
     gst::init().unwrap();
     scapgst::plugin_register_static().unwrap();
     gst_webrtc::plugin_register_static().unwrap();
@@ -254,9 +261,11 @@ fn main() {
         let ui_weak = ui.as_weak();
         ui.on_start_cast(move || {
             event_tx.blocking_send(Event::Start).unwrap();
-            ui_weak.upgrade_in_event_loop(|ui| {
-                ui.set_starting_cast(true);
-            }).unwrap();
+            ui_weak
+                .upgrade_in_event_loop(|ui| {
+                    ui.set_starting_cast(true);
+                })
+                .unwrap();
         });
     }
 
@@ -264,10 +273,12 @@ fn main() {
         let ui_weak = ui.as_weak();
         ui.on_stop_cast(move || {
             event_tx.blocking_send(Event::Stop).unwrap();
-            ui_weak.upgrade_in_event_loop(|ui| {
-                ui.set_starting_cast(false);
-                ui.set_casting(false);
-            }).unwrap();
+            ui_weak
+                .upgrade_in_event_loop(|ui| {
+                    ui.set_starting_cast(false);
+                    ui.set_casting(false);
+                })
+                .unwrap();
         });
     }
 
