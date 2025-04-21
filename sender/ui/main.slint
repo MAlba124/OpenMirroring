@@ -1,0 +1,156 @@
+import { VerticalBox, HorizontalBox, Button, ComboBox, Palette, Spinner } from "std-widgets.slint";
+
+import { Settings } from "settings.slint";
+import { CastDialog, ReceiverItem } from "cast-dialog.slint";
+
+export component MainWindow inherits Window {
+    title: "Open Mirroring Sender";
+
+    preferred-width: 800px;
+    preferred-height: 500px;
+
+    callback select-source(int);
+    callback connect-receiver(string);
+    callback start-cast();
+    callback stop-cast();
+
+    property <bool> has-source: false;
+    in property <bool> starting-cast: false;
+    in property <bool> casting: false;
+    in property <image> preview-frame <=> preview-image.source;
+
+    function source-added() {
+        has-source = true;
+    }
+
+    // function cast-started() {
+        // starting-cast = false;
+    // }
+
+    in property <[string]> sources-model: [];
+
+    in property <[ReceiverItem]> receivers-model: [];
+    in property <bool> receiver-is-connected: false;
+    in property <bool> receiver-is-connecting: false;
+
+    // Maybe have vertical layout when the root width is, say 800 px, horizontal otherwise
+    VerticalBox {
+        Rectangle {
+            background: Palette.background;
+            border-radius: 8px;
+            height: 60%;
+            if !has-source: Text {
+                text: "Preview becomes available when a source is selected";
+            }
+            preview-image := Image {
+                width: 100%;
+                height: parent.height;
+                image-fit: contain;
+                visible: has-source;
+            }
+        }
+        vbox := VerticalBox {
+            alignment: center;
+            HorizontalBox {
+                alignment: center;
+                Button {
+                    icon: @image-url("../../assets/icons/gears.svg");
+                    colorize-icon: true;
+                    clicked => {
+                        settings.visible = true;
+                        shadow.visible = true;
+                    }
+                }
+            }
+            HorizontalBox {
+                alignment: center;
+                Button {
+                    icon: @image-url("../../assets/icons/cast.svg");
+                    colorize-icon: true;
+                    clicked => {
+                        cast-dialog.visible = true;
+                        shadow.visible = true;
+                    }
+                }
+            }
+            if has-source: HorizontalBox {
+                alignment: center;
+                Text {
+                    text: "Have source";
+                }
+            }
+            if !has-source: HorizontalBox {
+                alignment: center;
+                source-combo := ComboBox {
+                    model <=> sources-model;
+                }
+                Button {
+                    text: "Select source";
+                    enabled: sources-model.length > 0;
+                    clicked => {
+                        select-source(source-combo.current-index);
+                        has-source = true;
+                    }
+                }
+            }
+
+            if has-source: HorizontalBox {
+                alignment: center;
+                if !casting && !starting-cast: Button {
+                    text: "Start casting";
+                    clicked => {
+                        start-cast();
+                    }
+                }
+                if starting-cast: Spinner {
+                    indeterminate: true;
+                }
+                if casting: Button {
+                    text: "Stop casting";
+                    clicked => {
+                        stop-cast();
+                    }
+                }
+            }
+        }
+    }
+
+    shadow := Rectangle {
+        visible: false;
+        width: 100%;
+        height: 100%;
+        background: #000000A0;
+
+        TouchArea {
+            // Consume all interactions so that no elements behind the settings menu can be accessed
+        }
+    }
+
+    settings := Settings {
+        visible: false;
+
+        closed => {
+            self.visible = false;
+            shadow.visible = false;
+        }
+    }
+
+    cast-dialog := CastDialog {
+        visible: false;
+
+        width: root.width >= 500px ? 500px : root.width;
+
+        receivers-model <=> receivers-model;
+        is-connected <=> receiver-is-connected;
+        is-connecting <=> receiver-is-connecting;
+
+        connect(receiver) => {
+            connect-receiver(receiver);
+        }
+
+        closed => {
+            self.visible = false;
+            shadow.visible = false;
+        }
+    }
+}

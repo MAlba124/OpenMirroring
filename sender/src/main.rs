@@ -1,23 +1,21 @@
 use gst::prelude::*;
-use gtk::prelude::*;
-use gtk::{glib, Application, ApplicationWindow};
-use gtk4 as gtk;
 use log::{debug, error, trace};
 use sender::discovery::discover;
 use sender::session::session;
-use sender::views::{StateChange, View};
 use tokio::sync::mpsc::{Receiver, Sender};
-use tokio::sync::oneshot;
+use tokio::sync::{self, oneshot};
 
-use std::cell::RefCell;
 use std::collections::HashMap;
 use std::net::SocketAddr;
+use std::rc::Rc;
 
 use sender::{Event, Message};
 
+slint::include_modules!();
+
 async fn event_loop(
     mut pipeline: sender::pipeline::Pipeline,
-    mut main_view: sender::views::Main,
+    ui: slint::Weak<MainWindow>,
     mut event_rx: Receiver<Event>,
     event_tx: Sender<Event>,
     session_tx: Sender<Message>,
@@ -26,6 +24,8 @@ async fn event_loop(
 ) {
     let mut selected_source = false;
     let mut receivers: HashMap<String, Vec<SocketAddr>> = HashMap::new();
+    let mut receiver_connected_to = String::new();
+    let mut receiver_connecting_to = String::new();
     while let Some(event) = event_rx.recv().await {
         match event {
             Event::Quit => break,
@@ -39,30 +39,32 @@ async fn event_loop(
                 } else {
                     error!("Could not get stream uri");
                 }
+
+                ui.upgrade_in_event_loop(|ui| {
+                    ui.set_starting_cast(false);
+                    ui.set_casting(true);
+                }).unwrap();
             }
             Event::Stop => {
                 session_tx.send(Message::Stop).await.unwrap();
             }
-            Event::EnablePreview => {
-                main_view
-                    .primary
-                    .preview_stack
-                    .set_visible_child(&main_view.primary.gst_widget);
-            }
-            Event::DisablePreview => {
-                main_view
-                    .primary
-                    .preview_stack
-                    .set_visible_child(&main_view.primary.preview_disabled_label);
-            }
             Event::Sources(sources) => {
                 debug!("Available sources: {sources:?}");
-                main_view.change_state(StateChange::LoadingSourcesToSelectSources(sources));
+                ui.upgrade_in_event_loop(move |ui| {
+                    let model = Rc::new(slint::VecModel::<slint::SharedString>::from(
+                        sources
+                            .iter()
+                            .map(|s| s.into())
+                            .into_iter()
+                            .collect::<Vec<slint::SharedString>>(),
+                    ));
+                    ui.set_sources_model(model.into());
+                })
+                .unwrap();
             }
             Event::SelectSource(idx) => {
                 select_source_tx.send(idx).await.unwrap();
                 selected_source = true;
-                main_view.change_state(StateChange::SelectSourceToSelectReceiver);
             }
             Event::Packet(packet) => {
                 trace!("Unhandled packet: {packet:?}");
@@ -76,7 +78,29 @@ async fn event_loop(
                 {
                     debug!("Receiver dup {}", receiver.name);
                 }
-                main_view.select_receiver.add_receiver(receiver.name);
+
+                let mut receivers_vec = receivers
+                    .iter()
+                    .map(|(name, _)| name.clone())
+                    .collect::<Vec<String>>();
+                receivers_vec.sort();
+                let receiver_connected_to = receiver_connected_to.clone();
+                let receiver_connecting_to = receiver_connecting_to.clone();
+                ui.upgrade_in_event_loop(move |ui| {
+                    let receiver_connected_to = &receiver_connected_to;
+                    let model = Rc::new(slint::VecModel::<ReceiverItem>::from_iter(
+                        receivers_vec
+                            .iter()
+                            .map(|name| ReceiverItem {
+                                name: name.into(),
+                                connected: name == receiver_connected_to,
+                                connecting: *name == receiver_connecting_to,
+                            })
+                            .into_iter(),
+                    ));
+                    ui.set_receivers_model(model.into());
+                })
+                .unwrap();
             }
             Event::SelectReceiver(receiver) => {
                 let Some(addresses) = receivers.get(&receiver) else {
@@ -90,15 +114,67 @@ async fn event_loop(
                     pipeline.add_hls_sink(event_tx.clone()).unwrap();
                 }
 
-                main_view.change_state(StateChange::SelectReceiverToConnectingToReceiver);
+                receiver_connecting_to = receiver;
+
                 session_tx
                     .send(Message::Connect(addresses[0]))
                     .await
                     .unwrap();
+
+                let mut receivers_vec = receivers
+                    .iter()
+                    .map(|(name, _)| name.clone())
+                    .collect::<Vec<String>>();
+                receivers_vec.sort();
+                let receiver_connected_to = receiver_connected_to.clone();
+                let receiver_connecting_to = receiver_connecting_to.clone();
+                ui.upgrade_in_event_loop(move |ui| {
+                    let receiver_connected_to = &receiver_connected_to;
+                    let model = Rc::new(slint::VecModel::<ReceiverItem>::from_iter(
+                        receivers_vec
+                            .iter()
+                            .map(|name| ReceiverItem {
+                                name: name.into(),
+                                connected: name == receiver_connected_to,
+                                connecting: *name == receiver_connecting_to,
+                            })
+                            .into_iter(),
+                    ));
+                    ui.set_receiver_is_connecting(true);
+                    ui.set_receiver_is_connected(false);
+                    ui.set_receivers_model(model.into());
+                })
+                .unwrap();
             }
             Event::ConnectedToReceiver => {
                 debug!("Succesfully connected to receiver");
-                main_view.change_state(StateChange::ConnectingToReceiverToPrimary);
+                receiver_connected_to = receiver_connecting_to;
+                receiver_connecting_to = String::new();
+
+                let mut receivers_vec = receivers
+                    .iter()
+                    .map(|(name, _)| name.clone())
+                    .collect::<Vec<String>>();
+                receivers_vec.sort();
+                let receiver_connected_to = receiver_connected_to.clone();
+                let receiver_connecting_to = receiver_connecting_to.clone();
+                ui.upgrade_in_event_loop(move |ui| {
+                    let receiver_connected_to = &receiver_connected_to;
+                    let model = Rc::new(slint::VecModel::<ReceiverItem>::from_iter(
+                        receivers_vec
+                            .iter()
+                            .map(|name| ReceiverItem {
+                                name: name.into(),
+                                connected: name == receiver_connected_to,
+                                connecting: *name == receiver_connecting_to,
+                            })
+                            .into_iter(),
+                    ));
+                    ui.set_receiver_is_connecting(false);
+                    ui.set_receiver_is_connected(true);
+                    ui.set_receivers_model(model.into());
+                })
+                .unwrap();
             }
         }
     }
@@ -110,100 +186,12 @@ async fn event_loop(
         select_source_tx.send(0).await.unwrap();
     }
 
+    pipeline.inner.set_state(gst::State::Null).unwrap();
+
     fin_tx.send(()).unwrap();
 }
 
-fn build_ui(app: &Application) {
-    let (event_tx, event_rx) = tokio::sync::mpsc::channel::<Event>(100);
-    let (selected_tx, selected_rx) = tokio::sync::mpsc::channel::<usize>(1);
-
-    let (pipeline, gst_widget) =
-        sender::pipeline::Pipeline::new(event_tx.clone(), selected_rx).unwrap();
-
-    let main_view = sender::views::Main::new(event_tx.clone(), gst_widget);
-
-    let (session_tx, session_rx) = tokio::sync::mpsc::channel::<Message>(100);
-
-    let window = ApplicationWindow::builder()
-        .application(app)
-        .title("OMSender")
-        .child(main_view.main_widget())
-        .build();
-
-    window.present();
-
-    let bus_watch = pipeline
-        .setup_bus_watch(app.downgrade(), event_tx.clone())
-        .expect("Failed to add bus watch");
-
-    let tx_clone = session_tx.clone();
-    let pipeline_weak = RefCell::new(Some(pipeline.inner.downgrade()));
-    let event_tx_clone = event_tx.clone();
-    let (fin_tx, fin_rx) = oneshot::channel::<()>();
-    glib::spawn_future_local(async move {
-        event_loop(
-            pipeline,
-            main_view,
-            event_rx,
-            event_tx_clone,
-            tx_clone,
-            selected_tx,
-            fin_tx,
-        )
-        .await;
-    });
-
-    let bus_watch = RefCell::new(Some(bus_watch));
-    let fin_rx = std::sync::Arc::new(RefCell::new(Some(fin_rx)));
-    app.connect_shutdown(move |_| {
-        debug!("Shutting down");
-
-        window.close();
-
-        drop(bus_watch.borrow_mut().take());
-
-        let pipeline = pipeline_weak
-            .borrow_mut()
-            .take()
-            .unwrap()
-            .upgrade()
-            .unwrap();
-
-        // Since the event-loop runs on the main thread and glib does not have a `runtime::block_on`
-        // alternative (i think), we need to create a MainLoop that we use to wait for the future
-        // spawned below to finish.
-        let main_loop = glib::MainLoop::new(None, false);
-
-        glib::spawn_future_local(glib::clone!(
-            #[strong]
-            fin_rx,
-            #[strong]
-            session_tx,
-            #[strong]
-            main_loop,
-            async move {
-                if !session_tx.is_closed() {
-                    session_tx.send(Message::Quit).await.unwrap();
-                    if let Some(fin_rx) = fin_rx.borrow_mut().take() {
-                        fin_rx.await.unwrap();
-                    }
-                }
-                main_loop.quit();
-            }
-        ));
-
-        main_loop.run();
-
-        pipeline
-            .set_state(gst::State::Null)
-            .expect("Unable to set the pipeline to the `Null` state");
-    });
-
-    common::runtime().spawn(session(session_rx, event_tx.clone()));
-    common::runtime().spawn(discover(event_tx));
-}
-
-fn main() -> glib::ExitCode {
+fn main() {
     env_logger::Builder::from_default_env()
         .filter_module("sender", common::default_log_level())
         .filter_module("scap", common::default_log_level())
@@ -211,14 +199,86 @@ fn main() -> glib::ExitCode {
 
     gst::init().unwrap();
     scapgst::plugin_register_static().unwrap();
-    gst_gtk4::plugin_register_static().unwrap();
     gst_webrtc::plugin_register_static().unwrap();
 
-    let app = Application::builder()
-        .application_id("com.github.malba124.OpenMirroring.sender")
-        .build();
+    let (event_tx, event_rx) = sync::mpsc::channel::<Event>(100);
+    let (selected_tx, selected_rx) = sync::mpsc::channel::<usize>(1);
+    let (session_tx, session_rx) = sync::mpsc::channel::<Message>(100);
+    let (fin_tx, fin_rx) = oneshot::channel::<()>();
 
-    app.connect_activate(build_ui);
+    let ui = MainWindow::new().unwrap();
+    slint::set_xdg_app_id("com.github.malba124.OpenMirroring.sender").unwrap();
 
-    app.run()
+    let new_frame_cb = |app: MainWindow, new_frame| {
+        app.set_preview_frame(new_frame);
+    };
+
+    let pipeline =
+        sender::pipeline::Pipeline::new(&ui, event_tx.clone(), selected_rx, new_frame_cb).unwrap();
+
+    let bus_watch = pipeline.setup_bus_watch(event_tx.clone()).unwrap();
+
+    common::runtime().spawn(session(session_rx, event_tx.clone()));
+    common::runtime().spawn(discover(event_tx.clone()));
+    common::runtime().spawn(event_loop(
+        pipeline,
+        ui.as_weak(),
+        event_rx,
+        event_tx.clone(),
+        session_tx.clone(),
+        selected_tx,
+        fin_tx,
+    ));
+
+    {
+        let event_tx = event_tx.clone();
+        ui.on_select_source(move |idx| {
+            assert!(idx >= 0, "Invalid select source index");
+            event_tx
+                .blocking_send(Event::SelectSource(idx as usize))
+                .unwrap();
+        });
+    }
+
+    {
+        let event_tx = event_tx.clone();
+        ui.on_connect_receiver(move |receiver| {
+            event_tx
+                .blocking_send(Event::SelectReceiver(receiver.to_string()))
+                .unwrap();
+        });
+    }
+
+    {
+        let event_tx = event_tx.clone();
+        let ui_weak = ui.as_weak();
+        ui.on_start_cast(move || {
+            event_tx.blocking_send(Event::Start).unwrap();
+            ui_weak.upgrade_in_event_loop(|ui| {
+                ui.set_starting_cast(true);
+            }).unwrap();
+        });
+    }
+
+    {
+        let ui_weak = ui.as_weak();
+        ui.on_stop_cast(move || {
+            event_tx.blocking_send(Event::Stop).unwrap();
+            ui_weak.upgrade_in_event_loop(|ui| {
+                ui.set_starting_cast(false);
+                ui.set_casting(false);
+            }).unwrap();
+        });
+    }
+
+    ui.run().unwrap();
+
+    drop(bus_watch);
+
+    common::runtime().block_on(async move {
+        if !session_tx.is_closed() {
+            session_tx.send(Message::Quit).await.unwrap();
+            fin_rx.await.unwrap();
+        }
+    });
 }

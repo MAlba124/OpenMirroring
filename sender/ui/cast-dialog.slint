@@ -1,0 +1,83 @@
+import { Palette, VerticalBox, HorizontalBox, StandardButton, ListView, Spinner, Button } from "std-widgets.slint";
+
+import { HorizontalRule } from "horizontal-rule.slint";
+
+export struct ReceiverItem {
+    name: string,
+    connected: bool,
+    connecting: bool,
+}
+
+export component CastDialog {
+    callback closed;
+    callback connect(string);
+
+    in property <[ReceiverItem]> receivers-model;
+    in property <bool> is-connected;
+    in property <bool> is-connecting;
+
+    Rectangle {
+        background: Palette.background;
+        border-radius: 8px;
+    }
+
+    VerticalBox {
+        HorizontalBox {
+            alignment: space-between;
+            Text {
+                font-weight: 800;
+                font-size: 12pt;
+                text: "Cast To";
+                vertical-alignment: center;
+            }
+            // StandardButton {
+            Button {
+                // kind: close;
+                icon: @image-url("../../assets/icons/xmark.svg");
+                colorize-icon: true;
+                clicked => {
+                    root.closed();
+                }
+            }
+        }
+
+        HorizontalRule {
+            height: 2px;
+            color: Palette.alternate-background;
+        }
+
+        if receivers-model.length > 0: VerticalBox {
+            alignment: center;
+            ListView {
+                for receiver in receivers-model : HorizontalBox {
+                    alignment: space-between;
+                    Text {
+                        text: receiver.name;
+                        vertical-alignment: center;
+                    }
+                    if is-connecting && receiver.connecting: Spinner {
+                        indeterminate: true;
+                    }
+                    if is-connected && receiver.connected: Button {
+                        text: "Disconnect";
+                    }
+                    if !is-connecting && !is-connected: Button {
+                        text: "Connect";
+                        clicked => {
+                            connect(receiver.name);
+                        }
+                    }
+                }
+            }
+        }
+
+        HorizontalBox {
+            alignment: center;
+            Text {
+                text: "Receivers will be added automatically once they announce themselves on the network";
+                font-italic: true;
+                wrap: word-wrap;
+            }
+        }
+    }
+}

@@ -302,6 +302,7 @@ impl BaseSrcImpl for ScapSrc {
             &[&targets.iter().map(|t| t.title()).collect::<Vec<String>>()],
         );
 
+        // TODO: use crossbeam channel, then tx.is_full in on_frame
         let (event_tx, event_rx) = std::sync::mpsc::sync_channel::<Event>(10);
 
         let event_tx_clone = event_tx.clone();

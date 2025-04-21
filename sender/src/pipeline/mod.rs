@@ -1,11 +1,9 @@
-use gtk4 as gtk;
-
-use gtk::prelude::*;
 use std::sync::{Arc, Mutex};
 
 use gst::bus::BusWatchGuard;
 use gst::glib;
 use gst::prelude::*;
+use gst_video::VideoFrameExt;
 use log::{debug, error};
 use tokio::sync::mpsc::{Receiver, Sender};
 
@@ -28,10 +26,15 @@ pub struct Pipeline {
 }
 
 impl Pipeline {
-    pub fn new(
+    pub fn new<App>(
+        app: &App,
         event_tx: Sender<Event>,
         selected_rx: Receiver<usize>,
-    ) -> Result<(Self, gst_gtk4::RenderWidget), gst::glib::BoolError> {
+        new_frame_cb: fn(App, slint::Image),
+    ) -> Result<Self, gst::glib::BoolError>
+    where
+        App: slint::ComponentHandle + 'static,
+    {
         let tee = gst::ElementFactory::make("tee").build()?;
         let src = gst::ElementFactory::make("scapsrc")
             .property("perform-internal-preroll", true)
@@ -47,9 +50,56 @@ impl Pipeline {
         let preview_convert = gst::ElementFactory::make("videoconvert")
             .name("preview_convert")
             .build()?;
-        let gtksink = gst::ElementFactory::make("gtk4paintablesink")
-            .name("gtksink")
+        // The software frame renderer is extremely slow, we need downscaling until we get faster frame renderer
+        let preview_scale = gst::ElementFactory::make("videoscale")
+            .name("preview_scale")
             .build()?;
+        let appsink = gst_app::AppSink::builder()
+            .caps(
+                &gst_video::VideoCapsBuilder::new()
+                    .format(gst_video::VideoFormat::Rgb)
+                    .width(256)
+                    .height(256 / 2)
+                    .build(),
+            )
+            .build();
+
+        let app_weak = app.as_weak();
+        appsink.set_callbacks(
+            gst_app::AppSinkCallbacks::builder()
+                .new_sample(move |appsink| {
+                    let sample = appsink.pull_sample().map_err(|_| gst::FlowError::Eos)?;
+                    let buffer = sample.buffer_owned().unwrap();
+                    let caps = sample.caps().unwrap();
+                    let video_info = gst_video::VideoInfo::from_caps(caps).unwrap();
+                    let video_frame =
+                        gst_video::VideoFrame::from_buffer_readable(buffer, &video_info).unwrap();
+                    let slint_frame = match video_frame.format() {
+                        gst_video::VideoFormat::Rgb => {
+                            let mut slint_pixel_buffer =
+                                slint::SharedPixelBuffer::<slint::Rgb8Pixel>::new(
+                                    video_frame.width(),
+                                    video_frame.height(),
+                                );
+                            video_frame
+                                .buffer()
+                                .copy_to_slice(0, slint_pixel_buffer.make_mut_bytes())
+                                .unwrap();
+                            slint_pixel_buffer
+                        }
+                        _ => unreachable!(),
+                    };
+
+                    app_weak
+                        .upgrade_in_event_loop(move |app| {
+                            new_frame_cb(app, slint::Image::from_rgb8(slint_frame));
+                        })
+                        .unwrap();
+
+                    Ok(gst::FlowSuccess::Ok)
+                })
+                .build(),
+        );
 
         // https://gitlab.freedesktop.org/gstreamer/gstreamer/-/issues/3993
         src.static_pad("src").unwrap().add_probe(
@@ -78,10 +128,14 @@ impl Pipeline {
         });
 
         let pipeline = gst::Pipeline::new();
-        pipeline.add_many([&src, &tee, &preview_queue, &preview_convert, &gtksink])?;
+        // pipeline.add_many([&src, &tee, &preview_queue, &preview_convert, &gtksink])?;
+        pipeline.add_many([&src, &tee, &preview_queue, &preview_convert, &preview_scale])?;
+        pipeline.add(&appsink)?;
 
         gst::Element::link_many([&src, &tee])?;
-        gst::Element::link_many([&preview_queue, &preview_convert, &gtksink])?;
+        // gst::Element::link_many([&preview_queue, &preview_convert, &gtksink])?;
+        gst::Element::link_many([&preview_queue, &preview_convert, &preview_scale])?;
+        preview_scale.link(&appsink)?;
 
         let tee_preview_pad = tee.request_pad_simple("src_%u").map_or_else(
             || Err(glib::bool_error!("`request_pad_simple()` failed")),
@@ -93,8 +147,6 @@ impl Pipeline {
         tee_preview_pad
             .link(&queue_preview_pad)
             .map_err(|err| glib::bool_error!("{err}"))?;
-
-        let widget = gst_gtk4::RenderWidget::new(&gtksink);
 
         let pipeline_weak = pipeline.downgrade();
         // Start pipeline in background to not freeze UI
@@ -108,19 +160,15 @@ impl Pipeline {
 
         let sink_state = Arc::new(Mutex::new(SinkState::Unset));
 
-        Ok((
-            Self {
-                inner: pipeline,
-                sink_state,
-                tee,
-            },
-            widget,
-        ))
+        Ok(Self {
+            inner: pipeline,
+            sink_state,
+            tee,
+        })
     }
 
     pub fn setup_bus_watch(
         &self,
-        app_weak: glib::WeakRef<gtk::Application>,
         event_tx: Sender<Event>,
     ) -> Result<BusWatchGuard, glib::BoolError> {
         let bus = self.inner.bus().unwrap();
@@ -128,10 +176,6 @@ impl Pipeline {
         let s = Arc::clone(&self.sink_state);
         let bus_watch = bus.add_watch_local(move |_, msg| {
             use gst::MessageView;
-
-            let Some(app) = app_weak.upgrade() else {
-                return glib::ControlFlow::Break;
-            };
 
             match msg.view() {
                 MessageView::StateChanged(state_changed) => {
@@ -150,7 +194,7 @@ impl Pipeline {
                         }
                     }
                 }
-                MessageView::Eos(..) => app.quit(),
+                MessageView::Eos(..) => (), // app.quit()), TODO
                 MessageView::Error(err) => {
                     error!(
                         "Error from {:?}: {} ({:?})",
@@ -158,7 +202,7 @@ impl Pipeline {
                         err.error(),
                         err.debug()
                     );
-                    app.quit();
+                    // app.quit(); TODO
                 }
                 _ => (),
             };
