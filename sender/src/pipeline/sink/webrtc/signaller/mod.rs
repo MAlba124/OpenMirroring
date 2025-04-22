@@ -1,14 +1,16 @@
-use tokio::sync::{mpsc::Sender, oneshot};
+use std::sync::{Arc, Mutex};
+
+use tokio::sync::oneshot;
 
 pub mod handlers;
 pub mod protocol;
 pub mod server;
 
 pub async fn run_server(
-    prod_peer_tx: Sender<crate::Event>,
+    peer_id: Arc<Mutex<Option<String>>>,
     mut quit_signal: oneshot::Receiver<()>,
 ) {
-    let server = server::Server::spawn(handlers::Handler::new, prod_peer_tx);
+    let server = server::Server::spawn(handlers::Handler::new, peer_id);
 
     // TODO: use random port
     let listener = tokio::net::TcpListener::bind("0.0.0.0:8443").await.unwrap();
@@ -30,9 +32,4 @@ pub async fn run_server(
             }
         }
     }
-    // while let Ok((stream, address)) = listener.accept().await {
-    //     let mut server_clone = server.clone();
-    //     log::info!("Accepting connection from {address}");
-    //     tokio::task::spawn(async move { server_clone.accept_async(stream).await });
-    // }
 }

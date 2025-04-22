@@ -24,14 +24,11 @@ pub struct Receiver {
 #[derive(Debug)]
 pub enum Event {
     Quit,
-    ProducerConnected(ProducerId),
     Start,
     Stop,
     Sources(Vec<String>),
     SelectSource(usize),
     Packet(fcast_lib::packet::Packet),
-    HlsServerAddr { port: u16 },
-    HlsStreamReady,
     ReceiverAvailable(Receiver),
     SelectReceiver(String),
     ConnectedToReceiver,

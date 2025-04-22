@@ -72,7 +72,9 @@ impl Application {
                     let pipeline =
                         pipeline::Pipeline::new(event_tx, selected_rx, appsink, gst_egl_context)
                             .unwrap();
-                    pipeline_tx.send(pipeline).unwrap();
+                    if pipeline_tx.send(pipeline).is_err() {
+                        panic!("Failed to send pipeline");
+                    }
                 }
             })
             .unwrap();
@@ -91,10 +93,6 @@ impl Application {
         while let Some(event) = event_rx.recv().await {
             match event {
                 Event::Quit => break,
-                Event::ProducerConnected(id) => {
-                    debug!("Got producer peer id: {id}");
-                    self.pipeline.set_producer_id(id).await;
-                }
                 Event::Start => {
                     let Some(play_msg) = self.pipeline.get_play_msg().await else {
                         error!("Could not get stream uri");
@@ -132,12 +130,12 @@ impl Application {
 
                     if receiver_connected_to.starts_with("OpenMirroring") {
                         self.pipeline
-                            .add_webrtc_sink(self.event_tx.clone())
+                            .add_webrtc_sink()
                             .await
                             .unwrap();
                     } else if !receiver_connected_to.is_empty() {
                         self.pipeline
-                            .add_hls_sink(self.event_tx.clone())
+                            .add_hls_sink()
                             .await
                             .unwrap();
                     }
@@ -151,8 +149,6 @@ impl Application {
                 Event::Packet(packet) => {
                     trace!("Unhandled packet: {packet:?}");
                 }
-                Event::HlsServerAddr { port } => self.pipeline.set_server_port(port).await,
-                Event::HlsStreamReady => (),
                 Event::ReceiverAvailable(receiver) => {
                     if self
                         .receivers
@@ -188,12 +184,12 @@ impl Application {
 
                     if receiver.starts_with("OpenMirroring") {
                         self.pipeline
-                            .add_webrtc_sink(self.event_tx.clone())
+                            .add_webrtc_sink()
                             .await
                             .unwrap();
                     } else {
                         self.pipeline
-                            .add_hls_sink(self.event_tx.clone())
+                            .add_hls_sink()
                             .await
                             .unwrap();
                     }
@@ -252,7 +248,7 @@ impl Application {
                 }
                 Event::DisconnectReceiver => {
                     self.session_tx.send(Message::Disconnect).await.unwrap();
-                    self.pipeline.remove_sink().await;
+                    self.pipeline.remove_transmission_sink().await;
                     receiver_connected_to.clear();
                     let mut receivers_vec = self.receivers.keys().cloned().collect::<Vec<String>>();
                     receivers_vec.sort();

@@ -30,6 +30,7 @@ slint = "1.10.0"
 gst-gl = { package = "gstreamer-gl", version = "0.23.0" }
 gst-gl-egl = { package = "gstreamer-gl-egl", version = "0.23.0" }
 glutin_egl_sys = "0.7.1"
+async-trait = "0.1.88"
 
 [build-dependencies]
 slint-build = "1.10.0"

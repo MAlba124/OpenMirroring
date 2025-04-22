@@ -3,13 +3,14 @@ use std::sync::{Arc, Mutex};
 use gst::glib;
 use gst::prelude::*;
 use log::{debug, error};
+use sink::TransmissionSink;
 use tokio::sync::mpsc::{Receiver, Sender};
 
 use crate::Event;
 
 mod sink;
 
-use sink::{HlsSink, WebrtcSink};
+use sink::{hls::HlsSink, webrtc::WebrtcSink};
 
 use gst_gl::prelude::*;
 
@@ -194,17 +195,9 @@ impl SlintOpenGLSink {
     }
 }
 
-#[derive(Debug)]
-enum SinkState {
-    Unset,
-    WebRTC(WebrtcSink),
-    Hls(HlsSink),
-}
-
-#[derive(Debug)]
 pub struct Pipeline {
     inner: gst::Pipeline,
-    sink_state: Arc<tokio::sync::Mutex<SinkState>>,
+    tx_sink: Arc<tokio::sync::Mutex<Option<Box<dyn TransmissionSink>>>>,
     tee: gst::Element,
     preview_queue: gst::Element,
     preview_appsink: gst::Element,
@@ -232,13 +225,12 @@ impl Pipeline {
 
         let pipeline = gst::Pipeline::new();
 
-        let sink_state = Arc::new(tokio::sync::Mutex::new(SinkState::Unset));
+        let tx_sink = Arc::new(tokio::sync::Mutex::new(None::<Box<dyn TransmissionSink>>));
 
         let bus = pipeline.bus().unwrap();
 
         let pipeline_weak = pipeline.downgrade();
-        let sink_state_clone = Arc::clone(&sink_state);
-        let event_tx_clone = event_tx.clone();
+        let tx_sink_clone = Arc::clone(&tx_sink);
         bus.set_sync_handler(move |_, msg| {
             use gst::MessageView;
 
@@ -252,13 +244,11 @@ impl Pipeline {
                         && state_changed.old() == gst::State::Paused
                         && state_changed.current() == gst::State::Playing
                     {
-                        let sink_state = sink_state_clone.clone();
-                        let event_tx = event_tx_clone.clone();
+                        let tx_sink = tx_sink_clone.clone();
                         common::runtime().spawn(async move {
-                            let mut s = sink_state.lock().await;
-                            if let SinkState::Hls(ref mut hls) = *s {
-                                hls.hls.write_manifest_file().await;
-                                event_tx.send(Event::HlsStreamReady).await.unwrap();
+                            let mut s = tx_sink.lock().await;
+                            if let Some(ref mut sink) = *s {
+                                sink.playing().await;
                             }
                         });
                     }
@@ -364,7 +354,7 @@ impl Pipeline {
 
         Ok(Self {
             inner: pipeline,
-            sink_state,
+            tx_sink,
             tee,
             preview_queue,
             preview_appsink,
@@ -376,76 +366,57 @@ impl Pipeline {
         self.preview_queue.unlink(&self.preview_appsink);
         self.inner.remove(&self.preview_appsink).unwrap();
 
-        let mut sink_state = self.sink_state.lock().await;
-        if let SinkState::WebRTC(sink) = &mut (*sink_state) {
+        let mut tx_sink = self.tx_sink.lock().await;
+        if let Some(sink) = &mut (*tx_sink) {
             sink.shutdown();
         }
     }
 
     pub async fn add_webrtc_sink(
         &mut self,
-        event_tx: Sender<Event>,
     ) -> Result<(), glib::BoolError> {
         let tee_pad = self.tee.request_pad_simple("src_%u").map_or_else(
             || Err(glib::bool_error!("`request_pad_simple()` failed")),
             Ok,
         )?;
-        let webrtc = WebrtcSink::new(&self.inner, event_tx, tee_pad)?;
-        let mut s = self.sink_state.lock().await;
-        *s = SinkState::WebRTC(webrtc);
+        let webrtc = WebrtcSink::new(&self.inner, tee_pad)?;
+        let mut s = self.tx_sink.lock().await;
+        *s = Some(Box::new(webrtc));
 
         debug!("Added WebRTC sink");
 
         Ok(())
     }
 
-    pub async fn add_hls_sink(&mut self, event_tx: Sender<Event>) -> Result<(), glib::BoolError> {
-        debug!("Adding HLS sink");
+    pub async fn add_hls_sink(&mut self) -> Result<(), glib::BoolError> {
         let tee_pad = self.tee.request_pad_simple("src_%u").map_or_else(
             || Err(glib::bool_error!("`request_pad_simple()` failed")),
             Ok,
         )?;
-        let hls = HlsSink::new(&self.inner, event_tx, tee_pad)?;
-        let mut s = self.sink_state.lock().await;
-        *s = SinkState::Hls(hls);
+        let hls = HlsSink::new(&self.inner, tee_pad)?;
+        let mut s = self.tx_sink.lock().await;
+        *s = Some(Box::new(hls));
+
+        debug!("Added HLS sink");
 
         Ok(())
     }
 
-    pub async fn remove_sink(&self) {
-        let mut sink_state = self.sink_state.lock().await;
-        match &mut (*sink_state) {
-            SinkState::WebRTC(ref mut webrtc_sink) => {
-                webrtc_sink.shutdown_and_unlink(&self.inner).unwrap()
-            }
-            SinkState::Hls(ref mut hls_sink) => hls_sink.shutdown_and_unlink(&self.inner).unwrap(),
-            SinkState::Unset => (),
+    pub async fn remove_transmission_sink(&self) {
+        let mut tx_sink = self.tx_sink.lock().await;
+        if let Some(sink) = &mut (*tx_sink) {
+            sink.shutdown();
+            sink.unlink(&self.inner).unwrap();
         }
-        *sink_state = SinkState::Unset;
+        *tx_sink = None;
     }
 
     pub async fn get_play_msg(&self) -> Option<crate::Message> {
-        let s = self.sink_state.lock().await;
-        match *s {
-            SinkState::Unset => unreachable!(),
-            SinkState::WebRTC(ref sink) => sink.get_play_msg(),
-            SinkState::Hls(ref sink) => sink.get_play_msg(),
-        }
-    }
-
-    pub async fn set_producer_id(&mut self, producer_id: String) {
-        let mut s = self.sink_state.lock().await;
-        match *s {
-            SinkState::WebRTC(ref mut sink) => sink.producer_id = Some(producer_id),
-            _ => error!("Attempted to set producer peer id for non WebRTC sink"),
-        }
-    }
-
-    pub async fn set_server_port(&mut self, port: u16) {
-        let mut s = self.sink_state.lock().await;
-        match *s {
-            SinkState::Hls(ref mut sink) => sink.server_port = Some(port),
-            _ => error!("Attempted to set server port for non HLS sink"),
+        let tx_sink = self.tx_sink.lock().await;
+        if let Some(sink) = &(*tx_sink) {
+            sink.get_play_msg()
+        } else {
+            None
         }
     }
 }

@@ -1,4 +1,5 @@
-use std::net::IpAddr;
+use std::net::{IpAddr, Ipv4Addr};
+
 
 #[cfg(target_os = "windows")]
 mod win;
@@ -16,4 +17,17 @@ pub fn get_all_ip_addresses() -> Vec<IpAddr> {
     {
         rest::get_all_ip_addresses()
     }
+}
+
+pub fn get_default_ipv4_addr() -> Ipv4Addr {
+    let addrs = get_all_ip_addresses();
+    for addr in addrs {
+        if let IpAddr::V4(v4) = addr {
+            if !v4.is_loopback() {
+                return v4;
+            }
+        }
+    }
+
+    Ipv4Addr::LOCALHOST
 }
