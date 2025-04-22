@@ -1,4 +1,4 @@
-import { Palette, VerticalBox, HorizontalBox, StandardButton, ListView, Spinner, Button } from "std-widgets.slint";
+import { Palette, VerticalBox, HorizontalBox, ListView, Spinner, Button } from "std-widgets.slint";
 
 import { HorizontalRule } from "horizontal-rule.slint";
 
@@ -9,9 +9,11 @@ export struct ReceiverItem {
 }
 
 export component CastDialog {
-    callback closed;
+    callback closed();
     callback connect(string);
+    callback disconnect();
 
+    // TODO: three vecs
     in property <[ReceiverItem]> receivers-model;
     in property <bool> is-connected;
     in property <bool> is-connecting;
@@ -30,9 +32,7 @@ export component CastDialog {
                 text: "Cast To";
                 vertical-alignment: center;
             }
-            // StandardButton {
             Button {
-                // kind: close;
                 icon: @image-url("../../assets/icons/xmark.svg");
                 colorize-icon: true;
                 clicked => {
@@ -60,6 +60,9 @@ export component CastDialog {
                     }
                     if is-connected && receiver.connected: Button {
                         text: "Disconnect";
+                        clicked => {
+                            disconnect();
+                        }
                     }
                     if !is-connecting && !is-connected: Button {
                         text: "Connect";

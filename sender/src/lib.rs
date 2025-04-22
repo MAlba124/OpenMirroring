@@ -35,4 +35,6 @@ pub enum Event {
     ReceiverAvailable(Receiver),
     SelectReceiver(String),
     ConnectedToReceiver,
+    DisconnectReceiver,
+    ChangeSource,
 }

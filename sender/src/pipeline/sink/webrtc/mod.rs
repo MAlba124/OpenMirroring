@@ -1,8 +1,9 @@
 use gst::prelude::*;
-use tokio::sync::mpsc::Sender;
+use tokio::sync::{mpsc::Sender, oneshot};
 
 mod signaller;
 
+#[derive(Debug)]
 pub struct Webrtc {
     pub sink: gst::Element,
 }
@@ -11,8 +12,9 @@ impl Webrtc {
     pub fn new(
         pipeline: &gst::Pipeline,
         event_tx: Sender<crate::Event>,
+        signaller_quit_signal: oneshot::Receiver<()>,
     ) -> Result<Self, gst::glib::BoolError> {
-        common::runtime().spawn(signaller::run_server(event_tx));
+        common::runtime().spawn(signaller::run_server(event_tx, signaller_quit_signal));
 
         let sink = gst::ElementFactory::make("webrtcsink")
             .name("webrtc_sink")

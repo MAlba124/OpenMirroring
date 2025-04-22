@@ -155,6 +155,7 @@ fn get_codec_name(sink: &gst::Element) -> String {
         .to_string()
 }
 
+#[derive(Debug)]
 pub struct Hls {
     pub main_path: PathBuf,
     pub enc: gst::Element,

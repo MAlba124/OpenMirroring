@@ -13,23 +13,15 @@ export component MainWindow inherits Window {
     callback connect-receiver(string);
     callback start-cast();
     callback stop-cast();
+    callback disconnect-receiver();
+    callback change-source();
 
-    property <bool> has-source: false;
+    in property <bool> has-source: false;
     property <bool> preview-enable: true;
     in property <bool> starting-cast: false;
     in property <bool> casting: false;
     in property <image> preview-frame <=> preview-image.source;
-
-    function source-added() {
-        has-source = true;
-    }
-
-    // function cast-started() {
-        // starting-cast = false;
-    // }
-
     in property <[string]> sources-model: [];
-
     in property <[ReceiverItem]> receivers-model: [];
     in property <bool> receiver-is-connected: false;
     in property <bool> receiver-is-connecting: false;
@@ -60,6 +52,7 @@ export component MainWindow inherits Window {
                     icon: @image-url("../../assets/icons/input.svg");
                     colorize-icon: true;
                     clicked => {
+                        change-source();
                     }
                 }
 
@@ -112,7 +105,6 @@ export component MainWindow inherits Window {
                     enabled: sources-model.length > 0;
                     clicked => {
                         select-source(source-combo.current-index);
-                        has-source = true;
                     }
                 }
             }
@@ -150,6 +142,10 @@ export component MainWindow inherits Window {
 
         connect(receiver) => {
             connect-receiver(receiver);
+        }
+
+        disconnect() => {
+            disconnect-receiver();
         }
 
         closed => {
