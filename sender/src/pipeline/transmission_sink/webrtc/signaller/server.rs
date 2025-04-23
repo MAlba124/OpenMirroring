@@ -67,15 +67,13 @@ impl Server {
         task::spawn(async move {
             while let Some((peer_id, msg)) = handler.next().await {
                 // Handle the first producer that connects
-                match msg {
-                    OutgoingMessage::Welcome { ref peer_id } => {
-                        debug!("Got producer: {peer_id}");
-                        let mut out_peer_id = out_peer_id.lock().unwrap();
-                        if (*out_peer_id).is_none() {
-                            *out_peer_id = Some(peer_id.clone());
-                        }
+
+                if let OutgoingMessage::Welcome { ref peer_id } = msg {
+                    debug!("Got producer: {peer_id}");
+                    let mut out_peer_id = out_peer_id.lock().unwrap();
+                    if (*out_peer_id).is_none() {
+                        *out_peer_id = Some(peer_id.clone());
                     }
-                    _ => (),
                 }
 
                 match serde_json::to_string(&msg) {

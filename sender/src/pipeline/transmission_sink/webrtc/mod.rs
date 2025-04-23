@@ -23,10 +23,7 @@ pub struct WebrtcSink {
 }
 
 impl WebrtcSink {
-    pub fn new(
-        pipeline: &gst::Pipeline,
-        src_pad: gst::Pad,
-    ) -> Result<Self, glib::BoolError> {
+    pub fn new(pipeline: &gst::Pipeline, src_pad: gst::Pad) -> Result<Self, glib::BoolError> {
         let queue = gst::ElementFactory::make("queue")
             .name("sink_queue")
             .property("silent", true)
@@ -37,7 +34,10 @@ impl WebrtcSink {
         let (signaller_quit_tx, signaller_quit_rx) = oneshot::channel();
 
         let peer_id = Arc::new(Mutex::new(None));
-        common::runtime().spawn(signaller::run_server(Arc::clone(&peer_id), signaller_quit_rx));
+        common::runtime().spawn(signaller::run_server(
+            Arc::clone(&peer_id),
+            signaller_quit_rx,
+        ));
 
         let sink = gst::ElementFactory::make("webrtcsink")
             .name("webrtc_sink")
@@ -87,17 +87,13 @@ impl WebrtcSink {
 impl TransmissionSink for WebrtcSink {
     fn get_play_msg(&self) -> Option<crate::Message> {
         let peer_id = self.peer_id.lock().unwrap();
-        if let Some(producer_id) = &(*peer_id) {
-            Some(crate::Message::Play {
-                mime: GST_WEBRTC_MIME_TYPE.to_owned(),
-                uri: format!(
-                    "gstwebrtc://{}:8443?peer-id={producer_id}",
-                    get_default_ipv4_addr(),
-                ),
-            })
-        } else {
-            None
-        }
+        (*peer_id).as_ref().map(|producer_id| crate::Message::Play {
+            mime: GST_WEBRTC_MIME_TYPE.to_owned(),
+            uri: format!(
+                "gstwebrtc://{}:8443?peer-id={producer_id}",
+                get_default_ipv4_addr(),
+            ),
+        })
     }
 
     async fn playing(&mut self) {}
@@ -120,7 +116,7 @@ impl TransmissionSink for WebrtcSink {
 
         let elems = [&self.queue, &self.convert, &self.sink];
 
-        pipeline.remove_many(&elems)?;
+        pipeline.remove_many(elems)?;
 
         for elem in elems {
             elem.set_state(gst::State::Null)

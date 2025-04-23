@@ -27,13 +27,17 @@ serde = { workspace = true }
 serde_json = { workspace = true }
 simple-mdns = { workspace = true }
 slint = "1.10.0"
-gst-gl = { package = "gstreamer-gl", version = "0.23.0" }
-gst-gl-egl = { package = "gstreamer-gl-egl", version = "0.23.0" }
-glutin_egl_sys = "0.7.1"
 async-trait = "0.1.88"
+anyhow = "1.0.98"
+
+[target.'cfg(target_os = "linux")'.dependencies]
+gst-gl = { package = "gstreamer-gl", version = "0.23.5" }
+gst-gl-egl = { package = "gstreamer-gl-egl", version = "0.23.5" }
+glutin_egl_sys = "0.7.1"
 
 [build-dependencies]
 slint-build = "1.10.0"
+cfg_aliases = "0.2.1"
 
 [dev-dependencies]
 quickcheck = "1"

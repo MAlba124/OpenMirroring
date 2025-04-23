@@ -3,7 +3,11 @@ use fake_file_writer::FakeFileWriter;
 use gst::{glib, prelude::*};
 use log::{debug, error, trace};
 use m3u8_rs::{MasterPlaylist, VariantStream};
-use std::{collections::HashMap, path::PathBuf, sync::{Arc, Mutex}};
+use std::{
+    collections::HashMap,
+    path::PathBuf,
+    sync::{Arc, Mutex},
+};
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
     sync::mpsc::{Receiver, Sender},
@@ -173,10 +177,7 @@ pub struct HlsSink {
 }
 
 impl HlsSink {
-    pub fn new(
-        pipeline: &gst::Pipeline,
-        src_pad: gst::Pad,
-    ) -> Result<Self, glib::BoolError> {
+    pub fn new(pipeline: &gst::Pipeline, src_pad: gst::Pad) -> Result<Self, glib::BoolError> {
         let queue = gst::ElementFactory::make("queue")
             .name("sink_queue")
             .property("silent", true)
@@ -207,7 +208,11 @@ impl HlsSink {
         let (file_tx, file_rx) = tokio::sync::mpsc::channel::<fake_file_writer::ChannelElement>(10);
 
         let server_port = Arc::new(Mutex::new(None));
-        common::runtime().spawn(serve_dir(base_path.clone(), Arc::clone(&server_port), file_rx));
+        common::runtime().spawn(serve_dir(
+            base_path.clone(),
+            Arc::clone(&server_port),
+            file_rx,
+        ));
 
         let mut manifest_path = base_path.clone();
         manifest_path.push("manifest.m3u8");
@@ -354,17 +359,16 @@ impl HlsSink {
 impl TransmissionSink for HlsSink {
     fn get_play_msg(&self) -> Option<crate::Message> {
         let server_port = self.server_port.lock().unwrap();
-        if let Some(server_port) = &(*server_port) {
-            Some(crate::Message::Play {
+
+        (*server_port)
+            .as_ref()
+            .map(|server_port| crate::Message::Play {
                 mime: HLS_MIME_TYPE.to_owned(),
                 uri: format!(
                     "http://{}:{server_port}/manifest.m3u8",
                     get_default_ipv4_addr(),
                 ),
             })
-        } else {
-            None
-        }
     }
 
     async fn playing(&mut self) {
@@ -391,7 +395,7 @@ impl TransmissionSink for HlsSink {
             &self.sink,
         ];
 
-        pipeline.remove_many(&elems)?;
+        pipeline.remove_many(elems)?;
 
         for elem in elems {
             elem.set_state(gst::State::Null)

@@ -1,205 +1,27 @@
 use std::sync::{Arc, Mutex};
 
+use anyhow::Result;
 use gst::glib;
 use gst::prelude::*;
 use log::{debug, error};
-use sink::TransmissionSink;
 use tokio::sync::mpsc::{Receiver, Sender};
+use transmission_sink::TransmissionSink;
+use transmission_sink::{hls::HlsSink, webrtc::WebrtcSink};
+
+#[cfg(egl_preview)]
+use gst_gl::prelude::*;
 
 use crate::Event;
 
-mod sink;
-
-use sink::{hls::HlsSink, webrtc::WebrtcSink};
-
-use gst_gl::prelude::*;
-
-// Taken from the slint gstreamer example at: https://github.com/slint-ui/slint/blob/2edd97bf8b8dc4dc26b578df6b15ea3297447444/examples/gstreamer-player/egl_integration.rs
-pub struct SlintOpenGLSink {
-    appsink: gst_app::AppSink,
-    glsink: gst::Element,
-    next_frame: Arc<Mutex<Option<(gst_video::VideoInfo, gst::Buffer)>>>,
-    current_frame: Mutex<Option<gst_gl::GLVideoFrame<gst_gl::gl_video_frame::Readable>>>,
-    gst_gl_context: Option<gst_gl::GLContext>,
-}
-
-impl SlintOpenGLSink {
-    pub fn new() -> Self {
-        let appsink = gst_app::AppSink::builder()
-            .caps(
-                &gst_video::VideoCapsBuilder::new()
-                    .features([gst_gl::CAPS_FEATURE_MEMORY_GL_MEMORY])
-                    .format(gst_video::VideoFormat::Rgba)
-                    .field("texture-target", "2D")
-                    .field("pixel-aspect-ratio", gst::Fraction::new(1, 1))
-                    .build(),
-            )
-            .enable_last_sample(false)
-            .max_buffers(1u32)
-            .build();
-
-        let glsink = gst::ElementFactory::make("glsinkbin")
-            .property("sink", &appsink)
-            .build()
-            .expect("Fatal: Unable to create glsink");
-
-        Self {
-            appsink,
-            glsink,
-            next_frame: Default::default(),
-            current_frame: Default::default(),
-            gst_gl_context: None,
-        }
-    }
-
-    pub fn video_sink(&self) -> gst::Element {
-        self.glsink.clone().upcast()
-    }
-
-    pub fn connect(
-        &mut self,
-        graphics_api: &slint::GraphicsAPI<'_>,
-        next_frame_available_notifier: Box<dyn Fn() + Send>,
-    ) -> (gst_gl::GLContext, gst_gl_egl::GLDisplayEGL) {
-        let egl = match graphics_api {
-            slint::GraphicsAPI::NativeOpenGL { get_proc_address } => {
-                glutin_egl_sys::egl::Egl::load_with(|symbol| {
-                    get_proc_address(&std::ffi::CString::new(symbol).unwrap())
-                })
-            }
-            _ => panic!("unsupported graphics API"),
-        };
-
-        let (gst_gl_context, gst_gl_display) = unsafe {
-            let platform = gst_gl::GLPlatform::EGL;
-
-            let egl_display = egl.GetCurrentDisplay();
-            let display = gst_gl_egl::GLDisplayEGL::with_egl_display(egl_display as usize).unwrap();
-            let native_context = egl.GetCurrentContext();
-
-            (
-                gst_gl::GLContext::new_wrapped(
-                    &display,
-                    native_context as _,
-                    platform,
-                    gst_gl::GLContext::current_gl_api(platform).0,
-                )
-                .expect("unable to create wrapped GL context"),
-                display,
-            )
-        };
-
-        gst_gl_context
-            .activate(true)
-            .expect("could not activate GStreamer GL context");
-        gst_gl_context
-            .fill_info()
-            .expect("failed to fill GL info for wrapped context");
-
-        self.gst_gl_context = Some(gst_gl_context.clone());
-
-        let next_frame_ref = self.next_frame.clone();
-
-        self.appsink.set_callbacks(
-            gst_app::AppSinkCallbacks::builder()
-                .new_sample(move |appsink| {
-                    let sample = appsink
-                        .pull_sample()
-                        .map_err(|_| gst::FlowError::Flushing)?;
-
-                    let mut buffer = sample.buffer_owned().unwrap();
-                    {
-                        let context = match (buffer.n_memory() > 0)
-                            .then(|| buffer.peek_memory(0))
-                            .and_then(|m| m.downcast_memory_ref::<gst_gl::GLBaseMemory>())
-                            .map(|m| m.context())
-                        {
-                            Some(context) => context.clone(),
-                            None => {
-                                error!("Got non-GL memory");
-                                return Err(gst::FlowError::Error);
-                            }
-                        };
-
-                        // Sync point to ensure that the rendering in this context will be complete by the time the
-                        // Slint created GL context needs to access the texture.
-                        if let Some(meta) = buffer.meta::<gst_gl::GLSyncMeta>() {
-                            meta.set_sync_point(&context);
-                        } else {
-                            let buffer = buffer.make_mut();
-                            let meta = gst_gl::GLSyncMeta::add(buffer, &context);
-                            meta.set_sync_point(&context);
-                        }
-                    }
-
-                    let Some(info) = sample
-                        .caps()
-                        .and_then(|caps| gst_video::VideoInfo::from_caps(caps).ok())
-                    else {
-                        error!("Got invalid caps");
-                        return Err(gst::FlowError::NotNegotiated);
-                    };
-
-                    let next_frame_ref = next_frame_ref.clone();
-                    *next_frame_ref.lock().unwrap() = Some((info, buffer));
-
-                    next_frame_available_notifier();
-
-                    Ok(gst::FlowSuccess::Ok)
-                })
-                .build(),
-        );
-
-        (gst_gl_context, gst_gl_display)
-    }
-
-    pub fn fetch_next_frame(&self) -> Option<slint::Image> {
-        if let Some((info, buffer)) = self.next_frame.lock().unwrap().take() {
-            let sync_meta = buffer.meta::<gst_gl::GLSyncMeta>().unwrap();
-            sync_meta.wait(self.gst_gl_context.as_ref().unwrap());
-
-            if let Ok(frame) = gst_gl::GLVideoFrame::from_buffer_readable(buffer, &info) {
-                *self.current_frame.lock().unwrap() = Some(frame);
-            }
-        }
-
-        self.current_frame
-            .lock()
-            .unwrap()
-            .as_ref()
-            .and_then(|frame| {
-                frame
-                    .texture_id(0)
-                    .ok()
-                    .and_then(|id| id.try_into().ok())
-                    .map(|texture| (frame, texture))
-            })
-            .map(|(frame, texture)| unsafe {
-                slint::BorrowedOpenGLTextureBuilder::new_gl_2d_rgba_texture(
-                    texture,
-                    [frame.width(), frame.height()].into(),
-                )
-                .build()
-            })
-    }
-
-    pub fn deactivate_and_pause(&self) {
-        self.current_frame.lock().unwrap().take();
-        self.next_frame.lock().unwrap().take();
-
-        if let Some(context) = &self.gst_gl_context {
-            context
-                .activate(false)
-                .expect("could not activate GStreamer GL context");
-        }
-    }
-}
+pub mod preview_sink;
+mod transmission_sink;
 
 pub struct Pipeline {
     inner: gst::Pipeline,
     tx_sink: Arc<tokio::sync::Mutex<Option<Box<dyn TransmissionSink>>>>,
     tee: gst::Element,
     preview_queue: gst::Element,
+    #[cfg(egl_preview)]
     preview_appsink: gst::Element,
 }
 
@@ -207,9 +29,12 @@ impl Pipeline {
     pub fn new(
         event_tx: Sender<Event>,
         selected_rx: Receiver<usize>,
-        preview_appsink: gst::Element,
-        gst_egl_context: Arc<Mutex<Option<(gst_gl::GLContext, gst_gl_egl::GLDisplayEGL)>>>,
-    ) -> Result<Self, gst::glib::BoolError> {
+        #[cfg(egl_preview)] preview_appsink: gst::Element,
+        #[cfg(egl_preview)] gst_egl_context: Arc<
+            Mutex<Option<(gst_gl::GLContext, gst_gl_egl::GLDisplayEGL)>>,
+        >,
+        #[cfg(not(egl_preview))] slint_sink: preview_sink::software::SlintSwSink,
+    ) -> Result<Self> {
         let tee = gst::ElementFactory::make("tee").build()?;
         let src = gst::ElementFactory::make("scapsrc")
             .property("perform-internal-preroll", true)
@@ -227,7 +52,9 @@ impl Pipeline {
 
         let tx_sink = Arc::new(tokio::sync::Mutex::new(None::<Box<dyn TransmissionSink>>));
 
-        let bus = pipeline.bus().unwrap();
+        let bus = pipeline
+            .bus()
+            .ok_or(glib::bool_error!("Pipeline is missing bus"))?;
 
         let pipeline_weak = pipeline.downgrade();
         let tx_sink_clone = Arc::clone(&tx_sink);
@@ -263,6 +90,7 @@ impl Pipeline {
                     );
                     // app.quit(); TODO
                 }
+                #[cfg(egl_preview)]
                 MessageView::NeedContext(ctx) => {
                     let ctx_type = ctx.context_type();
 
@@ -328,21 +156,52 @@ impl Pipeline {
             Some(res.to_value())
         });
 
-        pipeline.add_many([&src, &tee, &preview_queue, &preview_appsink])?;
+        #[cfg(egl_preview)]
+        {
+            pipeline.add_many([&src, &tee, &preview_queue, &preview_appsink])?;
+            gst::Element::link_many([&src, &tee])?;
+            gst::Element::link_many([&preview_queue, &preview_appsink])?;
+        }
+        #[cfg(not(egl_preview))]
+        {
+            // TODO: Put queue into the SlintSwSink
+            pipeline.add_many([&src, &tee, &preview_queue, slint_sink.bin.upcast_ref()])?;
+            gst::Element::link_many([&src, &tee])?;
 
-        gst::Element::link_many([&src, &tee])?;
-        gst::Element::link_many([&preview_queue, &preview_appsink])?;
+            let Some(convert_pad) = slint_sink.convert.static_pad("sink") else {
+                anyhow::bail!("Unable to get static sink pad from preview convert");
+            };
+
+            let bin_sink_ghost_pad = gst::GhostPad::with_target(&convert_pad)?;
+            bin_sink_ghost_pad.set_active(true)?;
+            slint_sink.bin.add_pad(&bin_sink_ghost_pad)?;
+
+            preview_queue.link(&slint_sink.bin)?;
+
+            // let Some(queue_srcpad) = preview_queue.static_pad("src") else {
+            //     anyhow::bail!("Unable to get static src pad from preview queue");
+            // };
+            // let srcpad = gst::GhostPad::with_target(&queue_srcpad)?;
+            // srcpad.set_active(true)?;
+            // preview_bin.add_pad(&srcpad)?;
+
+            // preview_queue.link(srcpad.upcast_ref())?;
+
+            // let Some(preview_bin_pad) = preview_bin.static_pad("sink") else {
+            //     anyhow::bail!("Unable to get static sink pad from preview bin");
+            // };
+
+            // srcpad.link(&preview_bin_pad)?;
+        }
 
         let tee_preview_pad = tee.request_pad_simple("src_%u").map_or_else(
             || Err(glib::bool_error!("`request_pad_simple()` failed")),
             Ok,
         )?;
-        let queue_preview_pad = preview_queue
-            .static_pad("sink")
-            .map_or_else(|| Err(glib::bool_error!("`static_pad()` failed")), Ok)?;
-        tee_preview_pad
-            .link(&queue_preview_pad)
-            .map_err(|err| glib::bool_error!("{err}"))?;
+        let queue_preview_pad = preview_queue.static_pad("sink").ok_or(glib::bool_error!(
+            "preview_queue is missing static sink pad"
+        ))?;
+        tee_preview_pad.link(&queue_preview_pad)?;
 
         let _ = std::thread::spawn({
             let pipeline = pipeline.clone();
@@ -357,24 +216,28 @@ impl Pipeline {
             tx_sink,
             tee,
             preview_queue,
+            #[cfg(egl_preview)]
             preview_appsink,
         })
     }
 
-    pub async fn shutdown(&self) {
-        self.inner.set_state(gst::State::Null).unwrap();
-        self.preview_queue.unlink(&self.preview_appsink);
-        self.inner.remove(&self.preview_appsink).unwrap();
+    pub async fn shutdown(&self) -> Result<()> {
+        self.inner.set_state(gst::State::Null)?;
+        #[cfg(egl_preview)]
+        {
+            self.preview_queue.unlink(&self.preview_appsink);
+            self.inner.remove(&self.preview_appsink)?;
+        }
 
         let mut tx_sink = self.tx_sink.lock().await;
         if let Some(sink) = &mut (*tx_sink) {
             sink.shutdown();
         }
+
+        Ok(())
     }
 
-    pub async fn add_webrtc_sink(
-        &mut self,
-    ) -> Result<(), glib::BoolError> {
+    pub async fn add_webrtc_sink(&mut self) -> Result<()> {
         let tee_pad = self.tee.request_pad_simple("src_%u").map_or_else(
             || Err(glib::bool_error!("`request_pad_simple()` failed")),
             Ok,
@@ -388,7 +251,7 @@ impl Pipeline {
         Ok(())
     }
 
-    pub async fn add_hls_sink(&mut self) -> Result<(), glib::BoolError> {
+    pub async fn add_hls_sink(&mut self) -> Result<()> {
         let tee_pad = self.tee.request_pad_simple("src_%u").map_or_else(
             || Err(glib::bool_error!("`request_pad_simple()` failed")),
             Ok,
@@ -402,13 +265,16 @@ impl Pipeline {
         Ok(())
     }
 
-    pub async fn remove_transmission_sink(&self) {
+    pub async fn remove_transmission_sink(&self) -> Result<()> {
         let mut tx_sink = self.tx_sink.lock().await;
         if let Some(sink) = &mut (*tx_sink) {
             sink.shutdown();
-            sink.unlink(&self.inner).unwrap();
+            sink.unlink(&self.inner)?;
         }
+
         *tx_sink = None;
+
+        Ok(())
     }
 
     pub async fn get_play_msg(&self) -> Option<crate::Message> {
