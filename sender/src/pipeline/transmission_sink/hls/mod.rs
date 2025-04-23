@@ -143,10 +143,10 @@ async fn serve_dir(
                 };
                 match v.request {
                     fake_file_writer::Request::Delete => {
-                        files.remove(&v.location);
+                        files.remove(&v.location.replace('\\', "/"));
                     }
                     fake_file_writer::Request::Add(vec) => {
-                        files.insert(v.location, vec);
+                        files.insert(v.location.replace('\\', "/"), vec);
                     }
                 }
             }
