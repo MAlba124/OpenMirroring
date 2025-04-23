@@ -23,7 +23,7 @@ pub mod webrtc;
 #[async_trait::async_trait]
 pub trait TransmissionSink: Send {
     /// Get the message that should be sent to a receiver to consume the stream
-    fn get_play_msg(&self) -> Option<crate::Message>;
+    fn get_play_msg(&self) -> Option<crate::SessionMessage>;
 
     /// Called when the pipeline enters the playing state
     async fn playing(&mut self);

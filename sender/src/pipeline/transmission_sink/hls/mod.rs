@@ -374,12 +374,12 @@ impl HlsSink {
 
 #[async_trait::async_trait]
 impl TransmissionSink for HlsSink {
-    fn get_play_msg(&self) -> Option<crate::Message> {
+    fn get_play_msg(&self) -> Option<crate::SessionMessage> {
         let server_port = self.server_port.lock().unwrap();
 
         (*server_port)
             .as_ref()
-            .map(|server_port| crate::Message::Play {
+            .map(|server_port| crate::SessionMessage::Play {
                 mime: HLS_MIME_TYPE.to_owned(),
                 uri: format!(
                     "http://{}:{server_port}/manifest.m3u8",

@@ -22,7 +22,7 @@ pub mod pipeline;
 pub mod session;
 
 #[derive(Debug)]
-pub enum Message {
+pub enum SessionMessage {
     Play { mime: String, uri: String },
     Quit,
     Stop,

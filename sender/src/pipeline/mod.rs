@@ -53,7 +53,7 @@ impl Pipeline {
         #[cfg(not(egl_preview))] slint_sink: preview_sink::software::SlintSwSink,
     ) -> Result<Self> {
         let tee = gst::ElementFactory::make("tee").build()?;
-        let src = gst::ElementFactory::make("scapsrc")
+        let scapsrc = gst::ElementFactory::make("scapsrc")
             .property("perform-internal-preroll", true)
             .build()?;
         let preview_queue = gst::ElementFactory::make("queue")
@@ -90,6 +90,7 @@ impl Pipeline {
                         && state_changed.current() == gst::State::Playing
                     {
                         let tx_sink = tx_sink_clone.clone();
+                        // The HLS sink needs to know of the state change message
                         common::runtime().spawn(async move {
                             let mut s = tx_sink.lock().await;
                             if let Some(ref mut sink) = *s {
@@ -155,7 +156,7 @@ impl Pipeline {
         });
 
         // https://gitlab.freedesktop.org/gstreamer/gstreamer/-/issues/3993
-        src.static_pad("src").unwrap().add_probe(
+        scapsrc.static_pad("src").unwrap().add_probe(
             gst::PadProbeType::QUERY_UPSTREAM.union(gst::PadProbeType::PUSH),
             |_pad, info| match info.query_mut().map(|query| query.view_mut()) {
                 Some(gst::QueryViewMut::Latency(latency)) => {
@@ -169,7 +170,7 @@ impl Pipeline {
 
         let selected_rx = Arc::new(Mutex::new(selected_rx));
         let event_tx_clone = event_tx.clone();
-        src.connect("select-source", false, move |vals| {
+        scapsrc.connect("select-source", false, move |vals| {
             let event_tx = event_tx_clone.clone();
             let selected_rx = Arc::clone(&selected_rx);
 
@@ -182,8 +183,8 @@ impl Pipeline {
 
         #[cfg(egl_preview)]
         {
-            pipeline.add_many([&src, &tee, &preview_queue, &preview_appsink])?;
-            gst::Element::link_many([&src, &tee])?;
+            pipeline.add_many([&scapsrc, &tee, &preview_queue, &preview_appsink])?;
+            gst::Element::link_many([&scapsrc, &tee])?;
             gst::Element::link_many([&preview_queue, &preview_appsink])?;
         }
         #[cfg(not(egl_preview))]
@@ -212,6 +213,8 @@ impl Pipeline {
         ))?;
         tee_preview_pad.link(&queue_preview_pad)?;
 
+        // Start the pipeline in background thread because `scapsrc` initialization will block until
+        // the user selects the input source.
         let _ = std::thread::spawn({
             let pipeline = pipeline.clone();
             move || {
@@ -234,6 +237,7 @@ impl Pipeline {
         self.inner.set_state(gst::State::Null)?;
         #[cfg(egl_preview)]
         {
+            // Required for EGL because the element can be re-used later
             self.preview_queue.unlink(&self.preview_appsink);
             self.inner.remove(&self.preview_appsink)?;
         }
@@ -286,7 +290,9 @@ impl Pipeline {
         Ok(())
     }
 
-    pub async fn get_play_msg(&self) -> Option<crate::Message> {
+    /// Get the message that should be sent to a receiver to consume the stream if a transmission
+    /// sink is present
+    pub async fn get_play_msg(&self) -> Option<crate::SessionMessage> {
         let tx_sink = self.tx_sink.lock().await;
         if let Some(sink) = &(*tx_sink) {
             sink.get_play_msg()

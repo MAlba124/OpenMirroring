@@ -32,7 +32,7 @@ use std::rc::Rc;
 #[cfg(egl_preview)]
 use std::sync::{Arc, Mutex};
 
-use sender::{pipeline, Event, Message};
+use sender::{pipeline, Event, SessionMessage};
 
 slint::include_modules!();
 
@@ -43,7 +43,7 @@ struct Application {
     pipeline: pipeline::Pipeline,
     ui_weak: slint::Weak<MainWindow>,
     event_tx: Sender<Event>,
-    session_tx: Sender<Message>,
+    session_tx: Sender<SessionMessage>,
     select_source_tx: Sender<usize>,
     selected_source: bool,
     receivers: HashMap<String, Vec<SocketAddr>>,
@@ -57,7 +57,7 @@ impl Application {
     pub async fn new(
         ui_weak: slint::Weak<MainWindow>,
         event_tx: Sender<Event>,
-        session_tx: Sender<Message>,
+        session_tx: Sender<SessionMessage>,
         #[cfg(egl_preview)] appsink: gst::Element,
         #[cfg(egl_preview)] gst_egl_context: GstEglContext,
     ) -> Result<Self> {
@@ -144,7 +144,7 @@ impl Application {
                     })?;
                 }
                 Event::Stop => {
-                    self.session_tx.send(Message::Stop).await?;
+                    self.session_tx.send(SessionMessage::Stop).await?;
                 }
                 Event::Sources(sources) => {
                     debug!("Available sources: {sources:?}");
@@ -208,7 +208,9 @@ impl Application {
 
                     receiver_connecting_to = receiver;
 
-                    self.session_tx.send(Message::Connect(addresses[0])).await?;
+                    self.session_tx
+                        .send(SessionMessage::Connect(addresses[0]))
+                        .await?;
 
                     let mut receivers_vec = self.receivers.keys().cloned().collect::<Vec<String>>();
                     receivers_vec.sort();
@@ -258,7 +260,7 @@ impl Application {
                     })?;
                 }
                 Event::DisconnectReceiver => {
-                    self.session_tx.send(Message::Disconnect).await?;
+                    self.session_tx.send(SessionMessage::Disconnect).await?;
                     self.pipeline.remove_transmission_sink().await?;
                     receiver_connected_to.clear();
                     let mut receivers_vec = self.receivers.keys().cloned().collect::<Vec<String>>();
@@ -344,7 +346,7 @@ fn main() -> Result<()> {
     gst_webrtc::plugin_register_static()?;
 
     let (event_tx, event_rx) = sync::mpsc::channel::<Event>(100);
-    let (session_tx, session_rx) = sync::mpsc::channel::<Message>(100);
+    let (session_tx, session_rx) = sync::mpsc::channel::<SessionMessage>(100);
     let (fin_tx, fin_rx) = oneshot::channel::<()>();
 
     // This sink is used in every consecutively created pipelines
@@ -356,11 +358,6 @@ fn main() -> Result<()> {
     let gst_egl_context = Arc::new(Mutex::new(
         None::<(gst_gl::GLContext, gst_gl_egl::GLDisplayEGL)>,
     ));
-
-    // #[cfg(not(egl_preview))]
-    // let mut slint_sink = SlintSwSink::new()?;
-    // #[cfg(not(egl_preview))]
-    // let slint_appsink = slint_sink.video_sink();
 
     let ui = MainWindow::new()?;
     slint::set_xdg_app_id("com.github.malba124.OpenMirroring.sender")?;
@@ -486,7 +483,7 @@ fn main() -> Result<()> {
 
     common::runtime().block_on(async move {
         if !session_tx.is_closed() {
-            session_tx.send(Message::Quit).await.unwrap();
+            session_tx.send(SessionMessage::Quit).await.unwrap();
             fin_rx.await.unwrap();
         }
     });

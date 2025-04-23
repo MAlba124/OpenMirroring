@@ -24,7 +24,7 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
 use tokio::sync::mpsc::{Receiver, Sender};
 
-use crate::{Event, Message};
+use crate::{Event, SessionMessage};
 
 const HEADER_BUFFER_SIZE: usize = 5;
 
@@ -58,7 +58,7 @@ async fn send_packet(stream: &mut TcpStream, packet: Packet) -> Result<()> {
 /// Returns `true` if [Message::Quit] was received.
 async fn connect_to_receiver(
     addr: SocketAddr,
-    msg_rx: &mut Receiver<Message>,
+    msg_rx: &mut Receiver<SessionMessage>,
     event_tx: &Sender<Event>,
 ) -> Result<bool> {
     let mut stream = TcpStream::connect(addr).await?;
@@ -83,7 +83,7 @@ async fn connect_to_receiver(
                 let msg = msg.unwrap();
                 debug!("Got message: {msg:?}");
                 match msg {
-                    Message::Play { mime, uri } => {
+                    SessionMessage::Play { mime, uri } => {
                         let packet = Packet::from(models::PlayMessage {
                             container: mime,
                             url: Some(uri),
@@ -94,9 +94,9 @@ async fn connect_to_receiver(
                         });
                         send_packet(&mut stream, packet).await?;
                     }
-                    Message::Stop => send_packet(&mut stream, Packet::Stop).await?,
-                    Message::Quit => return Ok(true),
-                    Message::Disconnect => return Ok(false),
+                    SessionMessage::Stop => send_packet(&mut stream, Packet::Stop).await?,
+                    SessionMessage::Quit => return Ok(true),
+                    SessionMessage::Disconnect => return Ok(false),
                     _ => warn!("Received invalid message ({msg:?}) for the current session state"),
                 }
             }
@@ -105,10 +105,10 @@ async fn connect_to_receiver(
 }
 
 /// Dispatch receiver connection requests.
-pub async fn session(mut msg_rx: Receiver<Message>, event_tx: Sender<Event>) {
+pub async fn session(mut msg_rx: Receiver<SessionMessage>, event_tx: Sender<Event>) {
     while let Some(msg) = msg_rx.recv().await {
         match msg {
-            Message::Connect(addr) => {
+            SessionMessage::Connect(addr) => {
                 match connect_to_receiver(addr, &mut msg_rx, &event_tx).await {
                     Ok(f) => {
                         if f {
@@ -120,7 +120,7 @@ pub async fn session(mut msg_rx: Receiver<Message>, event_tx: Sender<Event>) {
                     }
                 }
             }
-            Message::Quit => break,
+            SessionMessage::Quit => break,
             _ => warn!("Received invalid message ({msg:?}) for the current session state"),
         }
     }

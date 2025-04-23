@@ -102,15 +102,17 @@ impl WebrtcSink {
 
 #[async_trait::async_trait]
 impl TransmissionSink for WebrtcSink {
-    fn get_play_msg(&self) -> Option<crate::Message> {
+    fn get_play_msg(&self) -> Option<crate::SessionMessage> {
         let peer_id = self.peer_id.lock().unwrap();
-        (*peer_id).as_ref().map(|producer_id| crate::Message::Play {
-            mime: GST_WEBRTC_MIME_TYPE.to_owned(),
-            uri: format!(
-                "gstwebrtc://{}:8443?peer-id={producer_id}",
-                get_default_ipv4_addr(),
-            ),
-        })
+        (*peer_id)
+            .as_ref()
+            .map(|producer_id| crate::SessionMessage::Play {
+                mime: GST_WEBRTC_MIME_TYPE.to_owned(),
+                uri: format!(
+                    "gstwebrtc://{}:8443?peer-id={producer_id}",
+                    get_default_ipv4_addr(),
+                ),
+            })
     }
 
     async fn playing(&mut self) {}
