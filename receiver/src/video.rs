@@ -13,7 +13,7 @@ use crate::GuiEvent;
 pub struct VideoView {
     pub pipeline: gst::Pipeline,
     pub playbin: gst::Element,
-    widget: gst_gtk4::RenderWidget,
+    // widget: gst_gtk4::RenderWidget,
 }
 
 impl VideoView {
@@ -45,7 +45,7 @@ impl VideoView {
 
         pipeline.add(&playbin)?;
 
-        let widget = gst_gtk4::RenderWidget::new(&gtksink);
+        // let widget = gst_gtk4::RenderWidget::new(&gtksink);
 
         pipeline
             .set_state(gst::State::Ready)
@@ -54,7 +54,7 @@ impl VideoView {
         Ok(Self {
             pipeline,
             playbin,
-            widget,
+            // widget,
         })
     }
 
