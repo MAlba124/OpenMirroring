@@ -34,4 +34,5 @@ pub enum Event {
     ConnectedToReceiver,
     DisconnectReceiver,
     ChangeSource,
+    PipelineFinished,
 }

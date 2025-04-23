@@ -259,33 +259,8 @@ impl Application {
                         ui.set_receivers_model(model.into());
                     })?;
                 }
-                Event::ChangeSource => {
-                    if !self.selected_source {
-                        self.select_source_tx.send(0).await?;
-                    }
-
-                    self.pipeline.shutdown().await?;
-
-                    let (new_select_srouce_tx, new_pipeline) = Self::new_pipeline(
-                        &self.ui_weak,
-                        self.event_tx.clone(),
-                        #[cfg(egl_preview)]
-                        self.appsink.clone(),
-                        #[cfg(egl_preview)]
-                        Arc::clone(&self.gst_egl_context),
-                    )
-                    .await?;
-
-                    self.pipeline = new_pipeline;
-                    self.select_source_tx = new_select_srouce_tx;
-                    self.selected_source = false;
-
-                    self.ui_weak.upgrade_in_event_loop(|ui| {
-                        ui.set_has_source(false);
-                        ui.set_sources_model(
-                            Rc::new(slint::VecModel::<slint::SharedString>::default()).into(),
-                        );
-                    })?;
+                Event::ChangeSource | Event::PipelineFinished => {
+                    self.shutdown_pipeline_and_create_new_and_update_ui().await?;
                 }
             }
         }
@@ -300,6 +275,37 @@ impl Application {
         self.pipeline.shutdown().await?;
 
         fin_tx.send(()).unwrap();
+
+        Ok(())
+    }
+
+    async fn shutdown_pipeline_and_create_new_and_update_ui(&mut self) -> Result<()> {
+        if !self.selected_source {
+            self.select_source_tx.send(0).await?;
+        }
+
+        self.pipeline.shutdown().await?;
+
+        let (new_select_srouce_tx, new_pipeline) = Self::new_pipeline(
+            &self.ui_weak,
+            self.event_tx.clone(),
+            #[cfg(egl_preview)]
+            self.appsink.clone(),
+            #[cfg(egl_preview)]
+            Arc::clone(&self.gst_egl_context),
+        )
+        .await?;
+
+        self.pipeline = new_pipeline;
+        self.select_source_tx = new_select_srouce_tx;
+        self.selected_source = false;
+
+        self.ui_weak.upgrade_in_event_loop(|ui| {
+            ui.set_has_source(false);
+            ui.set_sources_model(
+                Rc::new(slint::VecModel::<slint::SharedString>::default()).into(),
+            );
+        })?;
 
         Ok(())
     }

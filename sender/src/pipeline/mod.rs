@@ -58,6 +58,7 @@ impl Pipeline {
 
         let pipeline_weak = pipeline.downgrade();
         let tx_sink_clone = Arc::clone(&tx_sink);
+        let event_tx_clone = event_tx.clone();
         bus.set_sync_handler(move |_, msg| {
             use gst::MessageView;
 
@@ -80,7 +81,9 @@ impl Pipeline {
                         });
                     }
                 }
-                MessageView::Eos(..) => (), // app.quit()), TODO
+                MessageView::Eos(..) => {
+                    event_tx_clone.blocking_send(crate::Event::PipelineFinished).unwrap();
+                }
                 MessageView::Error(err) => {
                     error!(
                         "Error from {:?}: {} ({:?})",
@@ -88,7 +91,7 @@ impl Pipeline {
                         err.error(),
                         err.debug()
                     );
-                    // app.quit(); TODO
+                    event_tx_clone.blocking_send(crate::Event::PipelineFinished).unwrap();
                 }
                 #[cfg(egl_preview)]
                 MessageView::NeedContext(ctx) => {
