@@ -19,3 +19,4 @@ simple-mdns = { version = "0.6.2", features = ["async-tokio"] }
 [profile.release]
 lto = true
 codegen-units = 1
+panic = "abort"

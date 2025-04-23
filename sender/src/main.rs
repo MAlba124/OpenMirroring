@@ -1,224 +1,474 @@
-use gst::prelude::*;
-use gtk::prelude::*;
-use gtk::{glib, Application, ApplicationWindow};
-use gtk4 as gtk;
+use anyhow::Result;
 use log::{debug, error, trace};
 use sender::discovery::discover;
+#[cfg(egl_preview)]
+use sender::pipeline::preview_sink::opengl::SlintOpenGLSink;
+#[cfg(not(egl_preview))]
+use sender::pipeline::preview_sink::software::SlintSwSink;
 use sender::session::session;
-use sender::views::{StateChange, View};
 use tokio::sync::mpsc::{Receiver, Sender};
-use tokio::sync::oneshot;
+use tokio::sync::{self, oneshot};
 
-use std::cell::RefCell;
 use std::collections::HashMap;
 use std::net::SocketAddr;
+use std::rc::Rc;
+#[cfg(egl_preview)]
+use std::sync::{Arc, Mutex};
 
-use sender::{Event, Message};
+use sender::{pipeline, Event, Message};
 
-async fn event_loop(
-    mut pipeline: sender::pipeline::Pipeline,
-    mut main_view: sender::views::Main,
-    mut event_rx: Receiver<Event>,
+slint::include_modules!();
+
+#[cfg(egl_preview)]
+type GstEglContext = Arc<Mutex<Option<(gst_gl::GLContext, gst_gl_egl::GLDisplayEGL)>>>;
+
+struct Application {
+    pipeline: pipeline::Pipeline,
+    ui_weak: slint::Weak<MainWindow>,
     event_tx: Sender<Event>,
     session_tx: Sender<Message>,
     select_source_tx: Sender<usize>,
-    fin_tx: oneshot::Sender<()>,
-) {
-    let mut selected_source = false;
-    let mut receivers: HashMap<String, Vec<SocketAddr>> = HashMap::new();
-    while let Some(event) = event_rx.recv().await {
-        match event {
-            Event::Quit => break,
-            Event::ProducerConnected(id) => {
-                debug!("Got producer peer id: {id}");
-                pipeline.set_producer_id(id);
-            }
-            Event::Start => {
-                if let Some(play_msg) = pipeline.get_play_msg() {
-                    session_tx.send(play_msg).await.unwrap();
-                } else {
-                    error!("Could not get stream uri");
-                }
-            }
-            Event::Stop => {
-                session_tx.send(Message::Stop).await.unwrap();
-            }
-            Event::EnablePreview => {
-                main_view
-                    .primary
-                    .preview_stack
-                    .set_visible_child(&main_view.primary.gst_widget);
-            }
-            Event::DisablePreview => {
-                main_view
-                    .primary
-                    .preview_stack
-                    .set_visible_child(&main_view.primary.preview_disabled_label);
-            }
-            Event::Sources(sources) => {
-                debug!("Available sources: {sources:?}");
-                main_view.change_state(StateChange::LoadingSourcesToSelectSources(sources));
-            }
-            Event::SelectSource(idx) => {
-                select_source_tx.send(idx).await.unwrap();
-                selected_source = true;
-                main_view.change_state(StateChange::SelectSourceToSelectReceiver);
-            }
-            Event::Packet(packet) => {
-                trace!("Unhandled packet: {packet:?}");
-            }
-            Event::HlsServerAddr { port } => pipeline.set_server_port(port),
-            Event::HlsStreamReady => (),
-            Event::ReceiverAvailable(receiver) => {
-                if receivers
-                    .insert(receiver.name.clone(), receiver.addresses)
-                    .is_some()
-                {
-                    debug!("Receiver dup {}", receiver.name);
-                }
-                main_view.select_receiver.add_receiver(receiver.name);
-            }
-            Event::SelectReceiver(receiver) => {
-                let Some(addresses) = receivers.get(&receiver) else {
-                    error!("No receiver with id {receiver}");
-                    continue;
+    selected_source: bool,
+    receivers: HashMap<String, Vec<SocketAddr>>,
+    #[cfg(egl_preview)]
+    appsink: gst::Element,
+    #[cfg(egl_preview)]
+    gst_egl_context: GstEglContext,
+}
+
+impl Application {
+    pub async fn new(
+        ui_weak: slint::Weak<MainWindow>,
+        event_tx: Sender<Event>,
+        session_tx: Sender<Message>,
+        #[cfg(egl_preview)] appsink: gst::Element,
+        #[cfg(egl_preview)] gst_egl_context: GstEglContext,
+    ) -> Result<Self> {
+        let (select_source_tx, pipeline) = Self::new_pipeline(
+            &ui_weak,
+            event_tx.clone(),
+            #[cfg(egl_preview)]
+            appsink.clone(),
+            #[cfg(egl_preview)]
+            Arc::clone(&gst_egl_context),
+        )
+        .await?;
+
+        Ok(Self {
+            pipeline,
+            ui_weak,
+            event_tx,
+            session_tx,
+            select_source_tx,
+            selected_source: false,
+            receivers: HashMap::new(),
+            #[cfg(egl_preview)]
+            appsink,
+            #[cfg(egl_preview)]
+            gst_egl_context,
+        })
+    }
+
+    async fn new_pipeline(
+        ui_weak: &slint::Weak<MainWindow>,
+        event_tx: Sender<Event>,
+        #[cfg(egl_preview)] appsink: gst::Element,
+        #[cfg(egl_preview)] gst_egl_context: GstEglContext,
+    ) -> Result<(Sender<usize>, pipeline::Pipeline)> {
+        let (selected_tx, selected_rx) = sync::mpsc::channel::<usize>(1);
+
+        let (pipeline_tx, pipeline_rx) = oneshot::channel();
+        ui_weak.upgrade_in_event_loop({
+            move |_ui| {
+                let pipeline = {
+                    #[cfg(egl_preview)]
+                    {
+                        pipeline::Pipeline::new(event_tx, selected_rx, appsink, gst_egl_context)
+                            .unwrap()
+                    }
+                    #[cfg(not(egl_preview))]
+                    {
+                        let new_frame_cb = |ui: MainWindow, new_frame| {
+                            ui.set_preview_frame(new_frame);
+                        };
+                        let preview = SlintSwSink::new(_ui.as_weak(), new_frame_cb).unwrap();
+                        pipeline::Pipeline::new(event_tx, selected_rx, preview).unwrap()
+                    }
                 };
-
-                if receiver.starts_with("OpenMirroring") {
-                    pipeline.add_webrtc_sink(event_tx.clone()).unwrap();
-                } else {
-                    pipeline.add_hls_sink(event_tx.clone()).unwrap();
+                if pipeline_tx.send(pipeline).is_err() {
+                    panic!("Failed to send pipeline");
                 }
-
-                main_view.change_state(StateChange::SelectReceiverToConnectingToReceiver);
-                session_tx
-                    .send(Message::Connect(addresses[0]))
-                    .await
-                    .unwrap();
             }
-            Event::ConnectedToReceiver => {
-                debug!("Succesfully connected to receiver");
-                main_view.change_state(StateChange::ConnectingToReceiverToPrimary);
+        })?;
+
+        Ok((selected_tx, pipeline_rx.await?))
+    }
+
+    // TODO: gracefully handle errors
+    pub async fn run_event_loop(
+        &mut self,
+        mut event_rx: Receiver<Event>,
+        fin_tx: oneshot::Sender<()>,
+    ) -> Result<()> {
+        let mut receiver_connected_to = String::new();
+        let mut receiver_connecting_to = String::new();
+        while let Some(event) = event_rx.recv().await {
+            match event {
+                Event::Quit => break,
+                Event::Start => {
+                    let Some(play_msg) = self.pipeline.get_play_msg().await else {
+                        error!("Could not get stream uri");
+                        continue;
+                    };
+
+                    self.session_tx.send(play_msg).await?;
+                    self.ui_weak.upgrade_in_event_loop(|ui| {
+                        ui.set_starting_cast(false);
+                        ui.set_casting(true);
+                    })?;
+                }
+                Event::Stop => {
+                    self.session_tx.send(Message::Stop).await?;
+                }
+                Event::Sources(sources) => {
+                    debug!("Available sources: {sources:?}");
+                    self.ui_weak.upgrade_in_event_loop(move |ui| {
+                        let model = Rc::new(slint::VecModel::<slint::SharedString>::from(
+                            sources
+                                .iter()
+                                .map(|s| s.into())
+                                .collect::<Vec<slint::SharedString>>(),
+                        ));
+                        ui.set_sources_model(model.into());
+                    })?;
+                }
+                Event::SelectSource(idx) => {
+                    self.select_source_tx.send(idx).await?;
+                    self.selected_source = true;
+
+                    if receiver_connected_to.starts_with("OpenMirroring") {
+                        self.pipeline.add_webrtc_sink().await?;
+                    } else if !receiver_connected_to.is_empty() {
+                        self.pipeline.add_hls_sink().await?;
+                    }
+
+                    self.ui_weak.upgrade_in_event_loop(|ui| {
+                        ui.set_has_source(true);
+                    })?;
+                }
+                Event::Packet(packet) => {
+                    trace!("Unhandled packet: {packet:?}");
+                }
+                Event::ReceiverAvailable(receiver) => {
+                    if self
+                        .receivers
+                        .insert(receiver.name.clone(), receiver.addresses)
+                        .is_some()
+                    {
+                        debug!("Receiver dup {}", receiver.name);
+                    }
+
+                    let mut receivers_vec = self.receivers.keys().cloned().collect::<Vec<String>>();
+                    receivers_vec.sort();
+                    let receiver_connected_to = receiver_connected_to.clone();
+                    let receiver_connecting_to = receiver_connecting_to.clone();
+                    self.ui_weak.upgrade_in_event_loop(move |ui| {
+                        let receiver_connected_to = &receiver_connected_to;
+                        let model = Rc::new(slint::VecModel::<ReceiverItem>::from_iter(
+                            receivers_vec.iter().map(|name| ReceiverItem {
+                                name: name.into(),
+                                connected: name == receiver_connected_to,
+                                connecting: *name == receiver_connecting_to,
+                            }),
+                        ));
+                        ui.set_receivers_model(model.into());
+                    })?;
+                }
+                Event::SelectReceiver(receiver) => {
+                    let Some(addresses) = self.receivers.get(&receiver) else {
+                        error!("No receiver with id {receiver}");
+                        continue;
+                    };
+
+                    if receiver.starts_with("OpenMirroring") {
+                        self.pipeline.add_webrtc_sink().await?;
+                    } else {
+                        self.pipeline.add_hls_sink().await?;
+                    }
+
+                    receiver_connecting_to = receiver;
+
+                    self.session_tx.send(Message::Connect(addresses[0])).await?;
+
+                    let mut receivers_vec = self.receivers.keys().cloned().collect::<Vec<String>>();
+                    receivers_vec.sort();
+                    let receiver_connected_to = receiver_connected_to.clone();
+                    let receiver_connecting_to = receiver_connecting_to.clone();
+                    self.ui_weak.upgrade_in_event_loop(move |ui| {
+                        let receiver_connected_to = &receiver_connected_to;
+                        let model = Rc::new(slint::VecModel::<ReceiverItem>::from_iter(
+                            receivers_vec.iter().map(|name| ReceiverItem {
+                                name: name.into(),
+                                connected: name == receiver_connected_to,
+                                connecting: *name == receiver_connecting_to,
+                            }),
+                        ));
+                        ui.set_receiver_is_connecting(true);
+                        ui.set_receiver_is_connected(false);
+                        ui.set_receivers_model(model.into());
+                    })?;
+                }
+                Event::ConnectedToReceiver => {
+                    debug!("Succesfully connected to receiver");
+                    receiver_connected_to = receiver_connecting_to;
+                    receiver_connecting_to = String::new();
+
+                    let mut receivers_vec = self.receivers.keys().cloned().collect::<Vec<String>>();
+                    receivers_vec.sort();
+                    let receiver_connected_to = receiver_connected_to.clone();
+                    let receiver_connecting_to = receiver_connecting_to.clone();
+                    self.ui_weak.upgrade_in_event_loop(move |ui| {
+                        let receiver_connected_to = &receiver_connected_to;
+                        let model = Rc::new(slint::VecModel::<ReceiverItem>::from_iter(
+                            receivers_vec.iter().map(|name| ReceiverItem {
+                                name: name.into(),
+                                connected: name == receiver_connected_to,
+                                connecting: *name == receiver_connecting_to,
+                            }),
+                        ));
+                        ui.set_receiver_is_connecting(false);
+                        ui.set_receiver_is_connected(true);
+                        ui.set_receivers_model(model.into());
+                    })?;
+                }
+                Event::DisconnectReceiver => {
+                    self.session_tx.send(Message::Disconnect).await?;
+                    self.pipeline.remove_transmission_sink().await?;
+                    receiver_connected_to.clear();
+                    let mut receivers_vec = self.receivers.keys().cloned().collect::<Vec<String>>();
+                    receivers_vec.sort();
+                    self.ui_weak.upgrade_in_event_loop(move |ui| {
+                        let model = Rc::new(slint::VecModel::<ReceiverItem>::from_iter(
+                            receivers_vec.iter().map(|name| ReceiverItem {
+                                name: name.into(),
+                                connected: false,
+                                connecting: false,
+                            }),
+                        ));
+                        ui.set_receiver_is_connecting(false);
+                        ui.set_receiver_is_connected(false);
+                        ui.set_receivers_model(model.into());
+                    })?;
+                }
+                Event::ChangeSource => {
+                    if !self.selected_source {
+                        self.select_source_tx.send(0).await?;
+                    }
+
+                    self.pipeline.shutdown().await?;
+
+                    let (new_select_srouce_tx, new_pipeline) = Self::new_pipeline(
+                        &self.ui_weak,
+                        self.event_tx.clone(),
+                        #[cfg(egl_preview)]
+                        self.appsink.clone(),
+                        #[cfg(egl_preview)]
+                        Arc::clone(&self.gst_egl_context),
+                    )
+                    .await?;
+
+                    self.pipeline = new_pipeline;
+                    self.select_source_tx = new_select_srouce_tx;
+                    self.selected_source = false;
+
+                    self.ui_weak.upgrade_in_event_loop(|ui| {
+                        ui.set_has_source(false);
+                        ui.set_sources_model(
+                            Rc::new(slint::VecModel::<slint::SharedString>::default()).into(),
+                        );
+                    })?;
+                }
             }
         }
+
+        debug!("Quitting");
+
+        if !self.selected_source {
+            debug!("Source is not selected, sending fake");
+            self.select_source_tx.send(0).await?;
+        }
+
+        self.pipeline.shutdown().await?;
+
+        fin_tx.send(()).unwrap();
+
+        Ok(())
     }
-
-    debug!("Quitting");
-
-    if !selected_source {
-        debug!("Source is not selected, sending fake");
-        select_source_tx.send(0).await.unwrap();
-    }
-
-    fin_tx.send(()).unwrap();
 }
 
-fn build_ui(app: &Application) {
-    let (event_tx, event_rx) = tokio::sync::mpsc::channel::<Event>(100);
-    let (selected_tx, selected_rx) = tokio::sync::mpsc::channel::<usize>(1);
-
-    let (pipeline, gst_widget) =
-        sender::pipeline::Pipeline::new(event_tx.clone(), selected_rx).unwrap();
-
-    let main_view = sender::views::Main::new(event_tx.clone(), gst_widget);
-
-    let (session_tx, session_rx) = tokio::sync::mpsc::channel::<Message>(100);
-
-    let window = ApplicationWindow::builder()
-        .application(app)
-        .title("OMSender")
-        .child(main_view.main_widget())
-        .build();
-
-    window.present();
-
-    let bus_watch = pipeline
-        .setup_bus_watch(app.downgrade(), event_tx.clone())
-        .expect("Failed to add bus watch");
-
-    let tx_clone = session_tx.clone();
-    let pipeline_weak = RefCell::new(Some(pipeline.inner.downgrade()));
-    let event_tx_clone = event_tx.clone();
-    let (fin_tx, fin_rx) = oneshot::channel::<()>();
-    glib::spawn_future_local(async move {
-        event_loop(
-            pipeline,
-            main_view,
-            event_rx,
-            event_tx_clone,
-            tx_clone,
-            selected_tx,
-            fin_tx,
-        )
-        .await;
-    });
-
-    let bus_watch = RefCell::new(Some(bus_watch));
-    let fin_rx = std::sync::Arc::new(RefCell::new(Some(fin_rx)));
-    app.connect_shutdown(move |_| {
-        debug!("Shutting down");
-
-        window.close();
-
-        drop(bus_watch.borrow_mut().take());
-
-        let pipeline = pipeline_weak
-            .borrow_mut()
-            .take()
-            .unwrap()
-            .upgrade()
-            .unwrap();
-
-        // Since the event-loop runs on the main thread and glib does not have a `runtime::block_on`
-        // alternative (i think), we need to create a MainLoop that we use to wait for the future
-        // spawned below to finish.
-        let main_loop = glib::MainLoop::new(None, false);
-
-        glib::spawn_future_local(glib::clone!(
-            #[strong]
-            fin_rx,
-            #[strong]
-            session_tx,
-            #[strong]
-            main_loop,
-            async move {
-                if !session_tx.is_closed() {
-                    session_tx.send(Message::Quit).await.unwrap();
-                    if let Some(fin_rx) = fin_rx.borrow_mut().take() {
-                        fin_rx.await.unwrap();
-                    }
-                }
-                main_loop.quit();
-            }
-        ));
-
-        main_loop.run();
-
-        pipeline
-            .set_state(gst::State::Null)
-            .expect("Unable to set the pipeline to the `Null` state");
-    });
-
-    common::runtime().spawn(session(session_rx, event_tx.clone()));
-    common::runtime().spawn(discover(event_tx));
-}
-
-fn main() -> glib::ExitCode {
+fn main() -> Result<()> {
     env_logger::Builder::from_default_env()
         .filter_module("sender", common::default_log_level())
         .filter_module("scap", common::default_log_level())
         .init();
 
-    gst::init().unwrap();
-    scapgst::plugin_register_static().unwrap();
-    gst_gtk4::plugin_register_static().unwrap();
-    gst_webrtc::plugin_register_static().unwrap();
+    #[cfg(egl_preview)]
+    slint::BackendSelector::new()
+        .backend_name("winit".into())
+        .require_opengl_es()
+        .select()?;
 
-    let app = Application::builder()
-        .application_id("com.github.malba124.OpenMirroring.sender")
-        .build();
+    gst::init()?;
+    scapgst::plugin_register_static()?;
+    gst_webrtc::plugin_register_static()?;
 
-    app.connect_activate(build_ui);
+    let (event_tx, event_rx) = sync::mpsc::channel::<Event>(100);
+    let (session_tx, session_rx) = sync::mpsc::channel::<Message>(100);
+    let (fin_tx, fin_rx) = oneshot::channel::<()>();
 
-    app.run()
+    // This sink is used in every consecutively created pipelines
+    #[cfg(egl_preview)]
+    let mut slint_sink = SlintOpenGLSink::new()?;
+    #[cfg(egl_preview)]
+    let slint_appsink = slint_sink.video_sink();
+    #[cfg(egl_preview)]
+    let gst_egl_context = Arc::new(Mutex::new(
+        None::<(gst_gl::GLContext, gst_gl_egl::GLDisplayEGL)>,
+    ));
+
+    // #[cfg(not(egl_preview))]
+    // let mut slint_sink = SlintSwSink::new()?;
+    // #[cfg(not(egl_preview))]
+    // let slint_appsink = slint_sink.video_sink();
+
+    let ui = MainWindow::new()?;
+    slint::set_xdg_app_id("com.github.malba124.OpenMirroring.sender")?;
+
+    #[cfg(egl_preview)]
+    ui.window().set_rendering_notifier({
+        let gst_egl_context = Arc::clone(&gst_egl_context);
+        let ui_weak = ui.as_weak();
+
+        let new_frame_cb = |ui: MainWindow, new_frame| {
+            ui.set_preview_frame(new_frame);
+        };
+
+        move |state, graphics_api| match state {
+            slint::RenderingState::RenderingSetup => {
+                let ui_weak = ui_weak.clone();
+                let mut gst_egl_context = gst_egl_context.lock().unwrap();
+                *gst_egl_context = Some(slint_sink.connect(
+                    graphics_api,
+                    Box::new(move || {
+                        ui_weak
+                            .upgrade_in_event_loop(move |ui| {
+                                ui.window().request_redraw();
+                            })
+                            .ok();
+                    }),
+                ));
+            }
+            slint::RenderingState::BeforeRendering => {
+                if let Some(next_frame) = slint_sink.fetch_next_frame() {
+                    new_frame_cb(ui_weak.unwrap(), next_frame);
+                }
+            }
+            slint::RenderingState::RenderingTeardown => {
+                slint_sink.deactivate_and_pause();
+            }
+            _ => (),
+        }
+    })?;
+
+    common::runtime().spawn(session(session_rx, event_tx.clone()));
+    common::runtime().spawn(discover(event_tx.clone()));
+    common::runtime().spawn({
+        let ui_weak = ui.as_weak();
+        let event_tx = event_tx.clone();
+        let session_tx = session_tx.clone();
+        async move {
+            let mut app = Application::new(
+                ui_weak,
+                event_tx,
+                session_tx,
+                #[cfg(egl_preview)]
+                slint_appsink,
+                #[cfg(egl_preview)]
+                gst_egl_context,
+            )
+            .await
+            .unwrap();
+            app.run_event_loop(event_rx, fin_tx).await.unwrap();
+        }
+    });
+
+    {
+        let event_tx = event_tx.clone();
+        ui.on_select_source(move |idx| {
+            assert!(idx >= 0, "Invalid select source index");
+            event_tx
+                .blocking_send(Event::SelectSource(idx as usize))
+                .unwrap();
+        });
+    }
+
+    {
+        let event_tx = event_tx.clone();
+        ui.on_connect_receiver(move |receiver| {
+            event_tx
+                .blocking_send(Event::SelectReceiver(receiver.to_string()))
+                .unwrap();
+        });
+    }
+
+    {
+        let event_tx = event_tx.clone();
+        let ui_weak = ui.as_weak();
+        ui.on_start_cast(move || {
+            event_tx.blocking_send(Event::Start).unwrap();
+            ui_weak
+                .upgrade_in_event_loop(|ui| {
+                    ui.set_starting_cast(true);
+                })
+                .unwrap();
+        });
+    }
+
+    {
+        let ui_weak = ui.as_weak();
+        let event_tx = event_tx.clone();
+        ui.on_stop_cast(move || {
+            event_tx.blocking_send(Event::Stop).unwrap();
+            ui_weak
+                .upgrade_in_event_loop(|ui| {
+                    ui.set_starting_cast(false);
+                    ui.set_casting(false);
+                })
+                .unwrap();
+        });
+    }
+
+    {
+        let event_tx = event_tx.clone();
+        ui.on_disconnect_receiver(move || {
+            event_tx.blocking_send(Event::DisconnectReceiver).unwrap();
+        });
+    }
+
+    {
+        ui.on_change_source(move || {
+            event_tx.blocking_send(Event::ChangeSource).unwrap();
+        });
+    }
+
+    ui.run()?;
+
+    common::runtime().block_on(async move {
+        if !session_tx.is_closed() {
+            session_tx.send(Message::Quit).await.unwrap();
+            fin_rx.await.unwrap();
+        }
+    });
+
+    Ok(())
 }

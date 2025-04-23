@@ -185,6 +185,7 @@ fn draw_cursor(
     Ok(())
 }
 
+#[allow(clippy::too_many_arguments)]
 fn grab(
     conn: &xcb::Connection,
     target: &Target,

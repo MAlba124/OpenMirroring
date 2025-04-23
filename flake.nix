@@ -25,6 +25,7 @@
             dig
             rust-bin.stable.latest.complete
             graphviz
+            slint-lsp
           ];
           buildInputs = with pkgs; [
             libGL
@@ -48,6 +49,7 @@
             openssl
             libnice
             gtk4
+            fontconfig
           ];
         in
         with pkgs;

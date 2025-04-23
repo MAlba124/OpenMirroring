@@ -1,37 +1,40 @@
-use gtk4 as gtk;
-
-use gtk::prelude::*;
 use std::sync::{Arc, Mutex};
 
-use gst::bus::BusWatchGuard;
+use anyhow::Result;
 use gst::glib;
 use gst::prelude::*;
 use log::{debug, error};
 use tokio::sync::mpsc::{Receiver, Sender};
+use transmission_sink::TransmissionSink;
+use transmission_sink::{hls::HlsSink, webrtc::WebrtcSink};
+
+#[cfg(egl_preview)]
+use gst_gl::prelude::*;
 
 use crate::Event;
 
-mod sink;
-
-use sink::{HlsSink, WebrtcSink};
-
-enum SinkState {
-    Unset,
-    WebRTC(WebrtcSink),
-    Hls(HlsSink),
-}
+pub mod preview_sink;
+mod transmission_sink;
 
 pub struct Pipeline {
-    pub inner: gst::Pipeline,
-    sink_state: Arc<Mutex<SinkState>>,
+    inner: gst::Pipeline,
+    tx_sink: Arc<tokio::sync::Mutex<Option<Box<dyn TransmissionSink>>>>,
     tee: gst::Element,
+    preview_queue: gst::Element,
+    #[cfg(egl_preview)]
+    preview_appsink: gst::Element,
 }
 
 impl Pipeline {
     pub fn new(
         event_tx: Sender<Event>,
         selected_rx: Receiver<usize>,
-    ) -> Result<(Self, gst_gtk4::RenderWidget), gst::glib::BoolError> {
+        #[cfg(egl_preview)] preview_appsink: gst::Element,
+        #[cfg(egl_preview)] gst_egl_context: Arc<
+            Mutex<Option<(gst_gl::GLContext, gst_gl_egl::GLDisplayEGL)>>,
+        >,
+        #[cfg(not(egl_preview))] slint_sink: preview_sink::software::SlintSwSink,
+    ) -> Result<Self> {
         let tee = gst::ElementFactory::make("tee").build()?;
         let src = gst::ElementFactory::make("scapsrc")
             .property("perform-internal-preroll", true)
@@ -44,12 +47,88 @@ impl Pipeline {
             .property_from_str("leaky", "downstream")
             .property("silent", true) // Don't emit signals, can give better perf.
             .build()?;
-        let preview_convert = gst::ElementFactory::make("videoconvert")
-            .name("preview_convert")
-            .build()?;
-        let gtksink = gst::ElementFactory::make("gtk4paintablesink")
-            .name("gtksink")
-            .build()?;
+
+        let pipeline = gst::Pipeline::new();
+
+        let tx_sink = Arc::new(tokio::sync::Mutex::new(None::<Box<dyn TransmissionSink>>));
+
+        let bus = pipeline
+            .bus()
+            .ok_or(glib::bool_error!("Pipeline is missing bus"))?;
+
+        let pipeline_weak = pipeline.downgrade();
+        let tx_sink_clone = Arc::clone(&tx_sink);
+        bus.set_sync_handler(move |_, msg| {
+            use gst::MessageView;
+
+            match msg.view() {
+                MessageView::StateChanged(state_changed) => {
+                    let Some(pipeline) = pipeline_weak.upgrade() else {
+                        return gst::BusSyncReply::Drop;
+                    };
+
+                    if state_changed.src() == Some(pipeline.upcast_ref())
+                        && state_changed.old() == gst::State::Paused
+                        && state_changed.current() == gst::State::Playing
+                    {
+                        let tx_sink = tx_sink_clone.clone();
+                        common::runtime().spawn(async move {
+                            let mut s = tx_sink.lock().await;
+                            if let Some(ref mut sink) = *s {
+                                sink.playing().await;
+                            }
+                        });
+                    }
+                }
+                MessageView::Eos(..) => (), // app.quit()), TODO
+                MessageView::Error(err) => {
+                    error!(
+                        "Error from {:?}: {} ({:?})",
+                        err.src().map(|s| s.path_string()),
+                        err.error(),
+                        err.debug()
+                    );
+                    // app.quit(); TODO
+                }
+                #[cfg(egl_preview)]
+                MessageView::NeedContext(ctx) => {
+                    let ctx_type = ctx.context_type();
+
+                    if ctx_type == *gst_gl::GL_DISPLAY_CONTEXT_TYPE {
+                        if let Some(element) = msg
+                            .src()
+                            .and_then(|source| source.downcast_ref::<gst::Element>())
+                        {
+                            let g = gst_egl_context.lock().unwrap();
+                            if let Some((_, gst_gl_display)) = g.as_ref() {
+                                let gst_context = gst::Context::new(ctx_type, true);
+                                gst_context.set_gl_display(gst_gl_display);
+                                element.set_context(&gst_context);
+                            }
+                        }
+                    } else if ctx_type == "gst.gl.app_context" {
+                        if let Some(element) = msg
+                            .src()
+                            .and_then(|source| source.downcast_ref::<gst::Element>())
+                        {
+                            let mut gst_context = gst::Context::new(ctx_type, true);
+                            {
+                                let g = gst_egl_context.lock().unwrap();
+                                if let Some((gst_gl_context, _)) = g.as_ref() {
+                                    let gst_context = gst_context.get_mut().unwrap();
+                                    let structure = gst_context.structure_mut();
+                                    structure.set("context", gst_gl_context);
+                                }
+                            }
+                            element.set_context(&gst_context);
+                        }
+                    }
+                }
+                _ => (),
+            };
+
+            gst::BusSyncReply::Drop
+        });
 
         // https://gitlab.freedesktop.org/gstreamer/gstreamer/-/issues/3993
         src.static_pad("src").unwrap().add_probe(
@@ -77,168 +156,118 @@ impl Pipeline {
             Some(res.to_value())
         });
 
-        let pipeline = gst::Pipeline::new();
-        pipeline.add_many([&src, &tee, &preview_queue, &preview_convert, &gtksink])?;
+        #[cfg(egl_preview)]
+        {
+            pipeline.add_many([&src, &tee, &preview_queue, &preview_appsink])?;
+            gst::Element::link_many([&src, &tee])?;
+            gst::Element::link_many([&preview_queue, &preview_appsink])?;
+        }
+        #[cfg(not(egl_preview))]
+        {
+            // TODO: Put queue into the SlintSwSink
+            pipeline.add_many([&src, &tee, &preview_queue, slint_sink.bin.upcast_ref()])?;
+            gst::Element::link_many([&src, &tee])?;
 
-        gst::Element::link_many([&src, &tee])?;
-        gst::Element::link_many([&preview_queue, &preview_convert, &gtksink])?;
+            let Some(convert_pad) = slint_sink.convert.static_pad("sink") else {
+                anyhow::bail!("Unable to get static sink pad from preview convert");
+            };
+
+            let bin_sink_ghost_pad = gst::GhostPad::with_target(&convert_pad)?;
+            bin_sink_ghost_pad.set_active(true)?;
+            slint_sink.bin.add_pad(&bin_sink_ghost_pad)?;
+
+            preview_queue.link(&slint_sink.bin)?;
+        }
 
         let tee_preview_pad = tee.request_pad_simple("src_%u").map_or_else(
             || Err(glib::bool_error!("`request_pad_simple()` failed")),
             Ok,
         )?;
-        let queue_preview_pad = preview_queue
-            .static_pad("sink")
-            .map_or_else(|| Err(glib::bool_error!("`static_pad()` failed")), Ok)?;
-        tee_preview_pad
-            .link(&queue_preview_pad)
-            .map_err(|err| glib::bool_error!("{err}"))?;
+        let queue_preview_pad = preview_queue.static_pad("sink").ok_or(glib::bool_error!(
+            "preview_queue is missing static sink pad"
+        ))?;
+        tee_preview_pad.link(&queue_preview_pad)?;
 
-        let widget = gst_gtk4::RenderWidget::new(&gtksink);
-
-        let pipeline_weak = pipeline.downgrade();
-        // Start pipeline in background to not freeze UI
-        let _ = std::thread::spawn(move || {
-            let Some(pipeline) = pipeline_weak.upgrade() else {
-                panic!("No pipeline");
-            };
-            debug!("Starting pipeline");
-            pipeline.set_state(gst::State::Playing).unwrap();
+        let _ = std::thread::spawn({
+            let pipeline = pipeline.clone();
+            move || {
+                debug!("Starting pipeline");
+                pipeline.set_state(gst::State::Playing).unwrap();
+            }
         });
 
-        let sink_state = Arc::new(Mutex::new(SinkState::Unset));
-
-        Ok((
-            Self {
-                inner: pipeline,
-                sink_state,
-                tee,
-            },
-            widget,
-        ))
+        Ok(Self {
+            inner: pipeline,
+            tx_sink,
+            tee,
+            preview_queue,
+            #[cfg(egl_preview)]
+            preview_appsink,
+        })
     }
 
-    pub fn setup_bus_watch(
-        &self,
-        app_weak: glib::WeakRef<gtk::Application>,
-        event_tx: Sender<Event>,
-    ) -> Result<BusWatchGuard, glib::BoolError> {
-        let bus = self.inner.bus().unwrap();
-        let pipeline_weak = self.inner.downgrade();
-        let s = Arc::clone(&self.sink_state);
-        let bus_watch = bus.add_watch_local(move |_, msg| {
-            use gst::MessageView;
+    pub async fn shutdown(&self) -> Result<()> {
+        self.inner.set_state(gst::State::Null)?;
+        #[cfg(egl_preview)]
+        {
+            self.preview_queue.unlink(&self.preview_appsink);
+            self.inner.remove(&self.preview_appsink)?;
+        }
 
-            let Some(app) = app_weak.upgrade() else {
-                return glib::ControlFlow::Break;
-            };
+        let mut tx_sink = self.tx_sink.lock().await;
+        if let Some(sink) = &mut (*tx_sink) {
+            sink.shutdown();
+        }
 
-            match msg.view() {
-                MessageView::StateChanged(state_changed) => {
-                    let Some(pipeline) = pipeline_weak.upgrade() else {
-                        todo!();
-                    };
-
-                    let mut s = s.lock().unwrap();
-                    if let SinkState::Hls(ref mut hls) = *s {
-                        if state_changed.src() == Some(pipeline.upcast_ref())
-                            && state_changed.old() == gst::State::Paused
-                            && state_changed.current() == gst::State::Playing
-                        {
-                            hls.hls.write_manifest_file();
-                            event_tx.blocking_send(Event::HlsStreamReady).unwrap();
-                        }
-                    }
-                }
-                MessageView::Eos(..) => app.quit(),
-                MessageView::Error(err) => {
-                    error!(
-                        "Error from {:?}: {} ({:?})",
-                        err.src().map(|s| s.path_string()),
-                        err.error(),
-                        err.debug()
-                    );
-                    app.quit();
-                }
-                _ => (),
-            };
-
-            glib::ControlFlow::Continue
-        })?;
-
-        Ok(bus_watch)
+        Ok(())
     }
 
-    pub fn add_webrtc_sink(&mut self, event_tx: Sender<Event>) -> Result<(), glib::BoolError> {
+    pub async fn add_webrtc_sink(&mut self) -> Result<()> {
         let tee_pad = self.tee.request_pad_simple("src_%u").map_or_else(
             || Err(glib::bool_error!("`request_pad_simple()` failed")),
             Ok,
         )?;
-        let webrtc_ = WebrtcSink::new(&self.inner, event_tx)?;
-        let queue_pad = webrtc_
-            .queue
-            .static_pad("sink")
-            .map_or_else(|| Err(glib::bool_error!("`static_pad()` failed")), Ok)?;
-        tee_pad
-            .link(&queue_pad)
-            .map_err(|err| glib::bool_error!("{err}"))?;
-        let mut s = self
-            .sink_state
-            .lock()
-            .map_err(|err| glib::bool_error!("{err}"))?;
-        *s = SinkState::WebRTC(webrtc_);
+        let webrtc = WebrtcSink::new(&self.inner, tee_pad)?;
+        let mut s = self.tx_sink.lock().await;
+        *s = Some(Box::new(webrtc));
 
         debug!("Added WebRTC sink");
 
         Ok(())
     }
 
-    pub fn add_hls_sink(&mut self, event_tx: Sender<Event>) -> Result<(), glib::BoolError> {
-        debug!("Adding HLS sink");
+    pub async fn add_hls_sink(&mut self) -> Result<()> {
         let tee_pad = self.tee.request_pad_simple("src_%u").map_or_else(
             || Err(glib::bool_error!("`request_pad_simple()` failed")),
             Ok,
         )?;
-        let hls_ = HlsSink::new(&self.inner, event_tx)?;
-        let queue_pad = hls_
-            .queue
-            .static_pad("sink")
-            .map_or_else(|| Err(glib::bool_error!("`static_pad()` failed")), Ok)?;
-        tee_pad
-            .link(&queue_pad)
-            .map_err(|err| glib::bool_error!("{err}"))?;
+        let hls = HlsSink::new(&self.inner, tee_pad)?;
+        let mut s = self.tx_sink.lock().await;
+        *s = Some(Box::new(hls));
 
-        let mut s = self
-            .sink_state
-            .lock()
-            .map_err(|err| glib::bool_error!("{err}"))?;
-        *s = SinkState::Hls(hls_);
+        debug!("Added HLS sink");
 
         Ok(())
     }
 
-    pub fn get_play_msg(&self) -> Option<crate::Message> {
-        let s = self.sink_state.lock().unwrap();
-        match *s {
-            SinkState::Unset => unreachable!(),
-            SinkState::WebRTC(ref sink) => sink.get_play_msg(),
-            SinkState::Hls(ref sink) => sink.get_play_msg(),
+    pub async fn remove_transmission_sink(&self) -> Result<()> {
+        let mut tx_sink = self.tx_sink.lock().await;
+        if let Some(sink) = &mut (*tx_sink) {
+            sink.shutdown();
+            sink.unlink(&self.inner)?;
         }
+
+        *tx_sink = None;
+
+        Ok(())
     }
 
-    pub fn set_producer_id(&mut self, producer_id: String) {
-        let mut s = self.sink_state.lock().unwrap();
-        match *s {
-            SinkState::WebRTC(ref mut sink) => sink.producer_id = Some(producer_id),
-            _ => error!("Attempted to set producer peer id for non WebRTC sink"),
-        }
-    }
-
-    pub fn set_server_port(&mut self, port: u16) {
-        let mut s = self.sink_state.lock().unwrap();
-        match *s {
-            SinkState::Hls(ref mut sink) => sink.server_port = Some(port),
-            _ => error!("Attempted to set server port for non HLS sink"),
+    pub async fn get_play_msg(&self) -> Option<crate::Message> {
+        let tx_sink = self.tx_sink.lock().await;
+        if let Some(sink) = &(*tx_sink) {
+            sink.get_play_msg()
+        } else {
+            None
         }
     }
 }

@@ -1,0 +1,57 @@
+import { Palette, VerticalBox, HorizontalBox, StandardButton, Switch, Button } from "std-widgets.slint";
+
+import { HorizontalRule } from "horizontal-rule.slint";
+
+export component Settings {
+    callback closed;
+
+    Rectangle {
+        background: Palette.background;
+        border-radius: 8px;
+    }
+
+    VerticalBox {
+        HorizontalBox {
+            alignment: space-between;
+            Text {
+                font-weight: 800;
+                font-size: 12pt;
+                text: "Settings";
+                vertical-alignment: center;
+            }
+            Button {
+                icon: @image-url("../../assets/icons/xmark.svg");
+                colorize-icon: true;
+                clicked => {
+                    root.closed();
+                }
+            }
+        }
+
+        HorizontalRule {
+            height: 2px;
+            color: Palette.alternate-background;
+        }
+
+        HorizontalBox {
+            alignment: center;
+            Text {
+                text: "Colors and Theme";
+            }
+        }
+
+        HorizontalBox {
+            alignment: space-between;
+            Text {
+                text: "Dark Mode";
+            }
+            Switch {
+                horizontal-stretch: 0;
+                checked: Palette.color-scheme == ColorScheme.dark;
+                toggled => {
+                    Palette.color-scheme = self.checked ? ColorScheme.dark : ColorScheme.light;
+                }
+            }
+        }
+    }
+}

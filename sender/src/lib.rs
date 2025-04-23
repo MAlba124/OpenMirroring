@@ -3,7 +3,6 @@ use std::net::SocketAddr;
 pub mod discovery;
 pub mod pipeline;
 pub mod session;
-pub mod views;
 
 #[derive(Debug)]
 pub enum Message {
@@ -25,17 +24,14 @@ pub struct Receiver {
 #[derive(Debug)]
 pub enum Event {
     Quit,
-    ProducerConnected(ProducerId),
     Start,
     Stop,
-    EnablePreview,
-    DisablePreview,
     Sources(Vec<String>),
     SelectSource(usize),
     Packet(fcast_lib::packet::Packet),
-    HlsServerAddr { port: u16 },
-    HlsStreamReady,
     ReceiverAvailable(Receiver),
     SelectReceiver(String),
     ConnectedToReceiver,
+    DisconnectReceiver,
+    ChangeSource,
 }

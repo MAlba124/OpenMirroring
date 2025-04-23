@@ -50,11 +50,28 @@ mod imp {
                 Some(tx) => {
                     let location = self.location.borrow().clone();
                     let data = self.data.borrow().clone();
-                    tx.blocking_send(ChannelElement {
-                        location,
-                        request: Request::Add(data),
-                    })
-                    .map_err(|err| glib::Error::new(glib::FileError::Failed, &err.to_string()))
+                    match tokio::runtime::Handle::try_current() {
+                        Ok(rt_handle) => {
+                            rt_handle.spawn(async move {
+                                tx.send(ChannelElement {
+                                    location,
+                                    request: Request::Add(data),
+                                })
+                                .await
+                                .unwrap();
+                            });
+                        }
+                        Err(_) => {
+                            tx.blocking_send(ChannelElement {
+                                location,
+                                request: Request::Add(data),
+                            })
+                            .map_err(|err| {
+                                glib::Error::new(glib::FileError::Failed, &err.to_string())
+                            })?;
+                        }
+                    }
+                    Ok(())
                 }
                 None => Err(glib::Error::new(glib::FileError::Failed, "Missing tx")),
             }

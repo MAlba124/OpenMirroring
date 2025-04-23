@@ -1,0 +1,156 @@
+import { VerticalBox, HorizontalBox, Button, ComboBox, Palette, Spinner } from "std-widgets.slint";
+
+import { Settings } from "settings.slint";
+import { CastDialog, ReceiverItem } from "cast-dialog.slint";
+
+export component MainWindow inherits Window {
+    title: "Open Mirroring Sender";
+
+    preferred-width: 800px;
+    preferred-height: 500px;
+
+    callback select-source(int);
+    callback connect-receiver(string);
+    callback start-cast();
+    callback stop-cast();
+    callback disconnect-receiver();
+    callback change-source();
+
+    in property <bool> has-source: false;
+    property <bool> preview-enable: true;
+    in property <bool> starting-cast: false;
+    in property <bool> casting: false;
+    in property <image> preview-frame <=> preview-image.source;
+    in property <[string]> sources-model: [];
+    in property <[ReceiverItem]> receivers-model: [];
+    in property <bool> receiver-is-connected: false;
+    in property <bool> receiver-is-connecting: false;
+
+    // Maybe have vertical layout when the root width is, say 800 px, horizontal otherwise
+    VerticalBox {
+        Rectangle {
+            visible: has-source;
+            background: Palette.background;
+            border-radius: 8px;
+            height: has-source ? 60% : 0%;
+            preview-image := Image {
+                width: 100%;
+                height: parent.height;
+                image-fit: contain;
+                visible: preview-enable;
+            }
+        }
+        vbox := VerticalBox {
+            alignment: center;
+            HorizontalBox {
+                alignment: center;
+
+                // TODO: Make tooltip apear when hovering buttons
+
+                // Change source
+                if has-source: Button {
+                    icon: @image-url("../../assets/icons/input.svg");
+                    colorize-icon: true;
+                    clicked => {
+                        change-source();
+                    }
+                }
+
+                Button {
+                    icon: @image-url("../../assets/icons/gear.svg");
+                    colorize-icon: true;
+                    clicked => {
+                        settings.visible = true;
+                        shadow.visible = true;
+                    }
+                }
+
+                if has-source && !casting && !starting-cast: Button {
+                    enabled: receiver-is-connected;
+                    icon: @image-url("../../assets/icons/play.svg");
+                    colorize-icon: true;
+                    // text: "Start casting";
+                    clicked => {
+                        start-cast();
+                    }
+                }
+                if has-source && starting-cast: Spinner {
+                    indeterminate: true;
+                }
+                if has-source && casting: Button {
+                    icon: @image-url("../../assets/icons/stop.svg");
+                    colorize-icon: true;
+                    // text: "Stop casting";
+                    clicked => {
+                        stop-cast();
+                    }
+                }
+
+                Button {
+                    icon: @image-url("../../assets/icons/cast.svg");
+                    colorize-icon: true;
+                    clicked => {
+                        cast-dialog.visible = true;
+                        shadow.visible = true;
+                    }
+                }
+            }
+            if !has-source: HorizontalBox {
+                alignment: center;
+                source-combo := ComboBox {
+                    model <=> sources-model;
+                }
+                Button {
+                    text: "Select source";
+                    enabled: sources-model.length > 0;
+                    clicked => {
+                        select-source(source-combo.current-index);
+                    }
+                }
+            }
+        }
+    }
+
+    shadow := Rectangle {
+        visible: false;
+        width: 100%;
+        height: 100%;
+        background: #000000A0;
+
+        TouchArea {
+            // Consume all interactions so that no elements behind the settings menu can be accessed
+        }
+    }
+
+    settings := Settings {
+        visible: false;
+
+        closed => {
+            self.visible = false;
+            shadow.visible = false;
+        }
+    }
+
+    cast-dialog := CastDialog {
+        visible: false;
+
+        width: root.width >= 500px ? 500px : root.width;
+
+        receivers-model <=> receivers-model;
+        is-connected <=> receiver-is-connected;
+        is-connecting <=> receiver-is-connecting;
+
+        connect(receiver) => {
+            connect-receiver(receiver);
+        }
+
+        disconnect() => {
+            disconnect-receiver();
+        }
+
+        closed => {
+            self.visible = false;
+            shadow.visible = false;
+        }
+    }
+}
