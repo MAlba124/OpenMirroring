@@ -1,6 +1,7 @@
 import { Palette, VerticalBox, HorizontalBox, ListView, Spinner, Button } from "std-widgets.slint";
 
 import { HorizontalRule } from "horizontal-rule.slint";
+import { ToolTipArea } from "tool-tip-area.slint";
 
 export struct ReceiverItem {
     name: string,
@@ -32,11 +33,14 @@ export component CastDialog {
                 text: "Cast To";
                 vertical-alignment: center;
             }
-            Button {
-                icon: @image-url("../../assets/icons/xmark.svg");
-                colorize-icon: true;
-                clicked => {
-                    root.closed();
+            ToolTipArea {
+                text: "Close";
+                Button {
+                    icon: @image-url("../../assets/icons/xmark.svg");
+                    colorize-icon: true;
+                    clicked => {
+                        root.closed();
+                    }
                 }
             }
         }
@@ -44,6 +48,7 @@ export component CastDialog {
         HorizontalRule {
             height: 2px;
             color: Palette.alternate-background;
+            z: -1;
         }
 
         if receivers-model.length > 0: VerticalBox {

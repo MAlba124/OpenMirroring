@@ -1,6 +1,7 @@
 import { Palette, VerticalBox, HorizontalBox, StandardButton, Switch, Button } from "std-widgets.slint";
 
 import { HorizontalRule } from "horizontal-rule.slint";
+import { ToolTipArea } from "tool-tip-area.slint";
 
 export component Settings {
     callback closed;
@@ -19,11 +20,14 @@ export component Settings {
                 text: "Settings";
                 vertical-alignment: center;
             }
-            Button {
-                icon: @image-url("../../assets/icons/xmark.svg");
-                colorize-icon: true;
-                clicked => {
-                    root.closed();
+            ToolTipArea {
+                text: "Close";
+                Button {
+                    icon: @image-url("../../assets/icons/xmark.svg");
+                    colorize-icon: true;
+                    clicked => {
+                        root.closed();
+                    }
                 }
             }
         }
@@ -31,6 +35,7 @@ export component Settings {
         HorizontalRule {
             height: 2px;
             color: Palette.alternate-background;
+            z: -1;
         }
 
         HorizontalBox {

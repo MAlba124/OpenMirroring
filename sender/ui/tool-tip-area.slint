@@ -1,0 +1,42 @@
+import { Palette } from "std-widgets.slint";
+
+// TODO: Fiz z axis
+export component ToolTipArea {
+    in property <string> text;
+
+    z: 100;
+
+    ta := TouchArea {
+        @children
+
+        Rectangle {
+            states [
+                visible when ta.has-hover: {
+                    opacity: 1.0;
+                    in {
+                        animate opacity {
+                            duration: 0ms;
+                            delay: 600ms;
+                        }
+                    }
+                }
+            ]
+
+            // Add 8px to give some space between the cursor and the rect
+            x: ta.mouse-x + 8px;
+            y: ta.mouse-y + 8px;
+
+            background: Palette.alternate-background;
+            opacity: 0;
+            border-radius: 8px;
+            width: tt_l.preferred-width;
+            height: tt_l.preferred-height;
+            tt_l := HorizontalLayout {
+                padding: 10px;
+                Text {
+                    text <=> root.text;
+                }
+            }
+        }
+    }
+}

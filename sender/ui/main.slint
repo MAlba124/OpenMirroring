@@ -3,6 +3,7 @@ import { VerticalBox, HorizontalBox, Button, ComboBox, Palette, Spinner } from "
 import { Settings } from "settings.slint";
 import { CastDialog, ReceiverItem } from "cast-dialog.slint";
 import { VideoPreview } from "video-preview.slint";
+import { ToolTipArea } from "tool-tip-area.slint";
 
 export component MainWindow inherits Window {
     title: "Open Mirroring Sender";
@@ -41,67 +42,84 @@ export component MainWindow inherits Window {
                 image-fit: contain;
             }
         }
+
         vbox := VerticalBox {
             alignment: center;
             HorizontalBox {
                 alignment: center;
-
-                // TODO: Make tooltip apear when hovering buttons
-
-                // Change source
-                if has-source: Button {
-                    icon: @image-url("../../assets/icons/input.svg");
-                    colorize-icon: true;
-                    clicked => {
-                        change-source();
+                if has-source: ToolTipArea {
+                    text: "Change input";
+                    Button {
+                        icon: @image-url("../../assets/icons/input.svg");
+                        colorize-icon: true;
+                        clicked => {
+                            change-source();
+                        }
+                        z: -1;
                     }
                 }
 
-                // Settings
-                Button {
-                    icon: @image-url("../../assets/icons/gear.svg");
-                    colorize-icon: true;
-                    clicked => {
-                        settings.visible = true;
-                        shadow.visible = true;
+                ToolTipArea {
+                    text: "Settings";
+                    Button {
+                        icon: @image-url("../../assets/icons/gear.svg");
+                        colorize-icon: true;
+                        clicked => {
+                            settings.visible = true;
+                            shadow.visible = true;
+                        }
                     }
                 }
 
-                // Start casting
-                if has-source && !casting && !starting-cast: Button {
-                    enabled: receiver-is-connected;
-                    icon: @image-url("../../assets/icons/play.svg");
-                    colorize-icon: true;
-                    clicked => {
-                        start-cast();
-                    }
-                }
-                if has-source && starting-cast: Spinner {
-                    indeterminate: true;
-                }
-                // Stop casting
-                if has-source && casting: Button {
-                    icon: @image-url("../../assets/icons/stop.svg");
-                    colorize-icon: true;
-                    clicked => {
-                        stop-cast();
+                if has-source && !casting && !starting-cast: ToolTipArea {
+                    text: "Start casting";
+                    Button {
+                        enabled: receiver-is-connected;
+                        icon: @image-url("../../assets/icons/play.svg");
+                        colorize-icon: true;
+                        clicked => {
+                            start-cast();
+                        }
                     }
                 }
 
-                if has-source: Button {
-                    icon: @image-url("../../assets/icons/cast.svg");
-                    colorize-icon: true;
-                    clicked => {
-                        cast-dialog.visible = true;
-                        shadow.visible = true;
+                if has-source && starting-cast: ToolTipArea {
+                    text: "Starting cast...";
+                    Spinner {
+                        indeterminate: true;
+                    }
+                }
+
+                if has-source && casting: ToolTipArea {
+                    text: "Stop casting";
+                    Button {
+                        icon: @image-url("../../assets/icons/stop.svg");
+                        colorize-icon: true;
+                        clicked => {
+                            stop-cast();
+                        }
+                    }
+                }
+
+                if has-source: ToolTipArea {
+                    text: "Open cast dialog";
+                    Button {
+                        icon: @image-url("../../assets/icons/cast.svg");
+                        colorize-icon: true;
+                        clicked => {
+                            cast-dialog.visible = true;
+                            shadow.visible = true;
+                        }
                     }
                 }
             }
+
             if !has-source: HorizontalBox {
                 alignment: center;
                 source-combo := ComboBox {
                     model <=> sources-model;
                 }
+
                 Button {
                     text: "Select source";
                     enabled: sources-model.length > 0;
