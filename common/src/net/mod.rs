@@ -1,6 +1,5 @@
 use std::net::{IpAddr, Ipv4Addr};
 
-
 #[cfg(target_os = "windows")]
 mod win;
 
