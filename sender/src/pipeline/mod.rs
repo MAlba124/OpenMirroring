@@ -177,21 +177,6 @@ impl Pipeline {
             slint_sink.bin.add_pad(&bin_sink_ghost_pad)?;
 
             preview_queue.link(&slint_sink.bin)?;
-
-            // let Some(queue_srcpad) = preview_queue.static_pad("src") else {
-            //     anyhow::bail!("Unable to get static src pad from preview queue");
-            // };
-            // let srcpad = gst::GhostPad::with_target(&queue_srcpad)?;
-            // srcpad.set_active(true)?;
-            // preview_bin.add_pad(&srcpad)?;
-
-            // preview_queue.link(srcpad.upcast_ref())?;
-
-            // let Some(preview_bin_pad) = preview_bin.static_pad("sink") else {
-            //     anyhow::bail!("Unable to get static sink pad from preview bin");
-            // };
-
-            // srcpad.link(&preview_bin_pad)?;
         }
 
         let tee_preview_pad = tee.request_pad_simple("src_%u").map_or_else(
