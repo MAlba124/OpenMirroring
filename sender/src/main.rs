@@ -1,3 +1,20 @@
+// Copyright (C) 2025 Marcus L. Hanestad <marlhan@proton.me>
+//
+// This file is part of OpenMirroring.
+//
+// OpenMirroring is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// OpenMirroring is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with OpenMirroring.  If not, see <https://www.gnu.org/licenses/>.
+
 use anyhow::Result;
 use log::{debug, error, trace};
 use sender::discovery::discover;
@@ -260,7 +277,8 @@ impl Application {
                     })?;
                 }
                 Event::ChangeSource | Event::PipelineFinished => {
-                    self.shutdown_pipeline_and_create_new_and_update_ui().await?;
+                    self.shutdown_pipeline_and_create_new_and_update_ui()
+                        .await?;
                 }
             }
         }
@@ -302,9 +320,7 @@ impl Application {
 
         self.ui_weak.upgrade_in_event_loop(|ui| {
             ui.set_has_source(false);
-            ui.set_sources_model(
-                Rc::new(slint::VecModel::<slint::SharedString>::default()).into(),
-            );
+            ui.set_sources_model(Rc::new(slint::VecModel::<slint::SharedString>::default()).into());
         })?;
 
         Ok(())
