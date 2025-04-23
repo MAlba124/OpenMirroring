@@ -2,6 +2,7 @@ import { VerticalBox, HorizontalBox, Button, ComboBox, Palette, Spinner } from "
 
 import { Settings } from "settings.slint";
 import { CastDialog, ReceiverItem } from "cast-dialog.slint";
+import { VideoPreview } from "video-preview.slint";
 
 export component MainWindow inherits Window {
     title: "Open Mirroring Sender";
@@ -28,16 +29,16 @@ export component MainWindow inherits Window {
 
     // Maybe have vertical layout when the root width is, say 800 px, horizontal otherwise
     VerticalBox {
-        Rectangle {
+        preview := VideoPreview {
             visible: has-source;
+            show-preview: true;
             background: Palette.background;
-            border-radius: 8px;
             height: has-source ? 60% : 0%;
             preview-image := Image {
+                visible <=> parent.show-preview;
                 width: 100%;
                 height: parent.height;
                 image-fit: contain;
-                visible: preview-enable;
             }
         }
         vbox := VerticalBox {
@@ -56,6 +57,7 @@ export component MainWindow inherits Window {
                     }
                 }
 
+                // Settings
                 Button {
                     icon: @image-url("../../assets/icons/gear.svg");
                     colorize-icon: true;
@@ -65,11 +67,11 @@ export component MainWindow inherits Window {
                     }
                 }
 
+                // Start casting
                 if has-source && !casting && !starting-cast: Button {
                     enabled: receiver-is-connected;
                     icon: @image-url("../../assets/icons/play.svg");
                     colorize-icon: true;
-                    // text: "Start casting";
                     clicked => {
                         start-cast();
                     }
@@ -77,16 +79,16 @@ export component MainWindow inherits Window {
                 if has-source && starting-cast: Spinner {
                     indeterminate: true;
                 }
+                // Stop casting
                 if has-source && casting: Button {
                     icon: @image-url("../../assets/icons/stop.svg");
                     colorize-icon: true;
-                    // text: "Stop casting";
                     clicked => {
                         stop-cast();
                     }
                 }
 
-                Button {
+                if has-source: Button {
                     icon: @image-url("../../assets/icons/cast.svg");
                     colorize-icon: true;
                     clicked => {

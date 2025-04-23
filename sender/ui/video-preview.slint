@@ -1,0 +1,48 @@
+import { Palette, Switch, HorizontalBox } from "std-widgets.slint";
+
+export component VideoPreview inherits Rectangle {
+    in-out property <bool> show-preview;
+
+    ta := TouchArea {
+        pointer-event(event) => {
+            if event.button == PointerEventButton.right && event.kind == PointerEventKind.down {
+                dialog.show();
+            }
+        }
+    }
+
+    @children
+
+    Rectangle {
+        visible: !show-preview;
+
+        Text {
+            text: "Preview disabled";
+        }
+    }
+
+    dialog := PopupWindow {
+        x: ta.mouse-x;
+        y: ta.mouse-y;
+
+        Rectangle {
+            background: Palette.alternate-background;
+            border-radius: 8px;
+
+            Dialog {
+                HorizontalBox {
+                    Text {
+                        vertical-alignment: center;
+                        text: "Show preview";
+                    }
+                    Switch {
+                        checked: show-preview;
+                        toggled => {
+                            show-preview = !show-preview;
+                        }
+                    }
+                }
+            }
+        }
+    }
+}

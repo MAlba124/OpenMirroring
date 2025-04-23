@@ -104,7 +104,6 @@ impl Application {
         Ok((selected_tx, pipeline_rx.await?))
     }
 
-    // TODO: gracefully handle errors
     pub async fn run_event_loop(
         &mut self,
         mut event_rx: Receiver<Event>,
@@ -190,12 +189,6 @@ impl Application {
                         continue;
                     };
 
-                    if receiver.starts_with("OpenMirroring") {
-                        self.pipeline.add_webrtc_sink().await?;
-                    } else {
-                        self.pipeline.add_hls_sink().await?;
-                    }
-
                     receiver_connecting_to = receiver;
 
                     self.session_tx.send(Message::Connect(addresses[0])).await?;
@@ -222,6 +215,12 @@ impl Application {
                     debug!("Succesfully connected to receiver");
                     receiver_connected_to = receiver_connecting_to;
                     receiver_connecting_to = String::new();
+
+                    if receiver_connected_to.starts_with("OpenMirroring") {
+                        self.pipeline.add_webrtc_sink().await?;
+                    } else {
+                        self.pipeline.add_hls_sink().await?;
+                    }
 
                     let mut receivers_vec = self.receivers.keys().cloned().collect::<Vec<String>>();
                     receivers_vec.sort();
