@@ -190,8 +190,8 @@ impl Pipeline {
         #[cfg(not(egl_preview))]
         {
             // TODO: Put queue into the SlintSwSink
-            pipeline.add_many([&src, &tee, &preview_queue, slint_sink.bin.upcast_ref()])?;
-            gst::Element::link_many([&src, &tee])?;
+            pipeline.add_many([&scapsrc, &tee, &preview_queue, slint_sink.bin.upcast_ref()])?;
+            gst::Element::link_many([&scapsrc, &tee])?;
 
             let Some(convert_pad) = slint_sink.convert.static_pad("sink") else {
                 anyhow::bail!("Unable to get static sink pad from preview convert");
