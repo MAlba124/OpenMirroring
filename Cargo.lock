@@ -5443,6 +5443,7 @@ dependencies = [
 name = "scap-gstreamer"
 version = "0.1.0"
 dependencies = [
+ "crossbeam-channel",
  "ctrlc",
  "gst-plugin-version-helper",
  "gstreamer",
