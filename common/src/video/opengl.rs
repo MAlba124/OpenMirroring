@@ -21,7 +21,7 @@ use std::sync::{Arc, Mutex};
 use gst_gl::prelude::*;
 use log::error;
 
-// Taken from the slint gstreamer example at: https://github.com/slint-ui/slint/blob/2edd97bf8b8dc4dc26b578df6b15ea3297447444/examples/gstreamer-player/egl_integration.rs
+// Taken partially from the slint gstreamer example at: https://github.com/slint-ui/slint/blob/2edd97bf8b8dc4dc26b578df6b15ea3297447444/examples/gstreamer-player/egl_integration.rs
 pub struct SlintOpenGLSink {
     appsink: gst_app::AppSink,
     glsink: gst::Element,
@@ -62,28 +62,27 @@ impl SlintOpenGLSink {
         self.glsink.clone().upcast()
     }
 
-    pub fn connect(
-        &mut self,
+    #[cfg(target_os = "linux")]
+    fn get_egl_ctx(
         graphics_api: &slint::GraphicsAPI<'_>,
-        next_frame_available_notifier: Box<dyn Fn() + Send>,
-    ) -> (gst_gl::GLContext, gst_gl_egl::GLDisplayEGL) {
+    ) -> Result<(gst_gl::GLContext, gst_gl::GLDisplay)> {
         let egl = match graphics_api {
             slint::GraphicsAPI::NativeOpenGL { get_proc_address } => {
                 glutin_egl_sys::egl::Egl::load_with(|symbol| {
                     get_proc_address(&std::ffi::CString::new(symbol).unwrap())
                 })
             }
-            _ => panic!("unsupported graphics API"),
+            _ => anyhow::bail!("Unsupported graphics API"),
         };
 
-        let (gst_gl_context, gst_gl_display) = unsafe {
-            let platform = gst_gl::GLPlatform::EGL;
+        let platform = gst_gl::GLPlatform::EGL;
 
+        unsafe {
             let egl_display = egl.GetCurrentDisplay();
             let display = gst_gl_egl::GLDisplayEGL::with_egl_display(egl_display as usize).unwrap();
             let native_context = egl.GetCurrentContext();
 
-            (
+            Ok((
                 gst_gl::GLContext::new_wrapped(
                     &display,
                     native_context as _,
@@ -91,9 +90,47 @@ impl SlintOpenGLSink {
                     gst_gl::GLContext::current_gl_api(platform).0,
                 )
                 .expect("unable to create wrapped GL context"),
-                display,
-            )
+                display.upcast(),
+            ))
+        }
+    }
+
+    #[cfg(target_os = "windows")]
+    fn get_wgl_ctx() -> Result<(gst_gl::GLContext, gst_gl::GLDisplay)> {
+        use anyhow::bail;
+
+        let platform = gst_gl::GLPlatform::WGL;
+        let gl_api = gst_gl::GLAPI::OPENGL3;
+        let gl_ctx = gst_gl::GLContext::current_gl_context(platform);
+
+        if gl_ctx == 0 {
+            bail!("Failed to create GL context");
+        }
+
+        let Some(gst_display) = gst_gl::GLDisplay::with_type(gst_gl::GLDisplayType::WIN32) else {
+            bail!("Failed to create GLDisplay of type WIN32");
         };
+
+        gst_display.filter_gl_api(gl_api);
+
+        let Some(wrapped_context) =
+            (unsafe { gst_gl::GLContext::new_wrapped(&gst_display, gl_ctx, platform, gl_api) })
+        else {
+            bail!("Failed to create wrapped GL context");
+        };
+
+        Ok((wrapped_context, gst_display))
+    }
+
+    pub fn connect(
+        &mut self,
+        graphics_api: &slint::GraphicsAPI<'_>,
+        next_frame_available_notifier: Box<dyn Fn() + Send>,
+    ) -> Result<(gst_gl::GLContext, gst_gl::GLDisplay)> {
+        #[cfg(target_os = "linux")]
+        let (gst_gl_context, gst_gl_display) = Self::get_egl_ctx(graphics_api)?;
+        #[cfg(target_os = "windows")]
+        let (gst_gl_context, gst_gl_display) = Self::get_wgl_ctx()?;
 
         gst_gl_context
             .activate(true)
@@ -156,7 +193,7 @@ impl SlintOpenGLSink {
                 .build(),
         );
 
-        (gst_gl_context, gst_gl_display)
+        Ok((gst_gl_context, gst_gl_display))
     }
 
     pub fn fetch_next_frame(&self) -> Option<slint::Image> {

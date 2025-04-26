@@ -16,12 +16,10 @@
 // along with OpenMirroring.  If not, see <https://www.gnu.org/licenses/>.
 
 use anyhow::Result;
+use common::video::opengl::SlintOpenGLSink;
+use common::video::GstGlContext;
 use log::{debug, error, trace};
 use sender::discovery::discover;
-#[cfg(egl_preview)]
-use sender::pipeline::preview_sink::opengl::SlintOpenGLSink;
-#[cfg(not(egl_preview))]
-use sender::pipeline::preview_sink::software::SlintSwSink;
 use sender::session::session;
 use tokio::sync::mpsc::{Receiver, Sender};
 use tokio::sync::{self, oneshot};
@@ -29,15 +27,11 @@ use tokio::sync::{self, oneshot};
 use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::rc::Rc;
-#[cfg(egl_preview)]
 use std::sync::{Arc, Mutex};
 
 use sender::{pipeline, Event, SessionMessage};
 
 slint::include_modules!();
-
-#[cfg(egl_preview)]
-type GstEglContext = Arc<Mutex<Option<(gst_gl::GLContext, gst_gl_egl::GLDisplayEGL)>>>;
 
 struct Application {
     pipeline: pipeline::Pipeline,
@@ -47,10 +41,8 @@ struct Application {
     select_source_tx: Sender<usize>,
     selected_source: bool,
     receivers: HashMap<String, Vec<SocketAddr>>,
-    #[cfg(egl_preview)]
     appsink: gst::Element,
-    #[cfg(egl_preview)]
-    gst_egl_context: GstEglContext,
+    gst_gl_context: GstGlContext,
 }
 
 impl Application {
@@ -58,16 +50,14 @@ impl Application {
         ui_weak: slint::Weak<MainWindow>,
         event_tx: Sender<Event>,
         session_tx: Sender<SessionMessage>,
-        #[cfg(egl_preview)] appsink: gst::Element,
-        #[cfg(egl_preview)] gst_egl_context: GstEglContext,
+        appsink: gst::Element,
+        gst_gl_context: GstGlContext,
     ) -> Result<Self> {
         let (select_source_tx, pipeline) = Self::new_pipeline(
             &ui_weak,
             event_tx.clone(),
-            #[cfg(egl_preview)]
             appsink.clone(),
-            #[cfg(egl_preview)]
-            Arc::clone(&gst_egl_context),
+            Arc::clone(&gst_gl_context),
         )
         .await?;
 
@@ -79,18 +69,16 @@ impl Application {
             select_source_tx,
             selected_source: false,
             receivers: HashMap::new(),
-            #[cfg(egl_preview)]
             appsink,
-            #[cfg(egl_preview)]
-            gst_egl_context,
+            gst_gl_context,
         })
     }
 
     async fn new_pipeline(
         ui_weak: &slint::Weak<MainWindow>,
         event_tx: Sender<Event>,
-        #[cfg(egl_preview)] appsink: gst::Element,
-        #[cfg(egl_preview)] gst_egl_context: GstEglContext,
+        appsink: gst::Element,
+        gst_gl_context: GstGlContext,
     ) -> Result<(Sender<usize>, pipeline::Pipeline)> {
         let (selected_tx, selected_rx) = sync::mpsc::channel::<usize>(1);
 
@@ -98,19 +86,7 @@ impl Application {
         ui_weak.upgrade_in_event_loop({
             move |_ui| {
                 let pipeline = {
-                    #[cfg(egl_preview)]
-                    {
-                        pipeline::Pipeline::new(event_tx, selected_rx, appsink, gst_egl_context)
-                            .unwrap()
-                    }
-                    #[cfg(not(egl_preview))]
-                    {
-                        let new_frame_cb = |ui: MainWindow, new_frame| {
-                            ui.set_preview_frame(new_frame);
-                        };
-                        let preview = SlintSwSink::new(_ui.as_weak(), new_frame_cb).unwrap();
-                        pipeline::Pipeline::new(event_tx, selected_rx, preview).unwrap()
-                    }
+                    pipeline::Pipeline::new(event_tx, selected_rx, appsink, gst_gl_context).unwrap()
                 };
                 if pipeline_tx.send(pipeline).is_err() {
                     panic!("Failed to send pipeline");
@@ -309,10 +285,8 @@ impl Application {
         let (new_select_srouce_tx, new_pipeline) = Self::new_pipeline(
             &self.ui_weak,
             self.event_tx.clone(),
-            #[cfg(egl_preview)]
             self.appsink.clone(),
-            #[cfg(egl_preview)]
-            Arc::clone(&self.gst_egl_context),
+            Arc::clone(&self.gst_gl_context),
         )
         .await?;
 
@@ -335,10 +309,9 @@ fn main() -> Result<()> {
         .filter_module("scap", common::default_log_level())
         .init();
 
-    #[cfg(egl_preview)]
     slint::BackendSelector::new()
         .backend_name("winit".into())
-        .require_opengl_es()
+        .require_opengl()
         .select()?;
 
     gst::init()?;
@@ -350,21 +323,15 @@ fn main() -> Result<()> {
     let (fin_tx, fin_rx) = oneshot::channel::<()>();
 
     // This sink is used in every consecutively created pipelines
-    #[cfg(egl_preview)]
     let mut slint_sink = SlintOpenGLSink::new()?;
-    #[cfg(egl_preview)]
     let slint_appsink = slint_sink.video_sink();
-    #[cfg(egl_preview)]
-    let gst_egl_context = Arc::new(Mutex::new(
-        None::<(gst_gl::GLContext, gst_gl_egl::GLDisplayEGL)>,
-    ));
+    let gst_gl_context = Arc::new(Mutex::new(None::<(gst_gl::GLContext, gst_gl::GLDisplay)>));
 
     let ui = MainWindow::new()?;
     slint::set_xdg_app_id("com.github.malba124.OpenMirroring.sender")?;
 
-    #[cfg(egl_preview)]
     ui.window().set_rendering_notifier({
-        let gst_egl_context = Arc::clone(&gst_egl_context);
+        let gst_gl_context = Arc::clone(&gst_gl_context);
         let ui_weak = ui.as_weak();
 
         let new_frame_cb = |ui: MainWindow, new_frame| {
@@ -374,17 +341,21 @@ fn main() -> Result<()> {
         move |state, graphics_api| match state {
             slint::RenderingState::RenderingSetup => {
                 let ui_weak = ui_weak.clone();
-                let mut gst_egl_context = gst_egl_context.lock().unwrap();
-                *gst_egl_context = Some(slint_sink.connect(
-                    graphics_api,
-                    Box::new(move || {
-                        ui_weak
-                            .upgrade_in_event_loop(move |ui| {
-                                ui.window().request_redraw();
-                            })
-                            .ok();
-                    }),
-                ));
+                let mut gst_gl_context = gst_gl_context.lock().unwrap();
+                *gst_gl_context = Some(
+                    slint_sink
+                        .connect(
+                            graphics_api,
+                            Box::new(move || {
+                                ui_weak
+                                    .upgrade_in_event_loop(move |ui| {
+                                        ui.window().request_redraw();
+                                    })
+                                    .ok();
+                            }),
+                        )
+                        .unwrap(),
+                );
             }
             slint::RenderingState::BeforeRendering => {
                 if let Some(next_frame) = slint_sink.fetch_next_frame() {
@@ -405,17 +376,10 @@ fn main() -> Result<()> {
         let event_tx = event_tx.clone();
         let session_tx = session_tx.clone();
         async move {
-            let mut app = Application::new(
-                ui_weak,
-                event_tx,
-                session_tx,
-                #[cfg(egl_preview)]
-                slint_appsink,
-                #[cfg(egl_preview)]
-                gst_egl_context,
-            )
-            .await
-            .unwrap();
+            let mut app =
+                Application::new(ui_weak, event_tx, session_tx, slint_appsink, gst_gl_context)
+                    .await
+                    .unwrap();
             app.run_event_loop(event_rx, fin_tx).await.unwrap();
         }
     });

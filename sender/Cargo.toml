@@ -10,8 +10,9 @@ tokio = { workspace = true }
 gst = { workspace = true }
 gst-video = { workspace = true }
 gst-webrtc = { workspace = true }
+gst-app = { workspace = true }
+gst-gl = { workspace = true }
 gst-pbutils = { package = "gstreamer-pbutils", version = "0.23.5", features = [ "v1_22" ] }
-gst-app = { package = "gstreamer-app", version = "0.23.5" }
 m3u8-rs = "6.0.0"
 gio = "0.20.9"
 async-tungstenite = { version = "0.29", features = ["tokio-runtime"] }
@@ -26,18 +27,16 @@ scap-gstreamer = { path = "../scap-gstreamer" }
 serde = { workspace = true }
 serde_json = { workspace = true }
 simple-mdns = { workspace = true }
-slint = "1.10.0"
+slint = { workspace = true }
 async-trait = "0.1.88"
-anyhow = "1.0.98"
+anyhow = { workspace = true }
 
 [target.'cfg(target_os = "linux")'.dependencies]
-gst-gl = { package = "gstreamer-gl", version = "0.23.5" }
 gst-gl-egl = { package = "gstreamer-gl-egl", version = "0.23.5" }
 glutin_egl_sys = "0.7.1"
 
 [build-dependencies]
-slint-build = "1.10.0"
-cfg_aliases = "0.2.1"
+slint-build = { workspace = true }
 
 [dev-dependencies]
 quickcheck = "1"

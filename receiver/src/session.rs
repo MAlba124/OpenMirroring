@@ -15,7 +15,7 @@
 // You should have received a copy of the GNU General Public License
 // along with OpenMirroring.  If not, see <https://www.gnu.org/licenses/>.
 
-use log::{debug, error, warn};
+use log::{debug, error, trace, warn};
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
     net::TcpStream,
@@ -67,14 +67,14 @@ impl Session {
         Packet::decode(header, &body_string).map_err(|e| tokio::io::Error::other(e.to_string()))
     }
 
-    pub async fn work(mut self, mut updates_rx: tokio::sync::broadcast::Receiver<Vec<u8>>) {
+    pub async fn run(mut self, mut updates_rx: tokio::sync::broadcast::Receiver<Vec<u8>>) {
         debug!("id={} Session was started", self.id);
         loop {
             tokio::select! {
                 maybe_packet = self.get_next_packet() => {
                     match maybe_packet {
                         Ok(packet) => {
-                        debug!("id={} Got packet: {packet:?}", self.id);
+                        trace!("id={} Got packet: {packet:?}", self.id);
                         match packet {
                             Packet::None => {}
                             Packet::Play(play_message) => self.event_tx.send(Event::Play(play_message)).await.unwrap(),
@@ -89,7 +89,7 @@ impl Session {
                                 self.event_tx.send(Event::SetSpeed(set_speed_message)).await.unwrap()
                             }
                             Packet::Ping => todo!(),
-                            Packet::Pong => debug!("id={} Got pong from sender", self.id),
+                            Packet::Pong => trace!("id={} Got pong from sender", self.id),
                             _ => warn!("id={} Invalid packet from sender packet={packet:?}", self.id),
                         }
                         }
@@ -102,7 +102,7 @@ impl Session {
                 maybe_update = updates_rx.recv() => match maybe_update {
                     Ok(update) => {
                         self.stream.write_all(&update).await.unwrap();
-                        debug!("id={} Sent update", self.id);
+                        trace!("id={} Sent update", self.id);
                     }
                     Err(err) => panic!("{err}"),
                 }

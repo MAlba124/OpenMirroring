@@ -6,6 +6,12 @@ edition = "2021"
 [dependencies]
 tokio = { workspace = true }
 log = { workspace = true }
+gst = { workspace = true }
+gst-video = { workspace = true }
+gst-app = { workspace = true }
+anyhow = { workspace = true }
+slint = { workspace = true }
+gst-gl = { workspace = true }
 
 [target.'cfg(target_os = "windows")'.dependencies]
 windows = { version = "0.60.0", features = ["Win32_Networking_WinSock", "Win32_NetworkManagement_Ndis", "Win32_NetworkManagement_IpHelper"] }
@@ -13,3 +19,7 @@ windows = { version = "0.60.0", features = ["Win32_Networking_WinSock", "Win32_N
 [target.'cfg(not(target_os = "windows"))'.dependencies]
 pnet_datalink = "0.35.0"
 ipnetwork = "0.20.0"
+
+[target.'cfg(target_os = "linux")'.dependencies]
+gst-gl-egl = { package = "gstreamer-gl-egl", version = "0.23.5" }
+glutin_egl_sys = "0.7.1"

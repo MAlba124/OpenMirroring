@@ -18,6 +18,7 @@
 use std::sync::{Arc, Mutex};
 
 use anyhow::Result;
+use common::video::GstGlContext;
 use gst::glib;
 use gst::prelude::*;
 use log::{debug, error};
@@ -25,12 +26,10 @@ use tokio::sync::mpsc::{Receiver, Sender};
 use transmission_sink::TransmissionSink;
 use transmission_sink::{hls::HlsSink, webrtc::WebrtcSink};
 
-#[cfg(egl_preview)]
 use gst_gl::prelude::*;
 
 use crate::Event;
 
-pub mod preview_sink;
 mod transmission_sink;
 
 pub struct Pipeline {
@@ -38,7 +37,6 @@ pub struct Pipeline {
     tx_sink: Arc<tokio::sync::Mutex<Option<Box<dyn TransmissionSink>>>>,
     tee: gst::Element,
     preview_queue: gst::Element,
-    #[cfg(egl_preview)]
     preview_appsink: gst::Element,
 }
 
@@ -46,11 +44,8 @@ impl Pipeline {
     pub fn new(
         event_tx: Sender<Event>,
         selected_rx: Receiver<usize>,
-        #[cfg(egl_preview)] preview_appsink: gst::Element,
-        #[cfg(egl_preview)] gst_egl_context: Arc<
-            Mutex<Option<(gst_gl::GLContext, gst_gl_egl::GLDisplayEGL)>>,
-        >,
-        #[cfg(not(egl_preview))] slint_sink: preview_sink::software::SlintSwSink,
+        preview_appsink: gst::Element,
+        gst_gl_context: GstGlContext,
     ) -> Result<Self> {
         let tee = gst::ElementFactory::make("tee").build()?;
         let scapsrc = gst::ElementFactory::make("scapsrc")
@@ -115,7 +110,6 @@ impl Pipeline {
                         .blocking_send(crate::Event::PipelineFinished)
                         .unwrap();
                 }
-                #[cfg(egl_preview)]
                 MessageView::NeedContext(ctx) => {
                     let ctx_type = ctx.context_type();
 
@@ -124,7 +118,7 @@ impl Pipeline {
                             .src()
                             .and_then(|source| source.downcast_ref::<gst::Element>())
                         {
-                            let g = gst_egl_context.lock().unwrap();
+                            let g = gst_gl_context.lock().unwrap();
                             if let Some((_, gst_gl_display)) = g.as_ref() {
                                 let gst_context = gst::Context::new(ctx_type, true);
                                 gst_context.set_gl_display(gst_gl_display);
@@ -138,7 +132,7 @@ impl Pipeline {
                         {
                             let mut gst_context = gst::Context::new(ctx_type, true);
                             {
-                                let g = gst_egl_context.lock().unwrap();
+                                let g = gst_gl_context.lock().unwrap();
                                 if let Some((gst_gl_context, _)) = g.as_ref() {
                                     let gst_context = gst_context.get_mut().unwrap();
                                     let structure = gst_context.structure_mut();
@@ -181,28 +175,9 @@ impl Pipeline {
             Some(res.to_value())
         });
 
-        #[cfg(egl_preview)]
-        {
-            pipeline.add_many([&scapsrc, &tee, &preview_queue, &preview_appsink])?;
-            gst::Element::link_many([&scapsrc, &tee])?;
-            gst::Element::link_many([&preview_queue, &preview_appsink])?;
-        }
-        #[cfg(not(egl_preview))]
-        {
-            // TODO: Put queue into the SlintSwSink
-            pipeline.add_many([&scapsrc, &tee, &preview_queue, slint_sink.bin.upcast_ref()])?;
-            gst::Element::link_many([&scapsrc, &tee])?;
-
-            let Some(convert_pad) = slint_sink.convert.static_pad("sink") else {
-                anyhow::bail!("Unable to get static sink pad from preview convert");
-            };
-
-            let bin_sink_ghost_pad = gst::GhostPad::with_target(&convert_pad)?;
-            bin_sink_ghost_pad.set_active(true)?;
-            slint_sink.bin.add_pad(&bin_sink_ghost_pad)?;
-
-            preview_queue.link(&slint_sink.bin)?;
-        }
+        pipeline.add_many([&scapsrc, &tee, &preview_queue, &preview_appsink])?;
+        gst::Element::link_many([&scapsrc, &tee])?;
+        gst::Element::link_many([&preview_queue, &preview_appsink])?;
 
         let tee_preview_pad = tee.request_pad_simple("src_%u").map_or_else(
             || Err(glib::bool_error!("`request_pad_simple()` failed")),
@@ -228,19 +203,15 @@ impl Pipeline {
             tx_sink,
             tee,
             preview_queue,
-            #[cfg(egl_preview)]
             preview_appsink,
         })
     }
 
     pub async fn shutdown(&self) -> Result<()> {
         self.inner.set_state(gst::State::Null)?;
-        #[cfg(egl_preview)]
-        {
-            // Required for EGL because the element can be re-used later
-            self.preview_queue.unlink(&self.preview_appsink);
-            self.inner.remove(&self.preview_appsink)?;
-        }
+
+        self.preview_queue.unlink(&self.preview_appsink);
+        self.inner.remove(&self.preview_appsink)?;
 
         let mut tx_sink = self.tx_sink.lock().await;
         if let Some(sink) = &mut (*tx_sink) {
