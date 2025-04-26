@@ -1,16 +1,20 @@
+use anyhow::{bail, Result};
 use common::runtime;
+use common::video_preview::software::SlintSwSink;
 use fcast_lib::models::PlaybackUpdateMessage;
 use fcast_lib::packet::Packet;
 use gst::{prelude::*, SeekFlags};
 use log::{debug, error, warn};
 use receiver::dispatcher::Dispatcher;
+use receiver::pipeline::Pipeline;
 use receiver::session::Session;
 use receiver::{AtomicF64, Event, GuiEvent};
-use anyhow::Result;
+use tokio::sync::mpsc::{self, Receiver, Sender};
+use tokio::sync::oneshot;
 
 use std::cell::RefCell;
 use std::net::Ipv4Addr;
-use std::sync::Arc;
+// use std::sync::{mpsc, Arc};
 
 // use gtk::prelude::*;
 // use gtk::{glib, Application, ApplicationWindow};
@@ -254,21 +258,106 @@ fn current_time_millis() -> u64 {
 //     });
 // }
 
+async fn event_loop(
+    mut event_rx: Receiver<Event>,
+    event_tx: Sender<Event>,
+    ui_weak: slint::Weak<MainWindow>,
+    fin_tx: oneshot::Sender<()>,
+) -> Result<()> {
+    let (updates_tx, _) = tokio::sync::broadcast::channel(10);
+
+    let new_frame_cb = |ui: MainWindow, new_frame| {
+        ui.set_preview_frame(new_frame);
+    };
+    let preview = SlintSwSink::new(ui_weak.clone(), new_frame_cb)?;
+
+    let pipeline = Pipeline::new(preview)?;
+
+    while let Some(event) = event_rx.recv().await {
+        match event {
+            Event::CreateSessionRequest { stream, id } => {
+                debug!("Got CreateSessionRequest id={id}");
+                runtime()
+                    .spawn(Session::new(stream, event_tx.clone(), id).run(updates_tx.subscribe()));
+            }
+            Event::Pause => pipeline.pause()?,
+            Event::Play(play_message) => {
+                pipeline.set_playback_uri(&play_message.url.unwrap())?;
+                pipeline.play_or_resume()?;
+                ui_weak.upgrade_in_event_loop(|ui| {
+                    ui.set_playing(true);
+                })?
+            }
+            Event::Resume => pipeline.play_or_resume()?,
+            Event::Stop => {
+                pipeline.stop()?;
+                ui_weak.upgrade_in_event_loop(|ui| {
+                    ui.set_playing(false);
+                })?;
+            }
+            Event::SetSpeed(set_speed_message) => pipeline.set_speed(set_speed_message.speed)?,
+            Event::Seek(seek_message) => pipeline.seek(seek_message.time)?,
+            Event::SetVolume(set_volume_message) => pipeline.set_volume(set_volume_message.volume),
+            Event::PlaybackUpdate {
+                time,
+                duration,
+                state,
+                speed,
+            } => debug!("playback update"),
+            Event::Quit => break,
+        }
+    }
+
+    if fin_tx.send(()).is_err() {
+        bail!("Failed to send fin");
+    }
+
+    Ok(())
+}
+
 fn main() -> Result<()> {
     env_logger::Builder::from_default_env()
         .filter_module("receiver", common::default_log_level())
         .init();
 
     gst::init()?;
-    // gst_gtk4::plugin_register_static().unwrap();
 
-    // let app = Application::builder()
-    //     .application_id("com.github.malba124.OpenMirroring.receiver")
-    //     .build();
+    let mut ips: Vec<Ipv4Addr> = Vec::new();
+    for ip in common::net::get_all_ip_addresses() {
+        match ip {
+            std::net::IpAddr::V4(v4) => ips.push(v4),
+            std::net::IpAddr::V6(v6) => warn!("Found IPv6 address ({v6:?}), ignoring"),
+        }
+    }
 
-    // app.connect_activate(build_ui);
+    let (event_tx, event_rx) = mpsc::channel::<Event>(100);
+    let (fin_tx, fin_rx) = oneshot::channel::<()>();
 
-    // app.run()
+    let ui = MainWindow::new()?;
+    slint::set_xdg_app_id("com.github.malba124.OpenMirroring.receiver")?;
+
+    common::runtime().spawn(event_loop(event_rx, event_tx.clone(), ui.as_weak(), fin_tx));
+
+    {
+        let event_tx = event_tx.clone();
+        runtime().spawn(async move {
+            Dispatcher::new(event_tx)
+                .await
+                .unwrap()
+                .run()
+                .await
+                .unwrap();
+        });
+    }
+
+    ui.set_label(format!("Listening on {ips:?}:46899").into());
+
+    ui.run()?;
+
+    runtime().block_on(async move {
+        event_tx.blocking_send(Event::Quit).unwrap();
+        fin_rx.await.unwrap();
+    });
 
     Ok(())
 }

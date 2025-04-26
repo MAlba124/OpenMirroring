@@ -1075,9 +1075,15 @@ dependencies = [
 name = "common"
 version = "0.1.0"
 dependencies = [
+ "anyhow",
+ "glow",
+ "gstreamer",
+ "gstreamer-app",
+ "gstreamer-video",
  "ipnetwork",
  "log",
  "pnet_datalink",
+ "slint",
  "tokio",
  "windows 0.60.0",
 ]

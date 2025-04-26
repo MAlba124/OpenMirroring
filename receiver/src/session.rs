@@ -50,7 +50,7 @@ impl Session {
         Packet::decode(header, &body_string).map_err(|e| tokio::io::Error::other(e.to_string()))
     }
 
-    pub async fn work(mut self, mut updates_rx: tokio::sync::broadcast::Receiver<Vec<u8>>) {
+    pub async fn run(mut self, mut updates_rx: tokio::sync::broadcast::Receiver<Vec<u8>>) {
         debug!("id={} Session was started", self.id);
         loop {
             tokio::select! {

@@ -19,8 +19,10 @@ use sender::{pipeline, Event, Message};
 
 slint::include_modules!();
 
+// TODO: rename
 #[cfg(egl_preview)]
-type GstEglContext = Arc<Mutex<Option<(gst_gl::GLContext, gst_gl_egl::GLDisplayEGL)>>>;
+type GstEglContext = Arc<Mutex<Option<(gst_gl::GLContext, gst_gl::GLDisplay)>>>;
+// type GstEglContext = Arc<Mutex<Option<(gst_gl::GLContext, gst_gl_egl::GLDisplayEGL)>>>;
 
 struct Application {
     pipeline: pipeline::Pipeline,
@@ -260,7 +262,8 @@ impl Application {
                     })?;
                 }
                 Event::ChangeSource | Event::PipelineFinished => {
-                    self.shutdown_pipeline_and_create_new_and_update_ui().await?;
+                    self.shutdown_pipeline_and_create_new_and_update_ui()
+                        .await?;
                 }
             }
         }
@@ -302,9 +305,7 @@ impl Application {
 
         self.ui_weak.upgrade_in_event_loop(|ui| {
             ui.set_has_source(false);
-            ui.set_sources_model(
-                Rc::new(slint::VecModel::<slint::SharedString>::default()).into(),
-            );
+            ui.set_sources_model(Rc::new(slint::VecModel::<slint::SharedString>::default()).into());
         })?;
 
         Ok(())
@@ -338,7 +339,8 @@ fn main() -> Result<()> {
     let slint_appsink = slint_sink.video_sink();
     #[cfg(egl_preview)]
     let gst_egl_context = Arc::new(Mutex::new(
-        None::<(gst_gl::GLContext, gst_gl_egl::GLDisplayEGL)>,
+        // None::<(gst_gl::GLContext, gst_gl_egl::GLDisplayEGL)>,
+        None::<(gst_gl::GLContext, gst_gl::GLDisplay)>,
     ));
 
     // #[cfg(not(egl_preview))]
@@ -362,16 +364,20 @@ fn main() -> Result<()> {
             slint::RenderingState::RenderingSetup => {
                 let ui_weak = ui_weak.clone();
                 let mut gst_egl_context = gst_egl_context.lock().unwrap();
-                *gst_egl_context = Some(slint_sink.connect(
-                    graphics_api,
-                    Box::new(move || {
-                        ui_weak
-                            .upgrade_in_event_loop(move |ui| {
-                                ui.window().request_redraw();
-                            })
-                            .ok();
-                    }),
-                ));
+                *gst_egl_context = Some(
+                    slint_sink
+                        .connect(
+                            graphics_api,
+                            Box::new(move || {
+                                ui_weak
+                                    .upgrade_in_event_loop(move |ui| {
+                                        ui.window().request_redraw();
+                                    })
+                                    .ok();
+                            }),
+                        )
+                        .unwrap(),
+                );
             }
             slint::RenderingState::BeforeRendering => {
                 if let Some(next_frame) = slint_sink.fetch_next_frame() {

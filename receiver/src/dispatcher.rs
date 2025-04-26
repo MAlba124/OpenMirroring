@@ -1,3 +1,4 @@
+use anyhow::Result;
 use log::info;
 use simple_mdns::async_discovery::ServiceDiscovery;
 use tokio::net::TcpListener;
@@ -11,7 +12,7 @@ pub struct Dispatcher {
 }
 
 impl Dispatcher {
-    pub async fn new(event_tx: tokio::sync::mpsc::Sender<Event>) -> tokio::io::Result<Self> {
+    pub async fn new(event_tx: tokio::sync::mpsc::Sender<Event>) -> Result<Self> {
         let listener = TcpListener::bind("0.0.0.0:46899").await?;
 
         let instance_info = {
@@ -42,6 +43,7 @@ impl Dispatcher {
     }
 
     // TODO: Websocket listener
+    // TODO: Fin oneshot
     pub async fn run(self) -> tokio::io::Result<()> {
         info!("Listening on {:?}", self.listener.local_addr());
 

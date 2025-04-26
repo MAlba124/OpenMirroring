@@ -31,8 +31,9 @@ impl Pipeline {
         selected_rx: Receiver<usize>,
         #[cfg(egl_preview)] preview_appsink: gst::Element,
         #[cfg(egl_preview)] gst_egl_context: Arc<
-            Mutex<Option<(gst_gl::GLContext, gst_gl_egl::GLDisplayEGL)>>,
+            Mutex<Option<(gst_gl::GLContext, gst_gl::GLDisplay)>>,
         >,
+            // Mutex<Option<(gst_gl::GLContext, gst_gl_egl::GLDisplayEGL)>>,
         #[cfg(not(egl_preview))] slint_sink: preview_sink::software::SlintSwSink,
     ) -> Result<Self> {
         let tee = gst::ElementFactory::make("tee").build()?;
@@ -82,7 +83,9 @@ impl Pipeline {
                     }
                 }
                 MessageView::Eos(..) => {
-                    event_tx_clone.blocking_send(crate::Event::PipelineFinished).unwrap();
+                    event_tx_clone
+                        .blocking_send(crate::Event::PipelineFinished)
+                        .unwrap();
                 }
                 MessageView::Error(err) => {
                     error!(
@@ -91,7 +94,9 @@ impl Pipeline {
                         err.error(),
                         err.debug()
                     );
-                    event_tx_clone.blocking_send(crate::Event::PipelineFinished).unwrap();
+                    event_tx_clone
+                        .blocking_send(crate::Event::PipelineFinished)
+                        .unwrap();
                 }
                 #[cfg(egl_preview)]
                 MessageView::NeedContext(ctx) => {
@@ -167,7 +172,6 @@ impl Pipeline {
         }
         #[cfg(not(egl_preview))]
         {
-            // TODO: Put queue into the SlintSwSink
             pipeline.add_many([&src, &tee, &preview_queue, slint_sink.bin.upcast_ref()])?;
             gst::Element::link_many([&src, &tee])?;
 

@@ -6,6 +6,7 @@ members = [ "fcast-lib", "common", "receiver", "sender", "scap", "scap-gstreamer
 gst-video = { package = "gstreamer-video", version = "0.23.5" }
 gst-webrtc = { package = "gst-plugin-webrtc", version = "0.13.5", default-features = false, features = ["v1_22"] }
 gst-gtk4 = { package = "gst-plugin-gtk4", version = "0.13.5" }
+gst-app = { package = "gstreamer-app", version = "0.23.5" }
 gst = { package = "gstreamer", version = "0.23.5" }
 gtk4 = { version = "0.9.6", features = ["v4_6"] }
 tokio = { version = "1", features = ["net", "io-util", "macros", "sync", "rt-multi-thread", "time"] }

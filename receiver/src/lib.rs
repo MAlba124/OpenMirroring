@@ -6,8 +6,9 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use tokio::net::TcpStream;
 
 pub mod dispatcher;
+pub mod pipeline;
 pub mod session;
-pub mod video;
+// pub mod video;
 
 #[derive(Debug)]
 pub enum GuiEvent {
@@ -40,6 +41,7 @@ pub enum Event {
         state: PlaybackState,
         speed: f64,
     },
+    Quit,
 }
 
 pub struct AtomicF64 {
