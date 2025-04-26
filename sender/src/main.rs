@@ -86,8 +86,7 @@ impl Application {
         ui_weak.upgrade_in_event_loop({
             move |_ui| {
                 let pipeline = {
-                    pipeline::Pipeline::new(event_tx, selected_rx, appsink, gst_gl_context)
-                        .unwrap()
+                    pipeline::Pipeline::new(event_tx, selected_rx, appsink, gst_gl_context).unwrap()
                 };
                 if pipeline_tx.send(pipeline).is_err() {
                     panic!("Failed to send pipeline");
@@ -326,9 +325,7 @@ fn main() -> Result<()> {
     // This sink is used in every consecutively created pipelines
     let mut slint_sink = SlintOpenGLSink::new()?;
     let slint_appsink = slint_sink.video_sink();
-    let gst_gl_context = Arc::new(Mutex::new(
-        None::<(gst_gl::GLContext, gst_gl::GLDisplay)>,
-    ));
+    let gst_gl_context = Arc::new(Mutex::new(None::<(gst_gl::GLContext, gst_gl::GLDisplay)>));
 
     let ui = MainWindow::new()?;
     slint::set_xdg_app_id("com.github.malba124.OpenMirroring.sender")?;
@@ -379,15 +376,10 @@ fn main() -> Result<()> {
         let event_tx = event_tx.clone();
         let session_tx = session_tx.clone();
         async move {
-            let mut app = Application::new(
-                ui_weak,
-                event_tx,
-                session_tx,
-                slint_appsink,
-                gst_gl_context,
-            )
-            .await
-            .unwrap();
+            let mut app =
+                Application::new(ui_weak, event_tx, session_tx, slint_appsink, gst_gl_context)
+                    .await
+                    .unwrap();
             app.run_event_loop(event_rx, fin_tx).await.unwrap();
         }
     });
