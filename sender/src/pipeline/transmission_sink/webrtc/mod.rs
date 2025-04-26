@@ -1,3 +1,20 @@
+// Copyright (C) 2025 Marcus L. Hanestad <marlhan@proton.me>
+//
+// This file is part of OpenMirroring.
+//
+// OpenMirroring is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// OpenMirroring is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with OpenMirroring.  If not, see <https://www.gnu.org/licenses/>.
+
 use std::sync::Arc;
 use std::sync::Mutex;
 
@@ -85,15 +102,17 @@ impl WebrtcSink {
 
 #[async_trait::async_trait]
 impl TransmissionSink for WebrtcSink {
-    fn get_play_msg(&self) -> Option<crate::Message> {
+    fn get_play_msg(&self) -> Option<crate::SessionMessage> {
         let peer_id = self.peer_id.lock().unwrap();
-        (*peer_id).as_ref().map(|producer_id| crate::Message::Play {
-            mime: GST_WEBRTC_MIME_TYPE.to_owned(),
-            uri: format!(
-                "gstwebrtc://{}:8443?peer-id={producer_id}",
-                get_default_ipv4_addr(),
-            ),
-        })
+        (*peer_id)
+            .as_ref()
+            .map(|producer_id| crate::SessionMessage::Play {
+                mime: GST_WEBRTC_MIME_TYPE.to_owned(),
+                uri: format!(
+                    "gstwebrtc://{}:8443?peer-id={producer_id}",
+                    get_default_ipv4_addr(),
+                ),
+            })
     }
 
     async fn playing(&mut self) {}
