@@ -3,6 +3,8 @@ use std::{
     sync::{Arc, Mutex},
 };
 
+use anyhow::{bail, Context, Result};
+
 use crate::targets::{self, LinuxDisplay, LinuxWindow};
 
 use super::{Display, Target};
@@ -86,7 +88,7 @@ fn decode_compound_text(
     }
 }
 
-fn get_x11_targets() -> Result<Vec<Target>, xcb::Error> {
+fn get_x11_targets() -> Result<Vec<Target>> {
     let (conn, _screen_num) =
         xcb::Connection::connect_with_xlib_display_and_extensions(&[xcb::Extension::RandR], &[])?;
     let setup = conn.get_setup();
@@ -186,20 +188,17 @@ fn get_x11_targets() -> Result<Vec<Target>, xcb::Error> {
     Ok(targets)
 }
 
-pub fn get_all_targets() -> Vec<Target> {
+pub fn get_all_targets() -> Result<Vec<Target>> {
     if std::env::var("WAYLAND_DISPLAY").is_ok() {
-        vec![targets::Target::Display(get_main_display())]
+        Ok(vec![targets::Target::Display(get_main_display()?)])
     } else if std::env::var("DISPLAY").is_ok() {
-        get_x11_targets().unwrap()
+        get_x11_targets()
     } else {
-        panic!("Unsupported platform. Could not detect Wayland or X11 displays")
+        bail!("Unsupported platform. Could not detect Wayland or X11 displays")
     }
 }
 
-pub(crate) fn get_default_x_display(
-    conn: &xcb::Connection,
-    screen: &Screen,
-) -> Result<Display, xcb::Error> {
+pub(crate) fn get_default_x_display(conn: &xcb::Connection, screen: &Screen) -> Result<Display> {
     let primary_display_cookie = conn.send_request(&GetOutputPrimary {
         window: screen.root(),
     });
@@ -229,30 +228,32 @@ pub(crate) fn get_default_x_display(
 }
 
 mod portal;
-pub fn get_main_display() -> Display {
+pub fn get_main_display() -> Result<Display> {
     if std::env::var("WAYLAND_DISPLAY").is_ok() {
         let connection =
             dbus::blocking::Connection::new_session().expect("Failed to create dbus connection");
         let stream_id = portal::ScreenCastPortal::new(&connection)
             .show_cursor(true)
-            .expect("Unsupported cursor mode")
+            .context("Unsupported cursor mode")?
             .create_stream()
-            .expect("Failed to get screencast stream")
+            .context("Failed to get screencast stream")?
             .pw_node_id();
-        Display {
+        Ok(Display {
             id: stream_id,
             title: "Display".to_owned(),
             raw: LinuxDisplay::Wayland {
                 connection: Arc::new(Mutex::new(connection)),
             },
-        }
+        })
     } else if std::env::var("DISPLAY").is_ok() {
         let (conn, screen_num) =
-            xcb::Connection::connect_with_extensions(None, &[xcb::Extension::RandR], &[]).unwrap();
+            xcb::Connection::connect_with_extensions(None, &[xcb::Extension::RandR], &[])?;
         let setup = conn.get_setup();
-        let screen = setup.roots().nth(screen_num as usize).unwrap();
-        get_default_x_display(&conn, screen).unwrap()
+        let Some(screen) = setup.roots().nth(screen_num as usize) else {
+            bail!("Unable to get x11 root");
+        };
+        get_default_x_display(&conn, screen)
     } else {
-        panic!("Unsupported platform. Could not detect Wayland or X11 displays")
+        bail!("Unsupported platform. Could not detect Wayland or X11 displays")
     }
 }

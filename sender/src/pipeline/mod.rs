@@ -15,6 +15,7 @@
 // You should have received a copy of the GNU General Public License
 // along with OpenMirroring.  If not, see <https://www.gnu.org/licenses/>.
 
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
 use anyhow::Result;
@@ -71,6 +72,7 @@ impl Pipeline {
         let pipeline_weak = pipeline.downgrade();
         let tx_sink_clone = Arc::clone(&tx_sink);
         let event_tx_clone = event_tx.clone();
+        let pipeline_has_finished = AtomicBool::new(false);
         bus.set_sync_handler(move |_, msg| {
             use gst::MessageView;
 
@@ -95,9 +97,12 @@ impl Pipeline {
                     }
                 }
                 MessageView::Eos(..) => {
-                    event_tx_clone
-                        .blocking_send(crate::Event::PipelineFinished)
-                        .unwrap();
+                    if !pipeline_has_finished.load(Ordering::Acquire) {
+                        event_tx_clone
+                            .blocking_send(crate::Event::PipelineFinished)
+                            .unwrap();
+                        pipeline_has_finished.store(true, Ordering::Release);
+                    }
                 }
                 MessageView::Error(err) => {
                     error!(
@@ -106,9 +111,12 @@ impl Pipeline {
                         err.error(),
                         err.debug()
                     );
-                    event_tx_clone
-                        .blocking_send(crate::Event::PipelineFinished)
-                        .unwrap();
+                    if !pipeline_has_finished.load(Ordering::Acquire) {
+                        event_tx_clone
+                            .blocking_send(crate::Event::PipelineFinished)
+                            .unwrap();
+                        pipeline_has_finished.store(true, Ordering::Release);
+                    }
                 }
                 MessageView::NeedContext(ctx) => {
                     let ctx_type = ctx.context_type();
@@ -194,7 +202,9 @@ impl Pipeline {
             let pipeline = pipeline.clone();
             move || {
                 debug!("Starting pipeline");
-                pipeline.set_state(gst::State::Playing).unwrap();
+                if let Err(err) = pipeline.set_state(gst::State::Playing) {
+                    error!("Failed to start pipeline: {err}");
+                }
             }
         });
 

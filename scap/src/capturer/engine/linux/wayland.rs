@@ -31,13 +31,15 @@ use pw::{
     stream::{StreamRef, StreamState},
 };
 
+use anyhow::Result;
+
 use crate::{
     capturer::{OnFormatChangedCb, OnFrameCb, Options},
     frame::FrameInfo,
     targets::get_main_display,
 };
 
-use super::{error::LinCapError, LinuxCapturerImpl};
+use super::LinuxCapturerImpl;
 
 struct ListenerUserData {
     pub stream_state_changed_to_error: Arc<AtomicBool>,
@@ -250,7 +252,7 @@ fn pipewire_capturer(
     stream_state_changed_to_error: Arc<AtomicBool>,
     on_format_changed: OnFormatChangedCb,
     on_frame: OnFrameCb,
-) -> Result<(), LinCapError> {
+) -> Result<()> {
     pw::init();
 
     let mainloop = MainLoop::new(None)?;
@@ -376,7 +378,7 @@ fn pipewire_capturer(
 }
 
 pub struct WaylandCapturer {
-    capturer_join_handle: Option<JoinHandle<Result<(), LinCapError>>>,
+    capturer_join_handle: Option<JoinHandle<Result<()>>>,
     capturer_state: Arc<AtomicU8>,
     stream_state_changed_to_error: Arc<AtomicBool>,
     // The pipewire stream is deleted when the connection is dropped.
@@ -390,7 +392,7 @@ impl WaylandCapturer {
         options: Options,
         on_format_changed: OnFormatChangedCb,
         on_frame: OnFrameCb,
-    ) -> Self {
+    ) -> Result<Self> {
         let capturer_state = Arc::new(AtomicU8::new(0));
         let stream_state_changed_to_error = Arc::new(AtomicBool::new(false));
 
@@ -406,7 +408,7 @@ impl WaylandCapturer {
                 _ => unreachable!(),
             },
             None => {
-                let target = get_main_display();
+                let target = get_main_display()?;
                 match target.raw {
                     crate::targets::LinuxDisplay::Wayland { connection } => {
                         let stream_id = target.id;
@@ -436,26 +438,26 @@ impl WaylandCapturer {
             res
         });
 
-        if !ready_recv.recv().expect("Failed to receive") {
+        if !ready_recv.recv()? {
             panic!("Failed to setup capturer");
         }
 
-        Self {
+        Ok(Self {
             capturer_join_handle: Some(capturer_join_handle),
             _connection: connection,
             capturer_state,
             stream_state_changed_to_error,
-        }
+        })
     }
 }
 
 impl LinuxCapturerImpl for WaylandCapturer {
-    fn start_capture(&mut self) {
+    fn start(&mut self) {
         self.capturer_state
             .store(1, std::sync::atomic::Ordering::SeqCst);
     }
 
-    fn stop_capture(&mut self) {
+    fn stop(&mut self) {
         self.capturer_state
             .store(2, std::sync::atomic::Ordering::SeqCst);
         if let Some(handle) = self.capturer_join_handle.take() {

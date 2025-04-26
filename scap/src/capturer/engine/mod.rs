@@ -1,3 +1,5 @@
+use anyhow::Result;
+
 use super::{OnFormatChangedCb, OnFrameCb, Options};
 
 #[cfg(target_os = "macos")]
@@ -33,25 +35,25 @@ impl Engine {
         options: Options,
         on_format_changed: OnFormatChangedCb,
         on_frame: OnFrameCb,
-    ) -> Engine {
+    ) -> Result<Engine> {
         #[cfg(target_os = "macos")]
         {
             let error_flag = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
             let mac = mac::create_capturer(options, tx, error_flag.clone());
 
-            Engine { mac, error_flag }
+            Ok(Engine { mac, error_flag })
         }
 
         #[cfg(target_os = "windows")]
         {
             let win = win::create_capturer(&options, on_format_changed, on_frame);
-            return Engine { win };
+            Ok(Engine { win })
         }
 
         #[cfg(target_os = "linux")]
         {
-            let linux = linux::create_capturer(options, on_format_changed, on_frame);
-            Engine { linux }
+            let linux = linux::create_capturer(options, on_format_changed, on_frame)?;
+            Ok(Engine { linux })
         }
     }
 
@@ -69,7 +71,7 @@ impl Engine {
 
         #[cfg(target_os = "linux")]
         {
-            self.linux.imp.start_capture();
+            self.linux.imp.start();
         }
     }
 
@@ -86,7 +88,7 @@ impl Engine {
 
         #[cfg(target_os = "linux")]
         {
-            self.linux.imp.stop_capture();
+            self.linux.imp.stop();
         }
     }
 

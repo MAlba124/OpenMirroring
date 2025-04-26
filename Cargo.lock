@@ -5420,6 +5420,7 @@ dependencies = [
 name = "scap"
 version = "0.0.8"
 dependencies = [
+ "anyhow",
  "cocoa",
  "core-graphics-helmer-fork",
  "dbus",

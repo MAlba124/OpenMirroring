@@ -288,7 +288,10 @@ impl BaseSrcImpl for ScapSrc {
             capturer.stop_capture();
         }
 
-        let targets = scap::get_all_targets();
+        let targets = match scap::get_all_targets() {
+            Ok(t) => t,
+            Err(err) => return Err(gst::error_msg!(gst::LibraryError::Init, ["{err}"])),
+        };
         if targets.is_empty() {
             gst::error!(CAT, imp = self, "No sources available to capture");
             return Err(gst::error_msg!(
