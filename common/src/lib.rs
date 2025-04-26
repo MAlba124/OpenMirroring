@@ -2,7 +2,7 @@ use std::sync::OnceLock;
 use tokio::runtime::Runtime;
 
 pub mod net;
-pub mod video_preview;
+pub mod video;
 
 pub fn runtime() -> &'static Runtime {
     static RUNTIME: OnceLock<Runtime> = OnceLock::new();

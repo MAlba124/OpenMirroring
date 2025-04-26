@@ -4,7 +4,7 @@ use std::sync::{Arc, Mutex};
 use gst_gl::prelude::*;
 use log::error;
 
-// Taken from the slint gstreamer example at: https://github.com/slint-ui/slint/blob/2edd97bf8b8dc4dc26b578df6b15ea3297447444/examples/gstreamer-player/egl_integration.rs
+// Taken partially from the slint gstreamer example at: https://github.com/slint-ui/slint/blob/2edd97bf8b8dc4dc26b578df6b15ea3297447444/examples/gstreamer-player/egl_integration.rs
 pub struct SlintOpenGLSink {
     appsink: gst_app::AppSink,
     glsink: gst::Element,
@@ -79,9 +79,7 @@ impl SlintOpenGLSink {
     }
 
     #[cfg(target_os = "windows")]
-    fn get_wgl_ctx(
-        graphics_api: &slint::GraphicsAPI<'_>,
-    ) -> Result<(gst_gl::GLContext, gst_gl::GLDisplay)> {
+    fn get_wgl_ctx() -> Result<(gst_gl::GLContext, gst_gl::GLDisplay)> {
         use anyhow::bail;
 
         let platform = gst_gl::GLPlatform::WGL;
@@ -111,47 +109,11 @@ impl SlintOpenGLSink {
         &mut self,
         graphics_api: &slint::GraphicsAPI<'_>,
         next_frame_available_notifier: Box<dyn Fn() + Send>,
-        // ) -> (gst_gl::GLContext, gst_gl_egl::GLDisplayEGL) {
     ) -> Result<(gst_gl::GLContext, gst_gl::GLDisplay)> {
-        // let egl = match graphics_api {
-        //     slint::GraphicsAPI::NativeOpenGL { get_proc_address } => {
-        //         glutin_egl_sys::egl::Egl::load_with(|symbol| {
-        //             get_proc_address(&std::ffi::CString::new(symbol).unwrap())
-        //         })
-        //     }
-        //     _ => panic!("unsupported graphics API"),
-        // };
-
-        // let (gst_gl_context, gst_gl_display) = {
-        //     #[cfg(target_os = "linux")]
-        //     let platform = gst_gl::GLPlatform::EGL;
-        //     // #[cfg(target_os = "windows")]
-        //     {}
-
-        //     let egl_display = unsafe { egl.GetCurrentDisplay() };
-        //     let display = unsafe {
-        //         gst_gl_egl::GLDisplayEGL::with_egl_display(egl_display as usize).unwrap()
-        //     };
-        //     let native_context = unsafe { egl.GetCurrentContext() };
-
-        //     (
-        //         unsafe {
-        //             gst_gl::GLContext::new_wrapped(
-        //                 &display,
-        //                 native_context as _,
-        //                 platform,
-        //                 gst_gl::GLContext::current_gl_api(platform).0,
-        //             )
-        //             .expect("unable to create wrapped GL context")
-        //         },
-        //         display,
-        //     )
-        // };
-
         #[cfg(target_os = "linux")]
         let (gst_gl_context, gst_gl_display) = Self::get_egl_ctx(graphics_api)?;
         #[cfg(target_os = "windows")]
-        let (gst_gl_context, gst_gl_display) = Self::get_wgl_ctx(graphics_api)?;
+        let (gst_gl_context, gst_gl_display) = Self::get_wgl_ctx()?;
 
         gst_gl_context
             .activate(true)

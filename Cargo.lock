@@ -1076,9 +1076,11 @@ name = "common"
 version = "0.1.0"
 dependencies = [
  "anyhow",
- "glow",
+ "glutin_egl_sys",
  "gstreamer",
  "gstreamer-app",
+ "gstreamer-gl",
+ "gstreamer-gl-egl",
  "gstreamer-video",
  "ipnetwork",
  "log",
@@ -5225,6 +5227,7 @@ dependencies = [
  "fcast-lib",
  "gethostname 1.0.1",
  "gstreamer",
+ "gstreamer-gl",
  "gstreamer-video",
  "log",
  "simple-mdns",
@@ -5547,7 +5550,6 @@ dependencies = [
  "async-trait",
  "async-tungstenite",
  "bytes",
- "cfg_aliases",
  "common",
  "env_logger 0.11.6",
  "fcast-lib",

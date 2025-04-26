@@ -11,8 +11,8 @@ gst = { workspace = true }
 gst-video = { workspace = true }
 gst-webrtc = { workspace = true }
 gst-app = { workspace = true }
+gst-gl = { workspace = true }
 gst-pbutils = { package = "gstreamer-pbutils", version = "0.23.5", features = [ "v1_22" ] }
-gst-gl = { package = "gstreamer-gl", version = "0.23.5", features = ["v1_20"] }
 m3u8-rs = "6.0.0"
 gio = "0.20.9"
 async-tungstenite = { version = "0.29", features = ["tokio-runtime"] }
@@ -37,7 +37,6 @@ glutin_egl_sys = "0.7.1"
 
 [build-dependencies]
 slint-build = { workspace = true }
-cfg_aliases = "0.2.1"
 
 [dev-dependencies]
 quickcheck = "1"
