@@ -304,7 +304,7 @@ impl BaseSrcImpl for ScapSrc {
             &[&targets.iter().map(|t| t.title()).collect::<Vec<String>>()],
         );
 
-        let (event_tx, event_rx) = crossbeam_channel::bounded::<Event>(1);
+        let (event_tx, event_rx) = crossbeam_channel::bounded::<Event>(2);
 
         let event_tx_clone = event_tx.clone();
         let on_format_changed = move |new_format: FrameInfo| {

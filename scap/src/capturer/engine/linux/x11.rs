@@ -346,6 +346,8 @@ impl X11Capturer {
             while capturer_state_clone.load(Ordering::Acquire) == 1 {
                 let start = std::time::Instant::now();
 
+                // log::debug!("Grabbing...");
+
                 grab(
                     &conn,
                     &target,

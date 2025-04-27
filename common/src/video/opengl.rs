@@ -15,7 +15,7 @@
 // You should have received a copy of the GNU General Public License
 // along with OpenMirroring.  If not, see <https://www.gnu.org/licenses/>.
 
-use anyhow::Result;
+use anyhow::{bail, Result};
 use std::sync::{Arc, Mutex};
 
 use gst_gl::prelude::*;
@@ -28,6 +28,16 @@ pub struct SlintOpenGLSink {
     next_frame: Arc<Mutex<Option<(gst_video::VideoInfo, gst::Buffer)>>>,
     current_frame: Mutex<Option<gst_gl::GLVideoFrame<gst_gl::gl_video_frame::Readable>>>,
     gst_gl_context: Option<gst_gl::GLContext>,
+}
+
+fn is_on_wayland() -> Result<bool> {
+    if std::env::var("WAYLAND_DISPLAY").is_ok() {
+        Ok(true)
+    } else if std::env::var("DISPLAY").is_ok() {
+        Ok(false)
+    } else {
+        bail!("Unsupported platform")
+    }
 }
 
 impl SlintOpenGLSink {
@@ -95,6 +105,39 @@ impl SlintOpenGLSink {
         }
     }
 
+    #[cfg(target_os = "linux")]
+    fn get_glx_ctx(
+        graphics_api: &slint::GraphicsAPI<'_>,
+    ) -> Result<(gst_gl::GLContext, gst_gl::GLDisplay)> {
+        let glx = match graphics_api {
+            slint::GraphicsAPI::NativeOpenGL { get_proc_address } => {
+                glutin_glx_sys::glx::Glx::load_with(|symbol| {
+                    get_proc_address(&std::ffi::CString::new(symbol).unwrap())
+                })
+            }
+            _ => anyhow::bail!("Unsupported graphics API"),
+        };
+
+        let platform = gst_gl::GLPlatform::GLX;
+
+        unsafe {
+            let glx_display = glx.GetCurrentDisplay();
+            let display = gst_gl_x11::GLDisplayX11::with_display(glx_display as usize).unwrap();
+            let native_context = glx.GetCurrentContext();
+
+            Ok((
+                gst_gl::GLContext::new_wrapped(
+                    &display,
+                    native_context as _,
+                    platform,
+                    gst_gl::GLContext::current_gl_api(platform).0,
+                )
+                .expect("unable to create wrapped GL context"),
+                display.upcast(),
+            ))
+        }
+    }
+
     #[cfg(target_os = "windows")]
     fn get_wgl_ctx() -> Result<(gst_gl::GLContext, gst_gl::GLDisplay)> {
         use anyhow::bail;
@@ -128,7 +171,13 @@ impl SlintOpenGLSink {
         next_frame_available_notifier: Box<dyn Fn() + Send>,
     ) -> Result<(gst_gl::GLContext, gst_gl::GLDisplay)> {
         #[cfg(target_os = "linux")]
-        let (gst_gl_context, gst_gl_display) = Self::get_egl_ctx(graphics_api)?;
+        let (gst_gl_context, gst_gl_display) = {
+            if is_on_wayland()? {
+                Self::get_egl_ctx(graphics_api)?
+            } else {
+                Self::get_glx_ctx(graphics_api)?
+            }
+        };
         #[cfg(target_os = "windows")]
         let (gst_gl_context, gst_gl_display) = Self::get_wgl_ctx()?;
 

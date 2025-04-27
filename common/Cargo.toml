@@ -22,4 +22,6 @@ ipnetwork = "0.20.0"
 
 [target.'cfg(target_os = "linux")'.dependencies]
 gst-gl-egl = { package = "gstreamer-gl-egl", version = "0.23.5" }
+gst-gl-x11 = { package = "gstreamer-gl-x11", version = "0.23.5" }
 glutin_egl_sys = "0.7.1"
+glutin_glx_sys = "0.6.1"
