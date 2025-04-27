@@ -324,9 +324,7 @@ impl X11Capturer {
 
         let target = match &options.target {
             Some(t) => t.clone(),
-            None => Target::Display(
-                get_default_x_display(&conn, screen)?,
-            ),
+            None => Target::Display(get_default_x_display(&conn, screen)?),
         };
 
         let framerate = options.fps as f32;

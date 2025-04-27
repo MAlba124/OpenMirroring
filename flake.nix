@@ -48,7 +48,6 @@
             glib
             openssl
             libnice
-            gtk4
             fontconfig
           ];
         in
