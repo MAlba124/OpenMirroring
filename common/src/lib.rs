@@ -2,6 +2,8 @@ use std::sync::OnceLock;
 use tokio::runtime::Runtime;
 
 pub mod net;
+
+#[cfg(feature = "video")]
 pub mod video;
 
 pub fn runtime() -> &'static Runtime {

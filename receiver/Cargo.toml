@@ -12,7 +12,7 @@ gst-video = { workspace = true }
 gst-gl = { workspace = true }
 simple-mdns = { workspace = true }
 fcast-lib = { path = "../fcast-lib" }
-common = { path = "../common" }
+common = { path = "../common", features = ["video"] }
 gethostname = "1.0.1"
 slint = { workspace = true }
 anyhow = { workspace = true }

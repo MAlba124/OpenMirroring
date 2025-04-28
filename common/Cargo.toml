@@ -6,12 +6,12 @@ edition = "2021"
 [dependencies]
 tokio = { workspace = true }
 log = { workspace = true }
-gst = { workspace = true }
-gst-video = { workspace = true }
-gst-app = { workspace = true }
 anyhow = { workspace = true }
 slint = { workspace = true }
-gst-gl = { workspace = true }
+gst = { workspace = true, optional = true }
+gst-video = { workspace = true, optional = true }
+gst-app = { workspace = true, optional = true }
+gst-gl = { workspace = true, optional = true }
 
 [target.'cfg(target_os = "windows")'.dependencies]
 windows = { version = "0.60.0", features = ["Win32_Networking_WinSock", "Win32_NetworkManagement_Ndis", "Win32_NetworkManagement_IpHelper"] }
@@ -25,3 +25,6 @@ gst-gl-egl = { package = "gstreamer-gl-egl", version = "0.23.5" }
 gst-gl-x11 = { package = "gstreamer-gl-x11", version = "0.23.5" }
 glutin_egl_sys = "0.7.1"
 glutin_glx_sys = "0.6.1"
+
+[features]
+video = ["gst", "gst-app", "gst-video", "gst-gl"]
