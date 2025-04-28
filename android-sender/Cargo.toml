@@ -27,20 +27,13 @@ name = "omandroidsender"
 crate-type = ["cdylib"]
 
 [package.metadata.android]
-package = "com.foo.bar"
+package = "com.foo.bar" # TODO
 build_targets = [ "x86_64-linux-android" ]
 
 # See https://developer.android.com/guide/topics/manifest/uses-sdk-element
 #
 # Defaults to a `min_sdk_version` of 23 and `target_sdk_version` of 30 (or lower if the detected NDK doesn't support this).
+# TODO
 [package.metadata.android.sdk]
 min_sdk_version = 34
 target_sdk_version = 35
-
-# See https://developer.android.com/guide/topics/manifest/uses-feature-element
-#
-# Note: there can be multiple .uses_feature entries.
-[[package.metadata.android.uses_feature]]
-name = "android.hardware.vulkan.level"
-required = true
-version = 1

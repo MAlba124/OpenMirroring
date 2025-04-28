@@ -40,6 +40,7 @@
             cargo-apk
             zulu
             gnumake
+            patchelf
           ];
           buildInputs = with pkgs; [
             libGL
