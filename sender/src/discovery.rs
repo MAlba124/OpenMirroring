@@ -1,5 +1,22 @@
-use std::{collections::HashSet, net::SocketAddrV4};
+// Copyright (C) 2025 Marcus L. Hanestad <marlhan@proton.me>
+//
+// This file is part of OpenMirroring.
+//
+// OpenMirroring is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// OpenMirroring is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with OpenMirroring.  If not, see <https://www.gnu.org/licenses/>.
+
 use std::net::{Ipv4Addr, SocketAddr};
+use std::{collections::HashSet, net::SocketAddrV4};
 
 use log::{debug, error, warn};
 use simple_mdns::InstanceInformation;
@@ -31,7 +48,10 @@ pub async fn discover(tx: tokio::sync::mpsc::Sender<crate::Event>) {
 
             if addresses.is_empty() {
                 warn!("FCast receiver with no addresses, adding localhost");
-                addresses.push(SocketAddr::V4(SocketAddrV4::new(Ipv4Addr::LOCALHOST, 46899)));
+                addresses.push(SocketAddr::V4(SocketAddrV4::new(
+                    Ipv4Addr::LOCALHOST,
+                    46899,
+                )));
             }
 
             if let Err(err) = tx

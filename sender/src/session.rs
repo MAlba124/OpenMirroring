@@ -1,23 +1,38 @@
+// Copyright (C) 2025 Marcus L. Hanestad <marlhan@proton.me>
+//
+// This file is part of OpenMirroring.
+//
+// OpenMirroring is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// OpenMirroring is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with OpenMirroring.  If not, see <https://www.gnu.org/licenses/>.
+
+use anyhow::Result;
 use std::net::SocketAddr;
 
 use fcast_lib::{models, models::Header, packet::Packet};
-use log::{debug, warn};
+use log::{debug, error, warn};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
 use tokio::sync::mpsc::{Receiver, Sender};
 
-use crate::{Event, Message};
+use crate::{Event, SessionMessage};
 
 const HEADER_BUFFER_SIZE: usize = 5;
 
 /// Attempt to read and decode FCast packet from `stream`.
-async fn read_packet_from_stream(stream: &mut TcpStream) -> Result<Packet, String> {
+async fn read_packet_from_stream(stream: &mut TcpStream) -> Result<Packet> {
     let mut header_buf: [u8; HEADER_BUFFER_SIZE] = [0; HEADER_BUFFER_SIZE];
 
-    stream
-        .read_exact(&mut header_buf)
-        .await
-        .map_err(|err| err.to_string())?;
+    stream.read_exact(&mut header_buf).await?;
 
     let header = Header::decode(header_buf);
 
@@ -25,19 +40,16 @@ async fn read_packet_from_stream(stream: &mut TcpStream) -> Result<Packet, Strin
 
     if header.size > 0 {
         let mut body_buf = vec![0; header.size as usize];
-        stream
-            .read_exact(&mut body_buf)
-            .await
-            .map_err(|err| err.to_string())?;
-        body_string = String::from_utf8(body_buf).map_err(|err| err.to_string())?;
+        stream.read_exact(&mut body_buf).await?;
+        body_string = String::from_utf8(body_buf)?;
     }
 
-    Ok(Packet::decode(header, &body_string).map_err(|err| err.to_string())?)
+    Ok(Packet::decode(header, &body_string)?)
 }
 
-async fn send_packet(stream: &mut TcpStream, packet: Packet) -> Result<(), String> {
+async fn send_packet(stream: &mut TcpStream, packet: Packet) -> Result<()> {
     let bytes = packet.encode();
-    stream.write_all(&bytes).await.unwrap();
+    stream.write_all(&bytes).await?;
     Ok(())
 }
 
@@ -46,24 +58,24 @@ async fn send_packet(stream: &mut TcpStream, packet: Packet) -> Result<(), Strin
 /// Returns `true` if [Message::Quit] was received.
 async fn connect_to_receiver(
     addr: SocketAddr,
-    msg_rx: &mut Receiver<Message>,
+    msg_rx: &mut Receiver<SessionMessage>,
     event_tx: &Sender<Event>,
-) -> bool {
-    let mut stream = TcpStream::connect(addr).await.unwrap();
+) -> Result<bool> {
+    let mut stream = TcpStream::connect(addr).await?;
 
-    event_tx.send(Event::ConnectedToReceiver).await.unwrap();
+    event_tx.send(Event::ConnectedToReceiver).await?;
 
     loop {
         tokio::select! {
             // TODO: fix as this is an ugly hack and likely not safe
             packet = read_packet_from_stream(&mut stream) => {
-                let packet = packet.unwrap();
+                let packet = packet?;
                 match packet {
                     Packet::Ping => {
-                        send_packet(&mut stream, Packet::Pong).await.unwrap();
+                        send_packet(&mut stream, Packet::Pong).await?;
                     }
                     _ => {
-                        event_tx.send(Event::Packet(packet)).await.unwrap();
+                        event_tx.send(Event::Packet(packet)).await?;
                     }
                 }
             }
@@ -71,7 +83,7 @@ async fn connect_to_receiver(
                 let msg = msg.unwrap();
                 debug!("Got message: {msg:?}");
                 match msg {
-                    Message::Play { mime, uri } => {
+                    SessionMessage::Play { mime, uri } => {
                         let packet = Packet::from(models::PlayMessage {
                             container: mime,
                             url: Some(uri),
@@ -80,11 +92,11 @@ async fn connect_to_receiver(
                             speed: None,
                             headers: None,
                         });
-                        send_packet(&mut stream, packet).await.unwrap();
+                        send_packet(&mut stream, packet).await?;
                     }
-                    Message::Stop => send_packet(&mut stream, Packet::Stop).await.unwrap(),
-                    Message::Quit => return true,
-                    Message::Disconnect => return false,
+                    SessionMessage::Stop => send_packet(&mut stream, Packet::Stop).await?,
+                    SessionMessage::Quit => return Ok(true),
+                    SessionMessage::Disconnect => return Ok(false),
                     _ => warn!("Received invalid message ({msg:?}) for the current session state"),
                 }
             }
@@ -93,15 +105,22 @@ async fn connect_to_receiver(
 }
 
 /// Dispatch receiver connection requests.
-pub async fn session(mut msg_rx: Receiver<Message>, event_tx: Sender<Event>) {
+pub async fn session(mut msg_rx: Receiver<SessionMessage>, event_tx: Sender<Event>) {
     while let Some(msg) = msg_rx.recv().await {
         match msg {
-            Message::Connect(addr) => {
-                if connect_to_receiver(addr, &mut msg_rx, &event_tx).await {
-                    break;
+            SessionMessage::Connect(addr) => {
+                match connect_to_receiver(addr, &mut msg_rx, &event_tx).await {
+                    Ok(f) => {
+                        if f {
+                            break;
+                        }
+                    }
+                    Err(err) => {
+                        error!("Error occured while connecting to receiver: {err}");
+                    }
                 }
             }
-            Message::Quit => break,
+            SessionMessage::Quit => break,
             _ => warn!("Received invalid message ({msg:?}) for the current session state"),
         }
     }

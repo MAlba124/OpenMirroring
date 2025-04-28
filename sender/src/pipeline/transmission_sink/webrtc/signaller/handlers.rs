@@ -82,7 +82,10 @@ impl Handler {
                 self.start_session(&message.peer_id, peer_id, message.offer.as_deref())
             }
             p::IncomingMessage::Peer(peermsg) => self.handle_peer_message(peer_id, peermsg),
-            p::IncomingMessage::List => Ok(self.list_producers(peer_id)),
+            p::IncomingMessage::List => {
+                self.list_producers(peer_id);
+                Ok(())
+            }
             p::IncomingMessage::EndSession(msg) => self.end_session(peer_id, &msg.session_id),
         }
     }

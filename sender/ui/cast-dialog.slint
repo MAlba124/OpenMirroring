@@ -1,0 +1,108 @@
+// Copyright (C) 2025 Marcus L. Hanestad <marlhan@proton.me>
+//
+// This file is part of OpenMirroring.
+//
+// OpenMirroring is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// OpenMirroring is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with OpenMirroring.  If not, see <https://www.gnu.org/licenses/>.
+
+import { Palette, VerticalBox, HorizontalBox, ListView, Spinner, Button } from "std-widgets.slint";
+
+import { HorizontalRule } from "horizontal-rule.slint";
+import { ToolTipArea } from "tool-tip-area.slint";
+
+export struct ReceiverItem {
+    name: string,
+    connected: bool,
+    connecting: bool,
+}
+
+export component CastDialog {
+    callback closed();
+    callback connect(string);
+    callback disconnect();
+
+    // TODO: three vecs
+    in property <[ReceiverItem]> receivers-model;
+    in property <bool> is-connected;
+    in property <bool> is-connecting;
+
+    Rectangle {
+        background: Palette.background;
+        border-radius: 8px;
+    }
+
+    VerticalBox {
+        HorizontalBox {
+            alignment: space-between;
+            Text {
+                font-weight: 800;
+                font-size: 12pt;
+                text: "Cast To";
+                vertical-alignment: center;
+            }
+            ToolTipArea {
+                text: "Close";
+                Button {
+                    icon: @image-url("../../assets/icons/xmark.svg");
+                    colorize-icon: true;
+                    clicked => {
+                        root.closed();
+                    }
+                }
+            }
+        }
+
+        HorizontalRule {
+            height: 2px;
+            color: Palette.alternate-background;
+            z: -1;
+        }
+
+        if receivers-model.length > 0: VerticalBox {
+            alignment: center;
+            ListView {
+                for receiver in receivers-model : HorizontalBox {
+                    alignment: space-between;
+                    Text {
+                        text: receiver.name;
+                        vertical-alignment: center;
+                    }
+                    if is-connecting && receiver.connecting: Spinner {
+                        indeterminate: true;
+                    }
+                    if is-connected && receiver.connected: Button {
+                        text: "Disconnect";
+                        clicked => {
+                            disconnect();
+                        }
+                    }
+                    if !is-connecting && !is-connected: Button {
+                        text: "Connect";
+                        clicked => {
+                            connect(receiver.name);
+                        }
+                    }
+                }
+            }
+        }
+
+        HorizontalBox {
+            alignment: center;
+            Text {
+                text: "Receivers will be added automatically once they announce themselves on the network";
+                font-italic: true;
+                wrap: word-wrap;
+            }
+        }
+    }
+}

@@ -1,6 +1,5 @@
 // Copyright (C) 2024-2025 Marcus L. Hanestad <marlhan@proton.me>
 
-use std::sync::mpsc::Receiver;
 use std::sync::Arc;
 use std::sync::LazyLock;
 use std::sync::Mutex;
@@ -71,7 +70,7 @@ pub struct ScapSrc {
     settings: Mutex<Settings>,
     capturer: Mutex<Option<Capturer>>,
     state: Arc<Mutex<State>>,
-    event_rx: Mutex<Option<Receiver<Event>>>,
+    event_rx: Mutex<Option<crossbeam_channel::Receiver<Event>>>,
     buffer_pool: Arc<Mutex<gst::BufferPool>>,
 }
 
@@ -288,7 +287,10 @@ impl BaseSrcImpl for ScapSrc {
             capturer.stop_capture();
         }
 
-        let targets = scap::get_all_targets();
+        let targets = match scap::get_all_targets() {
+            Ok(t) => t,
+            Err(err) => return Err(gst::error_msg!(gst::LibraryError::Init, ["{err}"])),
+        };
         if targets.is_empty() {
             gst::error!(CAT, imp = self, "No sources available to capture");
             return Err(gst::error_msg!(
@@ -302,7 +304,7 @@ impl BaseSrcImpl for ScapSrc {
             &[&targets.iter().map(|t| t.title()).collect::<Vec<String>>()],
         );
 
-        let (event_tx, event_rx) = std::sync::mpsc::sync_channel::<Event>(10);
+        let (event_tx, event_rx) = crossbeam_channel::bounded::<Event>(2);
 
         let event_tx_clone = event_tx.clone();
         let on_format_changed = move |new_format: FrameInfo| {
@@ -322,6 +324,10 @@ impl BaseSrcImpl for ScapSrc {
         let buffer_pool_clone = Arc::clone(&self.buffer_pool);
         let state_clone = Arc::clone(&self.state);
         let on_frame = move |pts: Pts, data: &[u8]| {
+            if event_tx.is_full() {
+                return;
+            }
+
             let buffer_pool = buffer_pool_clone.lock().unwrap();
             let Ok(buffer) = buffer_pool.acquire_buffer(None) else {
                 gst::error!(CAT, "Failed to acquire buffer");

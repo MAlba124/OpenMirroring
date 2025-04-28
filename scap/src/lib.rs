@@ -1,11 +1,11 @@
-//! Cross Platform, Performant and High Quality screen recordings
+// TODO: handle transforms
+// TODO: on error callback
 
 pub mod capturer;
 pub mod frame;
 mod targets;
 mod utils;
 
-// Helper Methods
 pub use targets::get_all_targets;
 pub use targets::Target;
 pub(crate) use utils::has_permission;

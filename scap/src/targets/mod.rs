@@ -1,3 +1,4 @@
+use anyhow::Result;
 use std::fmt::Debug;
 
 #[cfg(target_os = "linux")]
@@ -91,7 +92,7 @@ impl Target {
 }
 
 /// Returns a list of targets that can be captured
-pub fn get_all_targets() -> Vec<Target> {
+pub fn get_all_targets() -> Result<Vec<Target>> {
     #[cfg(target_os = "macos")]
     return mac::get_all_targets();
 
@@ -103,7 +104,7 @@ pub fn get_all_targets() -> Vec<Target> {
 }
 
 #[allow(dead_code)]
-pub fn get_main_display() -> Display {
+pub fn get_main_display() -> Result<Display> {
     #[cfg(target_os = "macos")]
     return mac::get_main_display();
 

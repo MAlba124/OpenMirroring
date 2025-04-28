@@ -8,6 +8,8 @@ use std::{
     thread::JoinHandle,
 };
 
+use anyhow::{bail, Result};
+
 use log::error;
 use xcb::{x, Xid};
 
@@ -18,7 +20,7 @@ use crate::{
     Target,
 };
 
-use super::{error::LinCapError, LinuxCapturerImpl};
+use super::LinuxCapturerImpl;
 
 struct ShmBuf {
     pub id: u32,
@@ -185,6 +187,7 @@ fn draw_cursor(
     Ok(())
 }
 
+#[allow(clippy::too_many_arguments)]
 fn grab(
     conn: &xcb::Connection,
     target: &Target,
@@ -304,7 +307,7 @@ impl X11Capturer {
         options: Options,
         mut on_format_changed: OnFormatChangedCb,
         mut on_frame: OnFrameCb,
-    ) -> Result<Self, LinCapError> {
+    ) -> Result<Self> {
         let (conn, screen_num) = xcb::Connection::connect_with_xlib_display_and_extensions(
             &[
                 xcb::Extension::RandR,
@@ -312,20 +315,16 @@ impl X11Capturer {
                 xcb::Extension::Shm,
             ],
             &[],
-        )
-        .map_err(|e| LinCapError::new(e.to_string()))?;
-        query_xfixes_version(&conn).map_err(|e| LinCapError::new(e.to_string()))?;
+        )?;
+        query_xfixes_version(&conn)?;
         let setup = conn.get_setup();
         let Some(screen) = setup.roots().nth(screen_num as usize) else {
-            return Err(LinCapError::new(String::from("Failed to get setup root")));
+            bail!("Failed to get setup root");
         };
 
         let target = match &options.target {
             Some(t) => t.clone(),
-            None => Target::Display(
-                get_default_x_display(&conn, screen)
-                    .map_err(|e| LinCapError::new(e.to_string()))?,
-            ),
+            None => Target::Display(get_default_x_display(&conn, screen)?),
         };
 
         let framerate = options.fps as f32;
@@ -346,6 +345,8 @@ impl X11Capturer {
             let frame_time = std::time::Duration::from_secs_f32(1.0 / framerate);
             while capturer_state_clone.load(Ordering::Acquire) == 1 {
                 let start = std::time::Instant::now();
+
+                // log::debug!("Grabbing...");
 
                 grab(
                     &conn,
@@ -376,11 +377,11 @@ impl X11Capturer {
 }
 
 impl LinuxCapturerImpl for X11Capturer {
-    fn start_capture(&mut self) {
+    fn start(&mut self) {
         self.capturer_state.store(1, Ordering::Release);
     }
 
-    fn stop_capture(&mut self) {
+    fn stop(&mut self) {
         self.capturer_state.store(2, Ordering::Release);
         if let Some(handle) = self.capturer_join_handle.take() {
             if let Err(e) = handle.join().expect("Failed to join capturer thread") {

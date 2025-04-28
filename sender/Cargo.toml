@@ -7,11 +7,11 @@ edition = "2021"
 env_logger = { workspace = true }
 log = { workspace = true }
 tokio = { workspace = true }
-gtk4 = { workspace = true }
 gst = { workspace = true }
-gst-gtk4 = { workspace = true }
 gst-video = { workspace = true }
 gst-webrtc = { workspace = true }
+gst-app = { workspace = true }
+gst-gl = { workspace = true }
 gst-pbutils = { package = "gstreamer-pbutils", version = "0.23.5", features = [ "v1_22" ] }
 m3u8-rs = "6.0.0"
 gio = "0.20.9"
@@ -27,6 +27,16 @@ scap-gstreamer = { path = "../scap-gstreamer" }
 serde = { workspace = true }
 serde_json = { workspace = true }
 simple-mdns = { workspace = true }
+slint = { workspace = true }
+async-trait = "0.1.88"
+anyhow = { workspace = true }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+gst-gl-egl = { package = "gstreamer-gl-egl", version = "0.23.5" }
+glutin_egl_sys = "0.7.1"
+
+[build-dependencies]
+slint-build = { workspace = true }
 
 [dev-dependencies]
 quickcheck = "1"

@@ -41,7 +41,7 @@ impl Server {
         St: Stream<Item = (String, OutgoingMessage)> + Send + Unpin + 'static,
     >(
         factory: Factory,
-        prod_peer_tx: tokio::sync::mpsc::Sender<crate::Event>,
+        out_peer_id: Arc<Mutex<Option<String>>>,
     ) -> Self {
         let (tx, rx) = mpsc::channel::<(String, Option<Utf8Bytes>)>(1000);
         let mut handler = factory(Box::pin(rx.filter_map(|(peer_id, msg)| async move {
@@ -63,23 +63,17 @@ impl Server {
             peers: HashMap::new(),
         }));
 
-        let mut prod_peer_tx = Some(prod_peer_tx);
-
         let state_clone = state.clone();
         task::spawn(async move {
             while let Some((peer_id, msg)) = handler.next().await {
                 // Handle the first producer that connects
-                match msg {
-                    OutgoingMessage::Welcome { ref peer_id } if prod_peer_tx.is_some() => {
-                        debug!("Got producer: {peer_id}");
-                        if let Some(prod_peer_tx) = prod_peer_tx.take() {
-                            prod_peer_tx
-                                .send(crate::Event::ProducerConnected(peer_id.clone()))
-                                .await
-                                .unwrap();
-                        }
+
+                if let OutgoingMessage::Welcome { ref peer_id } = msg {
+                    debug!("Got producer: {peer_id}");
+                    let mut out_peer_id = out_peer_id.lock().unwrap();
+                    if (*out_peer_id).is_none() {
+                        *out_peer_id = Some(peer_id.clone());
                     }
-                    _ => (),
                 }
 
                 match serde_json::to_string(&msg) {

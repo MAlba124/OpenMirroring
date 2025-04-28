@@ -12,6 +12,7 @@ gst = { workspace = true }
 gst_base = { package = "gstreamer-base", version = "0.23.5" }
 gst-video = { workspace = true }
 scap = { path = "../scap" }
+crossbeam-channel = "0.5.15"
 
 [build-dependencies]
 gst-plugin-version-helper = "0.8.2"

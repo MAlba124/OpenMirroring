@@ -1,6 +1,6 @@
 pub mod engine;
 
-use std::error::Error;
+use anyhow::{bail, Result};
 
 use crate::{frame::FrameInfo, has_permission, is_supported, targets::Target};
 
@@ -72,47 +72,26 @@ pub struct Capturer {
     engine: engine::Engine,
 }
 
-#[derive(Debug)]
-pub enum CapturerBuildError {
-    NotSupported,
-    PermissionNotGranted,
-}
-
-impl std::fmt::Display for CapturerBuildError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            CapturerBuildError::NotSupported => write!(f, "Screen capturing is not supported"),
-            CapturerBuildError::PermissionNotGranted => {
-                write!(f, "Permission to capture the screen is not granted")
-            }
-        }
-    }
-}
-
-impl Error for CapturerBuildError {}
-
 impl Capturer {
     /// Build a new [Capturer] instance with the provided options
     pub fn build(
         options: Options,
         on_format_changed: OnFormatChangedCb,
         on_frame: OnFrameCb,
-    ) -> Result<Capturer, CapturerBuildError> {
+    ) -> Result<Capturer> {
         if !is_supported() {
-            return Err(CapturerBuildError::NotSupported);
+            bail!("Unsupported platform");
         }
 
         if !has_permission() {
-            return Err(CapturerBuildError::PermissionNotGranted);
+            bail!("Permission not granted");
         }
 
-        let engine = engine::Engine::new(options, on_format_changed, on_frame);
+        let engine = engine::Engine::new(options, on_format_changed, on_frame)?;
 
         Ok(Capturer { engine })
     }
 
-    // TODO
-    // Prevent starting capture if already started
     /// Start capturing the frames
     pub fn start_capture(&mut self) {
         self.engine.start();
@@ -122,13 +101,4 @@ impl Capturer {
     pub fn stop_capture(&mut self) {
         self.engine.stop();
     }
-
-    pub fn raw(&self) -> RawCapturer {
-        RawCapturer { capturer: self }
-    }
-}
-
-#[allow(dead_code)]
-pub struct RawCapturer<'a> {
-    capturer: &'a Capturer,
 }

@@ -1,5 +1,21 @@
-use std::net::IpAddr;
+// Copyright (C) 2025 Marcus L. Hanestad <marlhan@proton.me>
+//
+// This file is part of OpenMirroring.
+//
+// OpenMirroring is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// OpenMirroring is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with OpenMirroring.  If not, see <https://www.gnu.org/licenses/>.
 
+use anyhow::Result;
 use log::info;
 use simple_mdns::async_discovery::ServiceDiscovery;
 use tokio::net::TcpListener;
@@ -13,7 +29,7 @@ pub struct Dispatcher {
 }
 
 impl Dispatcher {
-    pub async fn new(event_tx: tokio::sync::mpsc::Sender<Event>) -> tokio::io::Result<Self> {
+    pub async fn new(event_tx: tokio::sync::mpsc::Sender<Event>) -> Result<Self> {
         let listener = TcpListener::bind("0.0.0.0:46899").await?;
 
         let instance_info = {
@@ -33,12 +49,7 @@ impl Dispatcher {
             i.with_port(46899)
         };
 
-        let mut discovery = ServiceDiscovery::new(
-            instance_info,
-            "_fcast._tcp.local",
-            60,
-        )
-        .unwrap();
+        let mut discovery = ServiceDiscovery::new(instance_info, "_fcast._tcp.local", 60).unwrap();
         discovery.announce(false).await.unwrap();
 
         Ok(Self {
@@ -49,6 +60,7 @@ impl Dispatcher {
     }
 
     // TODO: Websocket listener
+    // TODO: Fin oneshot
     pub async fn run(self) -> tokio::io::Result<()> {
         info!("Listening on {:?}", self.listener.local_addr());
 

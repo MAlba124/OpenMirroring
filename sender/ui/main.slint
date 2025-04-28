@@ -1,0 +1,193 @@
+// Copyright (C) 2025 Marcus L. Hanestad <marlhan@proton.me>
+//
+// This file is part of OpenMirroring.
+//
+// OpenMirroring is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// OpenMirroring is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with OpenMirroring.  If not, see <https://www.gnu.org/licenses/>.
+
+import { VerticalBox, HorizontalBox, Button, ComboBox, Palette, Spinner } from "std-widgets.slint";
+
+import { Settings } from "settings.slint";
+import { CastDialog, ReceiverItem } from "cast-dialog.slint";
+import { VideoPreview } from "video-preview.slint";
+import { ToolTipArea } from "tool-tip-area.slint";
+
+export component MainWindow inherits Window {
+    title: "Open Mirroring Sender";
+
+    preferred-width: 800px;
+    preferred-height: 500px;
+
+    callback select-source(int);
+    callback connect-receiver(string);
+    callback start-cast();
+    callback stop-cast();
+    callback disconnect-receiver();
+    callback change-source();
+
+    in property <bool> has-source: false;
+    property <bool> preview-enable: true;
+    in property <bool> starting-cast: false;
+    in property <bool> casting: false;
+    in property <image> preview-frame <=> preview-image.source;
+    in property <[string]> sources-model: [];
+    in property <[ReceiverItem]> receivers-model: [];
+    in property <bool> receiver-is-connected: false;
+    in property <bool> receiver-is-connecting: false;
+
+    // Maybe have vertical layout when the root width is, say 800 px, horizontal otherwise
+    VerticalBox {
+        preview := VideoPreview {
+            visible: has-source;
+            show-preview: true;
+            background: Palette.background;
+            height: has-source ? 60% : 0%;
+            preview-image := Image {
+                visible <=> parent.show-preview;
+                width: 100%;
+                height: parent.height;
+                image-fit: contain;
+            }
+        }
+
+        vbox := VerticalBox {
+            alignment: center;
+            HorizontalBox {
+                alignment: center;
+                if has-source: ToolTipArea {
+                    text: "Change input";
+                    Button {
+                        icon: @image-url("../../assets/icons/input.svg");
+                        colorize-icon: true;
+                        clicked => {
+                            change-source();
+                        }
+                        z: -1;
+                    }
+                }
+
+                ToolTipArea {
+                    text: "Settings";
+                    Button {
+                        icon: @image-url("../../assets/icons/gear.svg");
+                        colorize-icon: true;
+                        clicked => {
+                            settings.visible = true;
+                            shadow.visible = true;
+                        }
+                    }
+                }
+
+                if has-source && !casting && !starting-cast: ToolTipArea {
+                    text: "Start casting";
+                    Button {
+                        enabled: receiver-is-connected;
+                        icon: @image-url("../../assets/icons/play.svg");
+                        colorize-icon: true;
+                        clicked => {
+                            start-cast();
+                        }
+                    }
+                }
+
+                if has-source && starting-cast: ToolTipArea {
+                    text: "Starting cast...";
+                    Spinner {
+                        indeterminate: true;
+                    }
+                }
+
+                if has-source && casting: ToolTipArea {
+                    text: "Stop casting";
+                    Button {
+                        icon: @image-url("../../assets/icons/stop.svg");
+                        colorize-icon: true;
+                        clicked => {
+                            stop-cast();
+                        }
+                    }
+                }
+
+                if has-source: ToolTipArea {
+                    text: "Open cast dialog";
+                    Button {
+                        icon: @image-url("../../assets/icons/cast.svg");
+                        colorize-icon: true;
+                        clicked => {
+                            cast-dialog.visible = true;
+                            shadow.visible = true;
+                        }
+                    }
+                }
+            }
+
+            if !has-source: HorizontalBox {
+                alignment: center;
+                source-combo := ComboBox {
+                    model <=> sources-model;
+                }
+
+                Button {
+                    text: "Select source";
+                    enabled: sources-model.length > 0;
+                    clicked => {
+                        select-source(source-combo.current-index);
+                    }
+                }
+            }
+        }
+    }
+
+    shadow := Rectangle {
+        visible: false;
+        width: 100%;
+        height: 100%;
+        background: #000000A0;
+
+        TouchArea {
+            // Consume all interactions so that no elements behind the settings menu can be accessed
+        }
+    }
+
+    settings := Settings {
+        visible: false;
+
+        closed => {
+            self.visible = false;
+            shadow.visible = false;
+        }
+    }
+
+    cast-dialog := CastDialog {
+        visible: false;
+
+        width: root.width >= 500px ? 500px : root.width;
+
+        receivers-model <=> receivers-model;
+        is-connected <=> receiver-is-connected;
+        is-connecting <=> receiver-is-connecting;
+
+        connect(receiver) => {
+            connect-receiver(receiver);
+        }
+
+        disconnect() => {
+            disconnect-receiver();
+        }
+
+        closed => {
+            self.visible = false;
+            shadow.visible = false;
+        }
+    }
+}

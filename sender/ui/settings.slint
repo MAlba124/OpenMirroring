@@ -1,0 +1,79 @@
+// Copyright (C) 2025 Marcus L. Hanestad <marlhan@proton.me>
+//
+// This file is part of OpenMirroring.
+//
+// OpenMirroring is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// OpenMirroring is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with OpenMirroring.  If not, see <https://www.gnu.org/licenses/>.
+
+import { Palette, VerticalBox, HorizontalBox, StandardButton, Switch, Button } from "std-widgets.slint";
+
+import { HorizontalRule } from "horizontal-rule.slint";
+import { ToolTipArea } from "tool-tip-area.slint";
+
+export component Settings {
+    callback closed;
+
+    Rectangle {
+        background: Palette.background;
+        border-radius: 8px;
+    }
+
+    VerticalBox {
+        HorizontalBox {
+            alignment: space-between;
+            Text {
+                font-weight: 800;
+                font-size: 12pt;
+                text: "Settings";
+                vertical-alignment: center;
+            }
+            ToolTipArea {
+                text: "Close";
+                Button {
+                    icon: @image-url("../../assets/icons/xmark.svg");
+                    colorize-icon: true;
+                    clicked => {
+                        root.closed();
+                    }
+                }
+            }
+        }
+
+        HorizontalRule {
+            height: 2px;
+            color: Palette.alternate-background;
+            z: -1;
+        }
+
+        HorizontalBox {
+            alignment: center;
+            Text {
+                text: "Colors and Theme";
+            }
+        }
+
+        HorizontalBox {
+            alignment: space-between;
+            Text {
+                text: "Dark Mode";
+            }
+            Switch {
+                horizontal-stretch: 0;
+                checked: Palette.color-scheme == ColorScheme.dark;
+                toggled => {
+                    Palette.color-scheme = self.checked ? ColorScheme.dark : ColorScheme.light;
+                }
+            }
+        }
+    }
+}

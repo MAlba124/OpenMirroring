@@ -1,3 +1,20 @@
+// Copyright (C) 2025 Marcus L. Hanestad <marlhan@proton.me>
+//
+// This file is part of OpenMirroring.
+//
+// OpenMirroring is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// OpenMirroring is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with OpenMirroring.  If not, see <https://www.gnu.org/licenses/>.
+
 use tokio::sync::mpsc::Sender;
 
 use gst::{glib, subclass::prelude::ObjectSubclassIsExt};
@@ -50,11 +67,28 @@ mod imp {
                 Some(tx) => {
                     let location = self.location.borrow().clone();
                     let data = self.data.borrow().clone();
-                    tx.blocking_send(ChannelElement {
-                        location,
-                        request: Request::Add(data),
-                    })
-                    .map_err(|err| glib::Error::new(glib::FileError::Failed, &err.to_string()))
+                    match tokio::runtime::Handle::try_current() {
+                        Ok(rt_handle) => {
+                            rt_handle.spawn(async move {
+                                tx.send(ChannelElement {
+                                    location,
+                                    request: Request::Add(data),
+                                })
+                                .await
+                                .unwrap();
+                            });
+                        }
+                        Err(_) => {
+                            tx.blocking_send(ChannelElement {
+                                location,
+                                request: Request::Add(data),
+                            })
+                            .map_err(|err| {
+                                glib::Error::new(glib::FileError::Failed, &err.to_string())
+                            })?;
+                        }
+                    }
+                    Ok(())
                 }
                 None => Err(glib::Error::new(glib::FileError::Failed, "Missing tx")),
             }

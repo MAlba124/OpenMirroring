@@ -31,23 +31,36 @@ use pw::{
     stream::{StreamRef, StreamState},
 };
 
+use anyhow::Result;
+
 use crate::{
     capturer::{OnFormatChangedCb, OnFrameCb, Options},
     frame::FrameInfo,
     targets::get_main_display,
 };
 
-use super::{error::LinCapError, LinuxCapturerImpl};
+use super::LinuxCapturerImpl;
 
 struct ListenerUserData {
     pub stream_state_changed_to_error: Arc<AtomicBool>,
     pub on_format_changed: OnFormatChangedCb,
     pub on_frame: OnFrameCb,
     pub base_time: Option<u64>,
+    pub format_height: usize,
+}
+
+fn serialize_obj(obj: spa::pod::Object) -> Vec<u8> {
+    spa::pod::serialize::PodSerializer::serialize(
+        std::io::Cursor::new(Vec::new()),
+        &spa::pod::Value::Object(obj),
+    )
+    .unwrap()
+    .0
+    .into_inner()
 }
 
 fn param_changed_callback(
-    _stream: &StreamRef,
+    stream: &StreamRef,
     user_data: &mut ListenerUserData,
     id: u32,
     param: Option<&Pod>,
@@ -55,10 +68,10 @@ fn param_changed_callback(
     let Some(param) = param else {
         return;
     };
-    if id != pw::spa::param::ParamType::Format.as_raw() {
+    if id != spa::param::ParamType::Format.as_raw() {
         return;
     }
-    let (media_type, media_subtype) = match pw::spa::param::format_utils::parse_format(param) {
+    let (media_type, media_subtype) = match spa::param::format_utils::parse_format(param) {
         Ok(v) => v,
         Err(_) => return,
     };
@@ -85,9 +98,48 @@ fn param_changed_callback(
         height: format.size().height,
     };
 
-    log::debug!("New info: {new_info:?}");
+    user_data.format_height = format.size().height as usize;
+
+    debug!("New info: {new_info:?}");
 
     (user_data.on_format_changed)(new_info);
+
+    let buf_obj = spa::pod::object!(
+        spa::utils::SpaTypes::ObjectParamBuffers,
+        spa::param::ParamType::Buffers,
+        spa::pod::Property {
+            key: spa::sys::SPA_PARAM_BUFFERS_dataType,
+            flags: spa::pod::PropertyFlags::empty(),
+            value: spa::pod::Value::Int(
+                (1 << spa::buffer::DataType::MemFd.as_raw())
+                    | (1 << spa::buffer::DataType::MemPtr.as_raw())
+            )
+        }
+    );
+
+    let buf_values = serialize_obj(buf_obj);
+
+    let metas_obj = spa::pod::object!(
+        SpaTypes::ObjectParamMeta,
+        ParamType::Meta,
+        Property::new(
+            SPA_PARAM_META_type,
+            spa::pod::Value::Id(spa::utils::Id(SPA_META_Header))
+        ),
+        Property::new(
+            SPA_PARAM_META_size,
+            spa::pod::Value::Int(size_of::<spa::sys::spa_meta_header>() as i32)
+        ),
+    );
+
+    let metas_values = serialize_obj(metas_obj);
+
+    let mut params = [
+        spa::pod::Pod::from_bytes(&buf_values).unwrap(),
+        spa::pod::Pod::from_bytes(&metas_values).unwrap(),
+    ];
+
+    stream.update_params(&mut params).unwrap();
 }
 
 fn state_changed_callback(
@@ -146,7 +198,7 @@ fn process_callback(stream: &StreamRef, user_data: &mut ListenerUserData) {
                 break 'outer;
             }
 
-            let datas = unsafe { (*buffer).datas as *mut pw::spa::buffer::Data };
+            let datas = unsafe { (*buffer).datas as *mut spa::buffer::Data };
             if datas.is_null() {
                 error!("Data is null");
                 break 'outer;
@@ -154,11 +206,33 @@ fn process_callback(stream: &StreamRef, user_data: &mut ListenerUserData) {
             let data = unsafe { std::slice::from_raw_parts_mut(datas, n_datas as usize) };
             let data = &mut data[0];
             match data.type_() {
-                DataType::DmaBuf => {
-                    warn!("Got dmabuf data, not implemented yet");
-                }
-                DataType::MemPtr | DataType::MemFd => {
+                DataType::MemPtr => {
                     (user_data.on_frame)(timestamp, data.data().unwrap());
+                }
+                DataType::MemFd => {
+                    let fd: std::os::fd::RawFd = data.as_raw().fd as i32;
+                    let offset = data.chunk().offset() as i64;
+                    let stride = data.chunk().stride();
+                    let size = user_data.format_height * stride as usize;
+
+                    let ptr = unsafe {
+                        libc::mmap(
+                            std::ptr::null_mut(),
+                            size,
+                            libc::PROT_READ,
+                            libc::MAP_SHARED,
+                            fd,
+                            offset,
+                        )
+                    };
+
+                    let data = unsafe { std::slice::from_raw_parts(ptr as *mut u8, size) };
+
+                    (user_data.on_frame)(timestamp, data);
+
+                    unsafe {
+                        libc::munmap(ptr, size);
+                    }
                 }
                 _ => warn!("Got data of type: {:?}, ignoring", data.type_()),
             }
@@ -178,7 +252,7 @@ fn pipewire_capturer(
     stream_state_changed_to_error: Arc<AtomicBool>,
     on_format_changed: OnFormatChangedCb,
     on_frame: OnFrameCb,
-) -> Result<(), LinCapError> {
+) -> Result<()> {
     pw::init();
 
     let mainloop = MainLoop::new(None)?;
@@ -190,6 +264,7 @@ fn pipewire_capturer(
         on_format_changed,
         on_frame,
         base_time: None,
+        format_height: 0,
     };
 
     let stream = pw::stream::Stream::new(
@@ -209,60 +284,60 @@ fn pipewire_capturer(
         .process(process_callback)
         .register()?;
 
-    let obj = pw::spa::pod::object!(
-        pw::spa::utils::SpaTypes::ObjectParamFormat,
-        pw::spa::param::ParamType::EnumFormat,
-        pw::spa::pod::property!(FormatProperties::MediaType, Id, MediaType::Video),
-        pw::spa::pod::property!(FormatProperties::MediaSubtype, Id, MediaSubtype::Raw),
-        pw::spa::pod::property!(
+    let fmt_obj = spa::pod::object!(
+        spa::utils::SpaTypes::ObjectParamFormat,
+        spa::param::ParamType::EnumFormat,
+        spa::pod::property!(FormatProperties::MediaType, Id, MediaType::Video),
+        spa::pod::property!(FormatProperties::MediaSubtype, Id, MediaSubtype::Raw),
+        spa::pod::property!(
             FormatProperties::VideoFormat,
             Choice,
             Enum,
             Id,
-            pw::spa::param::video::VideoFormat::RGBA, // First element is discarded?
-            pw::spa::param::video::VideoFormat::RGBA,
-            pw::spa::param::video::VideoFormat::RGBx,
-            pw::spa::param::video::VideoFormat::BGRx,
-            pw::spa::param::video::VideoFormat::xBGR,
-            pw::spa::param::video::VideoFormat::BGRA,
+            spa::param::video::VideoFormat::RGBA, // First element is discarded?
+            spa::param::video::VideoFormat::RGBA,
+            spa::param::video::VideoFormat::RGBx,
+            spa::param::video::VideoFormat::BGRx,
+            spa::param::video::VideoFormat::xBGR,
+            spa::param::video::VideoFormat::BGRA,
         ),
-        pw::spa::pod::property!(
+        spa::pod::property!(
             FormatProperties::VideoSize,
             Choice,
             Range,
             Rectangle,
-            pw::spa::utils::Rectangle {
+            spa::utils::Rectangle {
                 // Default
                 width: 128,
                 height: 128,
             },
-            pw::spa::utils::Rectangle {
+            spa::utils::Rectangle {
                 // Min
                 width: 1,
                 height: 1,
             },
-            pw::spa::utils::Rectangle {
+            spa::utils::Rectangle {
                 // Max
                 width: 4096,
                 height: 4096,
             }
         ),
-        pw::spa::pod::property!(
+        spa::pod::property!(
             FormatProperties::VideoMaxFramerate,
             Choice,
             Range,
             Fraction,
-            pw::spa::utils::Fraction {
+            spa::utils::Fraction {
                 // Default
                 num: options.fps,
                 denom: 1,
             },
-            pw::spa::utils::Fraction {
+            spa::utils::Fraction {
                 // Min
                 num: 0,
                 denom: 1,
             },
-            pw::spa::utils::Fraction {
+            spa::utils::Fraction {
                 // Max
                 num: options.fps,
                 denom: 1,
@@ -270,36 +345,9 @@ fn pipewire_capturer(
         ),
     );
 
-    let metas_obj = pw::spa::pod::object!(
-        SpaTypes::ObjectParamMeta,
-        ParamType::Meta,
-        Property::new(
-            SPA_PARAM_META_type,
-            pw::spa::pod::Value::Id(pw::spa::utils::Id(SPA_META_Header))
-        ),
-        Property::new(
-            SPA_PARAM_META_size,
-            pw::spa::pod::Value::Int(size_of::<pw::spa::sys::spa_meta_header>() as i32)
-        ),
-    );
+    let fmt_values = serialize_obj(fmt_obj);
 
-    let values: Vec<u8> = pw::spa::pod::serialize::PodSerializer::serialize(
-        std::io::Cursor::new(Vec::new()),
-        &pw::spa::pod::Value::Object(obj),
-    )?
-    .0
-    .into_inner();
-    let metas_values: Vec<u8> = pw::spa::pod::serialize::PodSerializer::serialize(
-        std::io::Cursor::new(Vec::new()),
-        &pw::spa::pod::Value::Object(metas_obj),
-    )?
-    .0
-    .into_inner();
-
-    let mut params = [
-        pw::spa::pod::Pod::from_bytes(&values).unwrap(),
-        pw::spa::pod::Pod::from_bytes(&metas_values).unwrap(),
-    ];
+    let mut params = [spa::pod::Pod::from_bytes(&fmt_values).unwrap()];
 
     stream.connect(
         Direction::Input,
@@ -330,7 +378,7 @@ fn pipewire_capturer(
 }
 
 pub struct WaylandCapturer {
-    capturer_join_handle: Option<JoinHandle<Result<(), LinCapError>>>,
+    capturer_join_handle: Option<JoinHandle<Result<()>>>,
     capturer_state: Arc<AtomicU8>,
     stream_state_changed_to_error: Arc<AtomicBool>,
     // The pipewire stream is deleted when the connection is dropped.
@@ -344,7 +392,7 @@ impl WaylandCapturer {
         options: Options,
         on_format_changed: OnFormatChangedCb,
         on_frame: OnFrameCb,
-    ) -> Self {
+    ) -> Result<Self> {
         let capturer_state = Arc::new(AtomicU8::new(0));
         let stream_state_changed_to_error = Arc::new(AtomicBool::new(false));
 
@@ -360,7 +408,7 @@ impl WaylandCapturer {
                 _ => unreachable!(),
             },
             None => {
-                let target = get_main_display();
+                let target = get_main_display()?;
                 match target.raw {
                     crate::targets::LinuxDisplay::Wayland { connection } => {
                         let stream_id = target.id;
@@ -390,26 +438,26 @@ impl WaylandCapturer {
             res
         });
 
-        if !ready_recv.recv().expect("Failed to receive") {
+        if !ready_recv.recv()? {
             panic!("Failed to setup capturer");
         }
 
-        Self {
+        Ok(Self {
             capturer_join_handle: Some(capturer_join_handle),
             _connection: connection,
             capturer_state,
             stream_state_changed_to_error,
-        }
+        })
     }
 }
 
 impl LinuxCapturerImpl for WaylandCapturer {
-    fn start_capture(&mut self) {
+    fn start(&mut self) {
         self.capturer_state
             .store(1, std::sync::atomic::Ordering::SeqCst);
     }
 
-    fn stop_capture(&mut self) {
+    fn stop(&mut self) {
         self.capturer_state
             .store(2, std::sync::atomic::Ordering::SeqCst);
         if let Some(handle) = self.capturer_join_handle.take() {

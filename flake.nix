@@ -21,7 +21,6 @@
           rustAndroidTargets = [
             "aarch64-linux-android"
             "x86_64-linux-android"
-            "x86_64-unknown-linux-gnu"
           ];
 
           rustAndroidToolchain = pkgs.rust-bin.stable.latest.complete.override {
@@ -41,6 +40,9 @@
             zulu
             gnumake
             patchelf
+            rust-bin.stable.latest.complete
+            graphviz
+            slint-lsp
           ];
           buildInputs = with pkgs; [
             libGL
@@ -63,7 +65,7 @@
             glib
             openssl
             libnice
-            gtk4
+            fontconfig
           ];
         in
         with pkgs;
