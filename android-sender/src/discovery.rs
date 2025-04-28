@@ -15,7 +15,7 @@ pub async fn discover() {
 
     if let Err(err) = crate::tx!()
         .send(crate::Event::ReceiverAvailable(
-            "OpenMirroring-test".to_owned()
+            "OpenMirroring-test".to_owned(),
         ))
         .await
     {
