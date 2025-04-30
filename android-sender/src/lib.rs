@@ -1,15 +1,41 @@
+// Copyright (C) 2025 Marcus L. Hanestad <marlhan@proton.me>
+//
+// This file is part of OpenMirroring.
+//
+// OpenMirroring is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// OpenMirroring is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with OpenMirroring.  If not, see <https://www.gnu.org/licenses/>.
+
+use std::net::SocketAddr;
+
 use jni::objects::JObject;
 use jni::JavaVM;
 
 use log::debug;
 use log::error;
-use log::info;
+
+use anyhow::Result;
+use pipeline::Pipeline;
 
 mod discovery;
+mod pipeline;
+mod session;
 
 lazy_static::lazy_static! {
     pub static ref EVENT_CHAN: (async_channel::Sender<Event>, async_channel::Receiver<Event>) =
         async_channel::unbounded();
+
+    pub static ref FRAME_CHAN: (crossbeam_channel::Sender<gst::Buffer>, crossbeam_channel::Receiver<gst::Buffer>) =
+        crossbeam_channel::bounded(2);
 }
 
 #[macro_export]
@@ -31,21 +57,79 @@ pub enum Event {
     CaptureStarted,
     CaptureStopped,
     ReceiverAvailable(String),
+    Packet(fcast_lib::packet::Packet),
+    ConnectedToReceiver,
+    Quit,
 }
 
-fn init(app: slint::android::AndroidApp) -> MainWindow {
-    let main_window = MainWindow::new().unwrap();
+#[derive(Debug)]
+pub enum SessionMessage {
+    Play { mime: String, uri: String },
+    Quit,
+    Stop,
+    Connect(SocketAddr),
+    Disconnect,
+}
 
-    main_window.on_request_start_capture(move || {
+async fn event_loop(
+    ui: slint::Weak<MainWindow>,
+    session_tx: tokio::sync::mpsc::Sender<SessionMessage>,
+) {
+    let pipeline = Pipeline::new().unwrap();
+
+    while let Ok(event) = rx!().recv().await {
+        match event {
+            Event::CaptureStarted => {
+                ui.upgrade_in_event_loop(move |handle| {
+                    handle.invoke_screen_capture_started();
+                })
+                .unwrap();
+            }
+            Event::CaptureStopped => {
+                ui.upgrade_in_event_loop(move |handle| {
+                    handle.invoke_screen_capture_stopped();
+                })
+                .unwrap();
+            }
+            Event::ReceiverAvailable(n) => debug!("Reveiver available: {n}"),
+            Event::Packet(packet) => (),
+            Event::ConnectedToReceiver => (),
+            Event::Quit => break,
+        }
+    }
+
+    debug!("Quitting");
+}
+
+#[no_mangle]
+fn android_main(app: slint::android::AndroidApp) {
+    android_logger::init_once(
+        android_logger::Config::default().with_max_level(common::default_log_level()),
+    );
+
+    debug!("Hello from rust");
+
+    gst::init().unwrap();
+    common::transmission::init().unwrap();
+
+    debug!("GStreamer version: {:?}", gst::version());
+
+    let app_clone = app.clone();
+
+    slint::android::init(app).unwrap();
+
+    let ui = MainWindow::new().unwrap();
+
+    ui.on_request_start_capture(move || {
         debug!("request_start_capture was called");
 
         let vm = unsafe {
-            let ptr = app.vm_as_ptr() as *mut jni::sys::JavaVM;
+            let ptr = app_clone.vm_as_ptr() as *mut jni::sys::JavaVM;
             assert!(!ptr.is_null(), "JavaVM ptr is null");
             JavaVM::from_raw(ptr).unwrap()
         };
         let activity = unsafe {
-            let ptr = app.activity_as_ptr() as *mut jni::sys::_jobject;
+            let ptr = app_clone.activity_as_ptr() as *mut jni::sys::_jobject;
             assert!(!ptr.is_null(), "Activity ptr is null");
             JObject::from_raw(ptr)
         };
@@ -59,62 +143,17 @@ fn init(app: slint::android::AndroidApp) -> MainWindow {
         }
     });
 
-    main_window
-}
+    let ui_weak = ui.as_weak();
 
-async fn event_loop(handle: slint::Weak<MainWindow>) {
-    loop {
-        match rx!().recv().await {
-            Ok(event) => match event {
-                Event::CaptureStarted => {
-                    handle
-                        .upgrade_in_event_loop(move |handle| {
-                            handle.invoke_screen_capture_started();
-                        })
-                        .unwrap();
-                }
-                Event::CaptureStopped => {
-                    handle
-                        .upgrade_in_event_loop(move |handle| {
-                            handle.invoke_screen_capture_stopped();
-                        })
-                        .unwrap();
-                }
-                Event::ReceiverAvailable(n) => info!("Reveiver available: {n}"),
-            },
-            Err(err) => {
-                error!("Failed to receive event: {err}");
-                return;
-            }
-        }
-    }
-}
+    let (session_tx, session_rx) = tokio::sync::mpsc::channel(10);
 
-#[no_mangle]
-fn android_main(app: slint::android::AndroidApp) {
-    android_logger::init_once(
-        android_logger::Config::default().with_max_level(log::LevelFilter::Debug),
-    );
-
-    debug!("Hello from rust");
-
-    gst::init().unwrap();
-
-    debug!("GStreamer version: {:?}", gst::version());
-
-    let app_clone = app.clone();
-
-    slint::android::init(app).unwrap();
-
-    let main_window = init(app_clone);
-
-    let handle_weak = main_window.as_weak();
-
-    common::runtime().spawn(event_loop(handle_weak));
+    common::runtime().spawn(event_loop(ui_weak, session_tx));
 
     common::runtime().spawn(discovery::discover());
 
-    main_window.run().unwrap();
+    common::runtime().spawn(session::session(session_rx));
+
+    ui.run().unwrap();
 }
 
 #[allow(non_snake_case)]
@@ -146,13 +185,44 @@ pub extern "C" fn Java_com_github_malba124_openmirroring_android_sender_ScreenCa
 pub extern "C" fn Java_com_github_malba124_openmirroring_android_sender_ScreenCaptureService_nativeProcessFrame<
     'local,
 >(
-    _env: jni::JNIEnv<'local>,
+    env: jni::JNIEnv<'local>,
     _class: jni::objects::JClass<'local>,
-    _buffer: jni::objects::JClass<'local>,
-    _width: jni::sys::jint,
-    _height: jni::sys::jint,
-    _pixel_stride: jni::sys::jint,
+    buffer: jni::objects::JByteBuffer<'local>,
+    width: jni::sys::jint,
+    height: jni::sys::jint,
+    pixel_stride: jni::sys::jint,
     _row_stride: jni::sys::jint,
 ) {
-    log::debug!("Got frame");
+    let width = width as usize;
+    let height = width as usize;
+    let pixel_stride = pixel_stride as usize;
+    let frame_size = width * height * pixel_stride;
+
+    let buffer_cap = match env.get_direct_buffer_capacity(&buffer) {
+        Ok(cap) => cap,
+        Err(err) => {
+            error!("Failed to get capacity of the byte buffer: {err}");
+            return;
+        }
+    };
+
+    if buffer_cap < frame_size {
+        error!("buffer_cap < frame_size: {buffer_cap} < {frame_size}");
+        return;
+    }
+
+    let buffer_ptr = match env.get_direct_buffer_address(&buffer) {
+        Ok(ptr) => {
+            assert!(!ptr.is_null());
+            ptr
+        }
+        Err(err) => {
+            error!("Failed to get buffer address: {err}");
+            return;
+        }
+    };
+
+    let buffer_slice: &[u8] = unsafe { std::slice::from_raw_parts(buffer_ptr, buffer_cap) };
+
+    log::debug!("Got frame of size: {}", buffer_slice.len());
 }

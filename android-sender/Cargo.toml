@@ -16,8 +16,12 @@ futures-core = "0.3.31"
 async-stream = "0.3.6"
 futures-util = "0.3.31"
 tokio = { workspace = true }
-common = { path = "../common" }
-gst = { workspace = true }
+common = { path = "../common", features = ["transmission"] }
+gst = { workspace = true, features = ["v1_24"] }
+gst-app = { workspace = true, features = ["v1_24"] }
+anyhow = { workspace = true }
+fcast-lib = { path = "../fcast-lib" }
+crossbeam-channel = "0.5.15"
 
 [build-dependencies]
 slint-build = "1.11.0"

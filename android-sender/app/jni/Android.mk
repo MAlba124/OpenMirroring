@@ -5,7 +5,7 @@ include $(CLEAR_VARS)
 LOCAL_MODULE    := android_sender
 LOCAL_SRC_FILES := dummy.cpp
 LOCAL_SHARED_LIBRARIES := gstreamer_android
-LOCAL_LDLIBS := -llog
+LOCAL_LDLIBS := -llog -landroid
 include $(BUILD_SHARED_LIBRARY)
 
 ifndef GSTREAMER_ROOT_ANDROID
@@ -27,7 +27,9 @@ $(error Target arch ABI not supported: $(TARGET_ARCH_ABI))
 endif
 
 GSTREAMER_NDK_BUILD_PATH  := $(GSTREAMER_ROOT)/share/gst-android/ndk-build/
-GSTREAMER_PLUGINS         := coreelements
-GSTREAMER_EXTRA_LIBS      := -liconv
+include $(GSTREAMER_NDK_BUILD_PATH)/plugins.mk
+GSTREAMER_PLUGINS         := $(GSTREAMER_PLUGINS_CORE) $(GSTREAMER_PLUGINS_NET)
+GSTREAMER_EXTRA_DEPS      := gstreamer-app-1.0
+GSTREAMER_EXTRA_LIBS      := -lffi
 
 include $(GSTREAMER_NDK_BUILD_PATH)/gstreamer-1.0.mk

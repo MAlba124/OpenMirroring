@@ -212,12 +212,16 @@ name = "android-sender"
 version = "0.1.0"
 dependencies = [
  "android_logger",
+ "anyhow",
  "async-channel",
  "async-stream",
  "common",
+ "crossbeam-channel",
+ "fcast-lib",
  "futures-core",
  "futures-util",
  "gstreamer",
+ "gstreamer-app",
  "jni",
  "lazy_static",
  "log",
@@ -542,7 +546,23 @@ dependencies = [
  "pin-project-lite",
  "tokio",
  "tokio-native-tls",
- "tungstenite",
+ "tungstenite 0.26.2 (registry+https://github.com/rust-lang/crates.io-index)",
+]
+
+[[package]]
+name = "async-tungstenite"
+version = "0.29.1"
+source = "git+https://github.com/MAlba124/async-tungstenite.git?rev=96b8e852d08b33825388824148c80b689d6ec9db#96b8e852d08b33825388824148c80b689d6ec9db"
+dependencies = [
+ "atomic-waker",
+ "futures-core",
+ "futures-io",
+ "futures-task",
+ "futures-util",
+ "log",
+ "pin-project-lite",
+ "tokio",
+ "tungstenite 0.26.2 (git+https://github.com/MAlba124/tungstenite-rs.git?rev=5ec266cc916d6a27a94dc3c1a40cef61ef610b6d)",
 ]
 
 [[package]]
@@ -1156,19 +1176,32 @@ name = "common"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "async-trait",
+ "async-tungstenite 0.29.1 (git+https://github.com/MAlba124/async-tungstenite.git?rev=96b8e852d08b33825388824148c80b689d6ec9db)",
+ "bytes",
+ "futures",
+ "gio 0.20.9",
  "glutin_egl_sys",
  "glutin_glx_sys",
+ "gst-plugin-webrtc",
  "gstreamer",
  "gstreamer-app",
  "gstreamer-gl",
  "gstreamer-gl-egl",
  "gstreamer-gl-x11",
+ "gstreamer-pbutils",
  "gstreamer-video",
+ "http 0.1.0",
  "ipnetwork",
  "log",
+ "m3u8-rs",
+ "pin-project-lite",
  "pnet_datalink",
+ "serde",
+ "serde_json",
  "slint",
  "tokio",
+ "uuid",
  "windows 0.60.0",
 ]
 
@@ -2520,7 +2553,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1884c7d861fbb25ae8c7dea5894ebc5ce4a8446230e890faffa7bb74c0908d2a"
 dependencies = [
  "anyhow",
- "async-tungstenite",
+ "async-tungstenite 0.29.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "chrono",
  "fastrand",
  "futures",
@@ -5765,7 +5798,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "async-trait",
- "async-tungstenite",
+ "async-tungstenite 0.29.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "bytes",
  "common",
  "env_logger 0.11.8",
@@ -6626,6 +6659,22 @@ dependencies = [
  "sha1",
  "thiserror 2.0.12",
  "url",
+ "utf-8",
+]
+
+[[package]]
+name = "tungstenite"
+version = "0.26.2"
+source = "git+https://github.com/MAlba124/tungstenite-rs.git?rev=5ec266cc916d6a27a94dc3c1a40cef61ef610b6d#5ec266cc916d6a27a94dc3c1a40cef61ef610b6d"
+dependencies = [
+ "bytes",
+ "data-encoding",
+ "http 1.3.1",
+ "httparse",
+ "log",
+ "rand 0.9.1",
+ "sha1",
+ "thiserror 2.0.12",
  "utf-8",
 ]
 
