@@ -21,6 +21,7 @@ use common::video::GstGlContext;
 use log::{debug, error, trace};
 use sender::discovery::discover;
 use sender::session::session;
+use simple_mdns::async_discovery::ServiceDiscovery;
 use tokio::sync::mpsc::{Receiver, Sender};
 use tokio::sync::{self, oneshot};
 
@@ -43,6 +44,7 @@ struct Application {
     receivers: HashMap<String, Vec<SocketAddr>>,
     appsink: gst::Element,
     gst_gl_context: GstGlContext,
+    _discovery: ServiceDiscovery,
 }
 
 impl Application {
@@ -61,6 +63,8 @@ impl Application {
         )
         .await?;
 
+        let discovery = discover(event_tx.clone())?;
+
         Ok(Self {
             pipeline,
             ui_weak,
@@ -71,6 +75,7 @@ impl Application {
             receivers: HashMap::new(),
             appsink,
             gst_gl_context,
+            _discovery: discovery,
         })
     }
 
@@ -370,7 +375,6 @@ fn main() -> Result<()> {
     })?;
 
     common::runtime().spawn(session(session_rx, event_tx.clone()));
-    common::runtime().spawn(discover(event_tx.clone()));
     common::runtime().spawn({
         let ui_weak = ui.as_weak();
         let event_tx = event_tx.clone();

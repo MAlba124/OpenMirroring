@@ -16,7 +16,8 @@ env_logger = "0.11.6"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 rand = "0.9.0"
-simple-mdns = { version = "0.6.2", features = ["async-tokio"] }
+# simple-mdns = { version = "0.6.2", features = ["async-tokio"] }
+simple-mdns = { git = "https://github.com/MAlba124/simple-dns.git", rev = "afb61d6b2d571790f4dff6cb2879cb7d134d1557", features = ["async-tokio"] }
 slint = "1.11.0"
 slint-build = "1.11.0"
 anyhow = "1.0.98"
