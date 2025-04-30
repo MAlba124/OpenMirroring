@@ -31,17 +31,20 @@ export component CastDialog {
     callback connect(string);
     callback disconnect();
 
-    // TODO: three vecs
     in property <[ReceiverItem]> receivers-model;
     in property <bool> is-connected;
     in property <bool> is-connecting;
+
+    in property <length> root-height;
+
+    height: min(box.preferred-height + receivers-model.length * 45px, root-height);
 
     Rectangle {
         background: Palette.background;
         border-radius: 8px;
     }
 
-    VerticalBox {
+    box := VerticalBox {
         HorizontalBox {
             alignment: space-between;
             Text {
@@ -71,6 +74,8 @@ export component CastDialog {
         if receivers-model.length > 0: VerticalBox {
             alignment: center;
             ListView {
+                height: 100%;
+
                 for receiver in receivers-model : HorizontalBox {
                     alignment: space-between;
                     Text {
