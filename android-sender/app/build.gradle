@@ -9,7 +9,8 @@ android {
     sourceSets {
         main {
             java {
-                srcDirs = ['src/main/java', 'src/org']
+                srcDirs = ['src/main/java']
+                jniLibs.srcDirs = ['libs', 'src/main/jniLibs']
             }
         }
     }
@@ -20,27 +21,6 @@ android {
         targetSdk 34
         versionCode 1
         versionName "1.0"
-
-        externalNativeBuild {
-            ndkBuild {
-                def gstRoot
-
-                if (project.hasProperty('gstAndroidRoot'))
-                    gstRoot = project.gstAndroidRoot
-                else
-                    gstRoot = System.env.GSTREAMER_ROOT_ANDROID
-
-                if (gstRoot == null)
-                    throw new GradleException('GSTREAMER_ROOT_ANDROID must be set, or "gstAndroidRoot" must be defined in your gradle.properties in the top level directory of the unpacked universal GStreamer Android binaries')
-
-                arguments "NDK_APPLICATION_MK=jni/Application.mk", "GSTREAMER_JAVA_SRC_DIR=src", "GSTREAMER_ROOT_ANDROID=$gstRoot", "GSTREAMER_ASSETS_DIR=src/assets"
-
-
-                targets "android_sender"
-
-                abiFilters "x86_64"
-            }
-        }
 
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
     }
@@ -58,19 +38,6 @@ android {
     buildFeatures {
         viewBinding true
     }
-
-    externalNativeBuild {
-        ndkBuild {
-            path 'jni/Android.mk'
-        }
-    }
-}
-
-afterEvaluate {
-    if (project.hasProperty('compileDebugJavaWithJavac'))
-        project.compileDebugJavaWithJavac.dependsOn 'externalNativeBuildDebug'
-    if (project.hasProperty('compileReleaseJavaWithJavac'))
-        project.compileReleaseJavaWithJavac.dependsOn 'externalNativeBuildRelease'
 }
 
 dependencies {

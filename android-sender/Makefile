@@ -12,12 +12,10 @@ check:
 .PHONY: build
 build:
 	cargo ndk --target $(RTARGET) -o $(OUT) build
-	./fix.sh
 
 .PHONY: build-release
 build-release:
 	cargo ndk --target $(RTARGET) -o $(OUT) build -r
-	./fix.sh
 
 .PHONY: preview
 preview:
