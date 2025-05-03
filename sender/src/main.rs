@@ -124,20 +124,26 @@ impl Application {
                 }
                 Event::Sources(sources) => {
                     debug!("Available sources: {sources:?}");
-                    self.ui_weak.upgrade_in_event_loop(move |ui| {
-                        let model = Rc::new(slint::VecModel::<slint::SharedString>::from(
-                            sources
-                                .iter()
-                                .map(|s| s.into())
-                                .collect::<Vec<slint::SharedString>>(),
-                        ));
-                        ui.set_sources_model(model.into());
-                    })?;
+                    if sources.len() == 1 {
+                        debug!("One source available, auto selecting");
+                        self.event_tx.send(Event::SelectSource(0)).await?;
+                    } else {
+                        self.ui_weak.upgrade_in_event_loop(move |ui| {
+                            let model = Rc::new(slint::VecModel::<slint::SharedString>::from(
+                                sources
+                                    .iter()
+                                    .map(|s| s.into())
+                                    .collect::<Vec<slint::SharedString>>(),
+                            ));
+                            ui.set_sources_model(model.into());
+                        })?;
+                    }
                 }
                 Event::SelectSource(idx) => {
                     self.select_source_tx.send(idx).await?;
                     self.selected_source = true;
 
+                    // If we're connected to a receiver, add the sink for it
                     if receiver_connected_to.starts_with("OpenMirroring") {
                         self.pipeline.add_webrtc_sink().await?;
                     } else if !receiver_connected_to.is_empty() {
@@ -160,6 +166,7 @@ impl Application {
                         debug!("Receiver dup {}", receiver.name);
                     }
 
+                    // TODO: Do something about this receivers situation
                     let mut receivers_vec = self.receivers.keys().cloned().collect::<Vec<String>>();
                     receivers_vec.sort();
                     let receiver_connected_to = receiver_connected_to.clone();

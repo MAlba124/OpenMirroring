@@ -40,6 +40,8 @@ pub async fn run_server(
                 break;
             }
             res = listener.accept() => {
+                log::debug!("#################### Got connection ####################");
+
                 let Ok((stream, address)) = res else {
                     break;
                 };

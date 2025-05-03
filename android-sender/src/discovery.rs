@@ -31,9 +31,15 @@ pub async fn discover() {
     .unwrap();
 
     if let Err(err) = crate::tx!()
-        .send(crate::Event::ReceiverAvailable(
-            "OpenMirroring-test".to_owned(),
-        ))
+        // .send(crate::Event::ReceiverAvailable(
+        // "OpenMirroring-test".to_owned(),
+        // 10.0.2.2
+        // ))
+        // Send a test receiver because emulator can't discover any by itself
+        .send(crate::Event::ReceiverAvailable {
+            name: "OpenMirroring-test".to_owned(),
+            addr: SocketAddr::V4(SocketAddrV4::new(Ipv4Addr::new(10, 0, 2, 2), 46899)),
+        })
         .await
     {
         error!("Failed to send ReceiverAvailable: {err}");
@@ -64,18 +70,18 @@ pub async fn discover() {
                 )));
             }
 
-            if let Err(err) = crate::tx!()
+            // if let Err(err) = crate::tx!()
                 // .send(crate::Event::ReceiverAvailable(crate::Receiver {
                 // name: service.unescaped_instance_name(),
                 // addresses,
                 // }))
-                .send(crate::Event::ReceiverAvailable(
-                    service.unescaped_instance_name(),
-                ))
-                .await
-            {
-                error!("Failed to send ReceiverAvailable: {err}");
-            }
+                // .send(crate::Event::ReceiverAvailable(
+                //     service.unescaped_instance_name(),
+                // ))
+                // .await
+            // {
+            //     error!("Failed to send ReceiverAvailable: {err}");
+            // }
 
             seen_instances.insert(service);
         }

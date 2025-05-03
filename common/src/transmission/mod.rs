@@ -18,12 +18,12 @@
 use gst::glib;
 
 pub mod hls;
-#[cfg(not(target_os = "android"))]
+// #[cfg(not(target_os = "android"))]
 pub mod webrtc;
 
 pub struct PlayMessage {
-    mime: String,
-    uri: String,
+    pub mime: String,
+    pub uri: String,
 }
 
 pub fn init() -> Result<(), gst::glib::BoolError> {

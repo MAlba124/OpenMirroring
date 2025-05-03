@@ -28,7 +28,8 @@ endif
 
 GSTREAMER_NDK_BUILD_PATH  := $(GSTREAMER_ROOT)/share/gst-android/ndk-build/
 include $(GSTREAMER_NDK_BUILD_PATH)/plugins.mk
+# TODO: libgstreamer_android.so is very large with this configuration (~180MiB), so in the future, only include required plugins
 GSTREAMER_PLUGINS         := $(GSTREAMER_PLUGINS_CORE) $(GSTREAMER_PLUGINS_NET) $(GSTREAMER_PLUGINS_CODECS) $(GSTREAMER_PLUGINS_CODECS_RESTRICTED)
-GSTREAMER_EXTRA_DEPS      := gstreamer-app-1.0 gstreamer-video-1.0
+GSTREAMER_EXTRA_DEPS      := gstreamer-app-1.0 gstreamer-video-1.0 gstreamer-rtp-1.0 gstreamer-webrtc-1.0
 
 include $(GSTREAMER_NDK_BUILD_PATH)/gstreamer-1.0.mk

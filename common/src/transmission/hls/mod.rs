@@ -15,7 +15,9 @@
 // You should have received a copy of the GNU General Public License
 // along with OpenMirroring.  If not, see <https://www.gnu.org/licenses/>.
 
+#[cfg(not(target_os = "android"))]
 use crate::net::get_default_ipv4_addr;
+use anyhow::{anyhow, Result};
 use fake_file_writer::FakeFileWriter;
 use gst::{glib, prelude::*};
 use log::{debug, error, trace};
@@ -25,6 +27,7 @@ use std::{
     path::PathBuf,
     sync::{Arc, Mutex},
 };
+use std::str::FromStr;
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
     sync::mpsc::{Receiver, Sender},
@@ -43,7 +46,12 @@ async fn serve_dir(
     server_port: Arc<Mutex<Option<u16>>>,
     mut file_rx: Receiver<fake_file_writer::ChannelElement>,
 ) {
+    #[cfg(not(target_os = "android"))]
     let listener = tokio::net::TcpListener::bind("0.0.0.0:0").await.unwrap();
+    #[cfg(target_os = "android")]
+    let listener = tokio::net::TcpListener::bind("0.0.0.0:30069")
+        .await
+        .unwrap(); // adb forward tcp:30069 tcp:30069
 
     debug!("HTTP server listening on {:?}", listener.local_addr());
 
@@ -171,12 +179,14 @@ async fn serve_dir(
     }
 }
 
-fn get_codec_name(sink: &gst::Element) -> String {
-    let pad = sink.static_pad("sink").unwrap();
-    let caps = pad.sticky_event::<gst::event::Caps>(0).unwrap();
-    gst_pbutils::codec_utils_caps_get_mime_codec(caps.caps())
-        .unwrap()
-        .to_string()
+fn get_codec_name(sink: &gst::Element) -> Result<String> {
+    let pad = sink
+        .static_pad("sink")
+        .ok_or(anyhow!("Failed to get static sink pad"))?;
+    let caps = pad
+        .sticky_event::<gst::event::Caps>(0)
+        .ok_or(anyhow!("Failed to get caps from sink pad"))?;
+    Ok(gst_pbutils::codec_utils_caps_get_mime_codec(caps.caps())?.to_string())
 }
 
 pub struct HlsSink {
@@ -184,6 +194,8 @@ pub struct HlsSink {
     queue_pad: gst::Pad,
     queue: gst::Element,
     convert: gst::Element,
+    scale: gst::Element,
+    capsfilter: gst::Element,
     pub server_port: Arc<Mutex<Option<u16>>>,
     main_path: PathBuf,
     enc: gst::Element,
@@ -202,6 +214,18 @@ impl HlsSink {
             .build()?;
         let convert = gst::ElementFactory::make("videoconvert")
             .name("sink_convert")
+            .build()?;
+        let scale = gst::ElementFactory::make("videoscale")
+            .name("sink_scale")
+            .build()?;
+        let capsfilter = gst::ElementFactory::make("capsfilter")
+            .name("sink_capsfilter")
+            .property(
+                "caps",
+                gst::Caps::from_str(
+                    "video/x-raw,width=(int)[16,8192,2],height=(int)[16,8192,2]",
+                )?,
+            )
             .build()?;
 
         let enc = gst::ElementFactory::make("x264enc")
@@ -306,14 +330,16 @@ impl HlsSink {
             }),
         );
 
-        pipeline.add_many([&queue, &convert, &enc, &enc_caps, &sink])?;
-        gst::Element::link_many([&queue, &convert, &enc, &enc_caps, &sink])?;
+        pipeline.add_many([&queue, &convert, &scale, &capsfilter, &enc, &enc_caps, &sink])?;
+        gst::Element::link_many([&queue, &convert, &scale, &capsfilter, &enc, &enc_caps, &sink])?;
 
-        queue.sync_state_with_parent().unwrap();
-        convert.sync_state_with_parent().unwrap();
-        enc.sync_state_with_parent().unwrap();
-        enc_caps.sync_state_with_parent().unwrap();
-        sink.sync_state_with_parent().unwrap();
+        queue.sync_state_with_parent()?;
+        convert.sync_state_with_parent()?;
+        scale.sync_state_with_parent()?;
+        capsfilter.sync_state_with_parent()?;
+        enc.sync_state_with_parent()?;
+        enc_caps.sync_state_with_parent()?;
+        sink.sync_state_with_parent()?;
 
         let queue_pad = queue
             .static_pad("sink")
@@ -327,6 +353,8 @@ impl HlsSink {
             queue_pad,
             queue,
             convert,
+            scale,
+            capsfilter,
             server_port,
             main_path: manifest_path,
             enc,
@@ -337,12 +365,12 @@ impl HlsSink {
         })
     }
 
-    pub async fn write_manifest_file(&mut self) {
+    pub async fn write_manifest_file(&mut self) -> Result<()> {
         if !self.write_playlist {
-            return;
+            return Ok(());
         }
 
-        let video_codec = get_codec_name(&self.sink);
+        let video_codec = get_codec_name(&self.sink)?;
 
         let variants = vec![VariantStream {
             uri: "video/manifest.m3u8".to_string(),
@@ -359,17 +387,18 @@ impl HlsSink {
         debug!("Writing master manifest to {}", self.main_path.display());
 
         let mut buf = Vec::new();
-        playlist.write_to(&mut buf).unwrap();
+        playlist.write_to(&mut buf)?;
 
         self.file_tx
             .send(fake_file_writer::ChannelElement {
                 location: self.main_path.to_string_lossy().to_string(),
                 request: fake_file_writer::Request::Add(buf),
             })
-            .await
-            .unwrap();
+            .await?;
 
         self.write_playlist = false;
+
+        Ok(())
     }
 }
 
@@ -382,15 +411,20 @@ impl TransmissionSink for HlsSink {
             .as_ref()
             .map(|server_port| super::PlayMessage {
                 mime: HLS_MIME_TYPE.to_owned(),
+                #[cfg(not(target_os = "android"))]
                 uri: format!(
                     "http://{}:{server_port}/manifest.m3u8",
                     get_default_ipv4_addr(),
                 ),
+                // TODO: use real address when not emulating
+                #[cfg(target_os = "android")]
+                uri: format!("http://127.0.0.1:{server_port}/manifest.m3u8"),
             })
     }
 
+    // TODO: -> Result
     async fn playing(&mut self) {
-        self.write_manifest_file().await;
+        self.write_manifest_file().await.unwrap();
     }
 
     fn shutdown(&mut self) {}
@@ -408,6 +442,8 @@ impl TransmissionSink for HlsSink {
         let elems = [
             &self.queue,
             &self.convert,
+            &self.scale,
+            &self.capsfilter,
             &self.enc,
             &self.enc_caps,
             &self.sink,

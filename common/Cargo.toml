@@ -25,9 +25,7 @@ gst-video = { workspace = true, optional = true, features = [ "v1_24" ] }
 gst-pbutils = { package = "gstreamer-pbutils", version = "0.23.5", features = [ "v1_24" ], optional = true }
 gst-app = { workspace = true, optional = true, features = [ "v1_24" ] }
 gst = { workspace = true, optional = true, features = [ "v1_24" ] }
-
-[target.'cfg(not(target_os = "android"))'.dependencies]
-gst-webrtc = { workspace = true, optional = true }
+gst-webrtc = { workspace = true, optional = true, default-features = false, features = [ "v1_22" ] }
 
 [target.'cfg(target_os = "windows")'.dependencies]
 windows = { version = "0.60.0", features = ["Win32_Networking_WinSock", "Win32_NetworkManagement_Ndis", "Win32_NetworkManagement_IpHelper"] }
@@ -47,3 +45,7 @@ video = ["gst", "gst-app", "gst-video", "gst-gl"]
 transmission = ["gst", "gst-video", "serde", "serde_json", "gio", "m3u8-rs", "gst-pbutils",
         "http", "gst-webrtc", "futures", "async-tungstenite", "uuid", "pin-project-lite",
         "bytes", "async-tungstenite", "async-trait"]
+
+[dev-dependencies]
+quickcheck = "1"
+quickcheck_macros = "1"

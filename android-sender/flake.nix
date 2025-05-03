@@ -55,12 +55,11 @@
             ];
             # TOD: Fix these hacks
             shellHook = ''
-                set -x
                 export ANDROID_HOME="$HOME/Android/Sdk";
                 export ANDROID_NDK_ROOT="$HOME/Android/Sdk/ndk/29.0.13113456";
-                export GSTREAMER_ROOT_ANDROID="$(pwd)/gst-android-1.0-1.24.12";
+                # export GSTREAMER_ROOT_ANDROID="$(pwd)/gst-android-1.0-1.24.12";
+                export GSTREAMER_ROOT_ANDROID="$(pwd)/gst-android-1.0-1.26.1";
                 export PKG_CONFIG_ALLOW_CROSS=1
-                set +x
 
                 # Add more when targeting other archs
                 export PKG_CONFIG_PATH="$PKG_CONFIG_PATH:$GSTREAMER_ROOT_ANDROID/x86_64/lib/pkgconfig"

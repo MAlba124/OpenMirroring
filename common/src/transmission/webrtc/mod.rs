@@ -18,6 +18,7 @@
 use std::sync::Arc;
 use std::sync::Mutex;
 
+#[cfg(not(target_os = "android"))]
 use crate::net::get_default_ipv4_addr;
 use gst::glib;
 use gst::prelude::*;
@@ -60,12 +61,13 @@ impl WebrtcSink {
             .name("webrtc_sink")
             .build()?;
 
-        let signaller = sink.property::<gst_webrtc::signaller::Signaller>("signaller");
+        // let signaller = sink.property::<gst_webrtc::signaller::Signaller>("signaller");
+        // signaller.set_property("uri", "ws://127.0.0.1:8443");
+
+        let signaller = sink.property::<glib::Object>("signaller");
         signaller.set_property("uri", "ws://127.0.0.1:8443");
 
-        pipeline.add_many([&sink])?;
-
-        pipeline.add_many([&queue, &convert])?;
+        pipeline.add_many([&queue, &convert, &sink])?;
         gst::Element::link_many([&queue, &convert, &sink])?;
 
         queue.sync_state_with_parent().unwrap();
@@ -104,15 +106,17 @@ impl WebrtcSink {
 impl TransmissionSink for WebrtcSink {
     fn get_play_msg(&self) -> Option<super::PlayMessage> {
         let peer_id = self.peer_id.lock().unwrap();
-        (*peer_id)
-            .as_ref()
-            .map(|producer_id| super::PlayMessage {
-                mime: GST_WEBRTC_MIME_TYPE.to_owned(),
-                uri: format!(
-                    "gstwebrtc://{}:8443?peer-id={producer_id}",
-                    get_default_ipv4_addr(),
-                ),
-            })
+        (*peer_id).as_ref().map(|producer_id| super::PlayMessage {
+            mime: GST_WEBRTC_MIME_TYPE.to_owned(),
+            #[cfg(not(target_os = "android"))]
+            uri: format!(
+                "gstwebrtc://{}:8443?peer-id={producer_id}",
+                get_default_ipv4_addr(),
+            ),
+            // Localhost when running in emulator after `adb forward tcp:8443 tcp:8443`
+            #[cfg(target_os = "android")]
+            uri: format!("gstwebrtc://127.0.0.1:8443?peer-id={producer_id}"),
+        })
     }
 
     async fn playing(&mut self) {}

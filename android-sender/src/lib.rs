@@ -15,8 +15,10 @@
 // You should have received a copy of the GNU General Public License
 // along with OpenMirroring.  If not, see <https://www.gnu.org/licenses/>.
 
+use std::collections::HashMap;
 use std::net::SocketAddr;
 
+use gst_video::VideoFrameExt;
 use jni::objects::JObject;
 use jni::JavaVM;
 
@@ -34,8 +36,10 @@ lazy_static::lazy_static! {
     pub static ref EVENT_CHAN: (async_channel::Sender<Event>, async_channel::Receiver<Event>) =
         async_channel::unbounded();
 
-    pub static ref FRAME_CHAN: (crossbeam_channel::Sender<gst::Buffer>, crossbeam_channel::Receiver<gst::Buffer>) =
-        crossbeam_channel::bounded(2);
+    pub static ref FRAME_CHAN: (
+        crossbeam_channel::Sender<gst_video::VideoFrame<gst_video::video_frame::Writable>>,
+        crossbeam_channel::Receiver<gst_video::VideoFrame<gst_video::video_frame::Writable>>
+    ) = crossbeam_channel::bounded(2);
 }
 
 #[macro_export]
@@ -56,10 +60,11 @@ slint::include_modules!();
 pub enum Event {
     CaptureStarted,
     CaptureStopped,
-    ReceiverAvailable(String),
+    ReceiverAvailable { name: String, addr: SocketAddr },
     Packet(fcast_lib::packet::Packet),
     ConnectedToReceiver,
     Quit,
+    PipelineIsPlaying,
 }
 
 #[derive(Debug)]
@@ -75,7 +80,26 @@ async fn event_loop(
     ui: slint::Weak<MainWindow>,
     session_tx: tokio::sync::mpsc::Sender<SessionMessage>,
 ) {
-    let pipeline = Pipeline::new().unwrap();
+    let mut receivers: HashMap<String, SocketAddr> = HashMap::new();
+
+    let mut pipeline = Pipeline::new().unwrap();
+    // pipeline.add_webrtc_sink().unwrap();
+    pipeline.add_hls_sink().unwrap();
+    // session_tx
+    //     .send(SessionMessage::Connect(SocketAddr::new(
+    //         std::net::IpAddr::V4(std::net::Ipv4Addr::new(10, 0, 2, 2)),
+    //         46899,
+    //     )))
+    //     .await
+    //     .unwrap();
+
+    // debug!("sleeping for 10s...");
+    // tokio::time::sleep(std::time::Duration::from_secs(10)).await;
+
+    session_tx
+        .send(pipeline.get_play_msg().unwrap())
+        .await
+        .unwrap();
 
     while let Ok(event) = rx!().recv().await {
         match event {
@@ -91,10 +115,18 @@ async fn event_loop(
                 })
                 .unwrap();
             }
-            Event::ReceiverAvailable(n) => debug!("Reveiver available: {n}"),
+            Event::ReceiverAvailable { name, addr } => {
+                if receivers.insert(name, addr).is_some() {
+                    debug!("Receiver dup {name}");
+                }
+
+                let mut receivers_vec = receivers.keys().cloned().collect::<Vec<String>>();
+                receivers_vec.sort();
+            } // debug!("Reveiver available: {n}"),
             Event::Packet(packet) => (),
             Event::ConnectedToReceiver => (),
             Event::Quit => break,
+            Event::PipelineIsPlaying => pipeline.playing().await,
         }
     }
 
@@ -109,8 +141,16 @@ fn android_main(app: slint::android::AndroidApp) {
 
     debug!("Hello from rust");
 
+    #[cfg(debug_assertions)]
+    {
+        std::env::set_var("GST_DEBUG_NO_COLOR", "true");
+        std::env::set_var("GST_DEBUG", "3");
+    }
+
     gst::init().unwrap();
     common::transmission::init().unwrap();
+
+    // let payloaders = gst::ElementFactory::factories_with_type(gst::ElementFactoryType::PAYLOADER, gst::Rank::MARGINAL,); for p in payloaders {debug!("{p:?}");}
 
     debug!("GStreamer version: {:?}", gst::version());
 
@@ -191,11 +231,16 @@ pub extern "C" fn Java_com_github_malba124_openmirroring_android_sender_ScreenCa
     width: jni::sys::jint,
     height: jni::sys::jint,
     pixel_stride: jni::sys::jint,
-    _row_stride: jni::sys::jint,
+    row_stride: jni::sys::jint,
 ) {
+    if FRAME_CHAN.0.is_full() {
+        return;
+    }
+
     let width = width as usize;
-    let height = width as usize;
+    let height = height as usize;
     let pixel_stride = pixel_stride as usize;
+    let row_stride = row_stride as usize;
     let frame_size = width * height * pixel_stride;
 
     let buffer_cap = match env.get_direct_buffer_capacity(&buffer) {
@@ -224,5 +269,38 @@ pub extern "C" fn Java_com_github_malba124_openmirroring_android_sender_ScreenCa
 
     let buffer_slice: &[u8] = unsafe { std::slice::from_raw_parts(buffer_ptr, buffer_cap) };
 
-    log::debug!("Got frame of size: {}", buffer_slice.len());
+    let mut buffer = gst::Buffer::with_size(frame_size).unwrap();
+
+    let info = match gst_video::VideoInfo::builder(
+        gst_video::VideoFormat::Rgba,
+        width as u32,
+        height as u32,
+    )
+    .build()
+    {
+        Ok(info) => info,
+        Err(err) => {
+            error!("Failed to crate video info: {err}");
+            return;
+        }
+    };
+
+    let Ok(mut vframe) = gst_video::VideoFrame::from_buffer_writable(buffer, &info) else {
+        error!("Failed to crate VideoFrame from buffer");
+        return;
+    };
+
+    let dest_stride = vframe.plane_stride()[0] as usize;
+    let dest = vframe.plane_data_mut(0).unwrap();
+
+    for (dest, src) in dest
+        .chunks_exact_mut(dest_stride)
+        .zip(buffer_slice.chunks_exact(dest_stride))
+    {
+        dest[..dest_stride].copy_from_slice(&src[..dest_stride]);
+    }
+
+    if let Err(err) = FRAME_CHAN.0.send(vframe) {
+        error!("Failed to send frame: {err}");
+    }
 }
