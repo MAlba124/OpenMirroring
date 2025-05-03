@@ -49,8 +49,7 @@ impl Dispatcher {
             i.with_port(46899)
         };
 
-        let mut discovery = ServiceDiscovery::new(instance_info, "_fcast._tcp.local", 60).unwrap();
-        discovery.announce(false).await.unwrap();
+        let discovery = ServiceDiscovery::new(instance_info, "_fcast._tcp.local", 60, async |_| {}).unwrap();
 
         Ok(Self {
             listener,

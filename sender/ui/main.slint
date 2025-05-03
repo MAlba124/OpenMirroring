@@ -171,9 +171,11 @@ export component MainWindow inherits Window {
     cast-dialog := CastDialog {
         visible: false;
 
-        width: root.width >= 500px ? 500px : root.width;
-
         receivers-model <=> receivers-model;
+
+        width: root.width >= 500px ? 500px : root.width;
+        root-height <=> root.height;
+
         is-connected <=> receiver-is-connected;
         is-connecting <=> receiver-is-connecting;
 

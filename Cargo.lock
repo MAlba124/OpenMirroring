@@ -5934,9 +5934,8 @@ dependencies = [
 
 [[package]]
 name = "simple-dns"
-version = "0.7.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4c80e565e7dcc4f1ef247e2f395550d4cf7d777746d5988e7e4e3156b71077fc"
+version = "0.10.1"
+source = "git+https://github.com/MAlba124/simple-dns.git?rev=afb61d6b2d571790f4dff6cb2879cb7d134d1557#afb61d6b2d571790f4dff6cb2879cb7d134d1557"
 dependencies = [
  "bitflags 2.9.0",
 ]
@@ -5944,8 +5943,7 @@ dependencies = [
 [[package]]
 name = "simple-mdns"
 version = "0.6.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f6cbda25221f5d4b94f47932d35f94f38aea5958c9ad0e09b3a6745c1dc393cf"
+source = "git+https://github.com/MAlba124/simple-dns.git?rev=afb61d6b2d571790f4dff6cb2879cb7d134d1557#afb61d6b2d571790f4dff6cb2879cb7d134d1557"
 dependencies = [
  "log",
  "radix_trie",
