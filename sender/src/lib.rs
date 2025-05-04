@@ -41,8 +41,8 @@ pub struct Receiver {
 #[derive(Debug)]
 pub enum Event {
     Quit,
-    Start,
-    Stop,
+    StartCast,
+    StopCast,
     Sources(Vec<String>),
     SelectSource(usize),
     Packet(fcast_lib::packet::Packet),

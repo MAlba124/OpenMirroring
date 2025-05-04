@@ -25,7 +25,6 @@ use simple_mdns::async_discovery::ServiceDiscovery;
 use tokio::sync::mpsc::{Receiver, Sender};
 use tokio::sync::{self, oneshot};
 
-use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::rc::Rc;
 use std::sync::{Arc, Mutex};
@@ -41,7 +40,7 @@ struct Application {
     session_tx: Sender<SessionMessage>,
     select_source_tx: Sender<usize>,
     selected_source: bool,
-    receivers: HashMap<String, Vec<SocketAddr>>,
+    receivers: Vec<(ReceiverItem, SocketAddr)>,
     appsink: gst::Element,
     gst_gl_context: GstGlContext,
     _discovery: ServiceDiscovery,
@@ -72,7 +71,7 @@ impl Application {
             session_tx,
             select_source_tx,
             selected_source: false,
-            receivers: HashMap::new(),
+            receivers: Vec::new(),
             appsink,
             gst_gl_context,
             _discovery: discovery,
@@ -102,17 +101,59 @@ impl Application {
         Ok((selected_tx, pipeline_rx.await?))
     }
 
+    fn receivers_contains(&self, x: &str) -> Option<usize> {
+        for (idx, y) in self.receivers.iter().enumerate() {
+            if y.0.name == x {
+                return Some(idx);
+            }
+        }
+
+        None
+    }
+
+    /// Returns the state for all non connecting/connected receivers.
+    fn receivers_general_state(&self) -> ReceiverState {
+        for r in &self.receivers {
+            if r.0.state != ReceiverState::Connectable {
+                return ReceiverState::Inactive;
+            }
+        }
+
+        ReceiverState::Connectable
+    }
+
+    fn update_receivers_in_ui(&mut self) -> Result<()> {
+        let g_state = self.receivers_general_state();
+        for r in &mut self.receivers {
+            if r.0.state != ReceiverState::Connecting && r.0.state != ReceiverState::Connected {
+                r.0.state = g_state;
+            }
+        }
+
+        let receivers = self
+            .receivers
+            .iter()
+            .map(|r| r.0.clone())
+            .collect::<Vec<ReceiverItem>>();
+        self.ui_weak.upgrade_in_event_loop(move |ui| {
+            let model = Rc::new(slint::VecModel::<ReceiverItem>::from_iter(
+                receivers.into_iter(),
+            ));
+            ui.set_receivers_model(model.into());
+        })?;
+
+        Ok(())
+    }
+
     pub async fn run_event_loop(
         &mut self,
         mut event_rx: Receiver<Event>,
         fin_tx: oneshot::Sender<()>,
     ) -> Result<()> {
-        let mut receiver_connected_to = String::new();
-        let mut receiver_connecting_to = String::new();
         while let Some(event) = event_rx.recv().await {
             match event {
                 Event::Quit => break,
-                Event::Start => {
+                Event::StartCast => {
                     let Some(play_msg) = self.pipeline.get_play_msg().await else {
                         error!("Could not get stream uri");
                         continue;
@@ -120,12 +161,14 @@ impl Application {
 
                     self.session_tx.send(play_msg).await?;
                     self.ui_weak.upgrade_in_event_loop(|ui| {
-                        ui.set_starting_cast(false);
-                        ui.set_casting(true);
+                        ui.invoke_cast_started();
                     })?;
                 }
-                Event::Stop => {
+                Event::StopCast => {
                     self.session_tx.send(SessionMessage::Stop).await?;
+                    self.ui_weak.upgrade_in_event_loop(|ui| {
+                        ui.invoke_cast_stopped();
+                    })?;
                 }
                 Event::Sources(sources) => {
                     debug!("Available sources: {sources:?}");
@@ -149,10 +192,21 @@ impl Application {
                     self.selected_source = true;
 
                     // If we're connected to a receiver, add the sink for it
-                    if receiver_connected_to.starts_with("OpenMirroring") {
-                        self.pipeline.add_webrtc_sink().await?;
-                    } else if !receiver_connected_to.is_empty() {
-                        self.pipeline.add_hls_sink().await?;
+                    for r in &mut self.receivers {
+                        if r.0.state != ReceiverState::Connected {
+                            continue;
+                        }
+
+                        if r.0.name.starts_with("OpenMirroring") {
+                            // self.pipeline.add_hls_sink().await?;
+                            self.pipeline.add_webrtc_sink().await?;
+                        } else {
+                            self.pipeline.add_hls_sink().await?;
+                        }
+
+                        self.update_receivers_in_ui()?;
+
+                        break;
                     }
 
                     self.ui_weak.upgrade_in_event_loop(|ui| {
@@ -163,107 +217,72 @@ impl Application {
                     trace!("Unhandled packet: {packet:?}");
                 }
                 Event::ReceiverAvailable(receiver) => {
-                    if self
-                        .receivers
-                        .insert(receiver.name.clone(), receiver.addresses)
-                        .is_some()
-                    {
-                        debug!("Receiver dup {}", receiver.name);
+                    if let Some(idx) = self.receivers_contains(&receiver.name) {
+                        self.receivers[idx].1 = receiver.addresses[0];
+                    } else {
+                        self.receivers.push((
+                            ReceiverItem {
+                                name: receiver.name.into(),
+                                state: self.receivers_general_state(),
+                            },
+                            receiver.addresses[0],
+                        ));
                     }
 
-                    // TODO: Do something about this receivers situation
-                    let mut receivers_vec = self.receivers.keys().cloned().collect::<Vec<String>>();
-                    receivers_vec.sort();
-                    let receiver_connected_to = receiver_connected_to.clone();
-                    let receiver_connecting_to = receiver_connecting_to.clone();
-                    self.ui_weak.upgrade_in_event_loop(move |ui| {
-                        let receiver_connected_to = &receiver_connected_to;
-                        let model = Rc::new(slint::VecModel::<ReceiverItem>::from_iter(
-                            receivers_vec.iter().map(|name| ReceiverItem {
-                                name: name.into(),
-                                connected: name == receiver_connected_to,
-                                connecting: *name == receiver_connecting_to,
-                            }),
-                        ));
-                        ui.set_receivers_model(model.into());
-                    })?;
+                    self.update_receivers_in_ui()?;
                 }
                 Event::SelectReceiver(receiver) => {
-                    let Some(addresses) = self.receivers.get(&receiver) else {
-                        error!("No receiver with id {receiver}");
-                        continue;
-                    };
+                    if let Some(idx) = self.receivers_contains(&receiver) {
+                        self.receivers[idx].0.state = ReceiverState::Connecting;
 
-                    receiver_connecting_to = receiver;
+                        self.session_tx
+                            .send(SessionMessage::Connect(self.receivers[idx].1))
+                            .await?;
 
-                    self.session_tx
-                        .send(SessionMessage::Connect(addresses[0]))
-                        .await?;
-
-                    let mut receivers_vec = self.receivers.keys().cloned().collect::<Vec<String>>();
-                    receivers_vec.sort();
-                    let receiver_connected_to = receiver_connected_to.clone();
-                    let receiver_connecting_to = receiver_connecting_to.clone();
-                    self.ui_weak.upgrade_in_event_loop(move |ui| {
-                        let receiver_connected_to = &receiver_connected_to;
-                        let model = Rc::new(slint::VecModel::<ReceiverItem>::from_iter(
-                            receivers_vec.iter().map(|name| ReceiverItem {
-                                name: name.into(),
-                                connected: name == receiver_connected_to,
-                                connecting: *name == receiver_connecting_to,
-                            }),
-                        ));
-                        ui.set_receiver_is_connecting(true);
-                        ui.set_receiver_is_connected(false);
-                        ui.set_receivers_model(model.into());
-                    })?;
+                        self.update_receivers_in_ui()?;
+                    } else {
+                        error!("No receiver `{receiver}` available");
+                    }
                 }
                 Event::ConnectedToReceiver => {
                     debug!("Succesfully connected to receiver");
-                    receiver_connected_to = receiver_connecting_to;
-                    receiver_connecting_to = String::new();
 
-                    if receiver_connected_to.starts_with("OpenMirroring") {
-                        self.pipeline.add_webrtc_sink().await?;
-                    } else {
-                        self.pipeline.add_hls_sink().await?;
+                    for r in &mut self.receivers {
+                        if r.0.state == ReceiverState::Connecting {
+                            r.0.state = ReceiverState::Connected;
+
+                            if r.0.name.starts_with("OpenMirroring") {
+                                // self.pipeline.add_hls_sink().await?;
+                                self.pipeline.add_webrtc_sink().await?;
+                            } else {
+                                self.pipeline.add_hls_sink().await?;
+                            }
+                            break;
+                        }
                     }
 
-                    let mut receivers_vec = self.receivers.keys().cloned().collect::<Vec<String>>();
-                    receivers_vec.sort();
-                    let receiver_connected_to = receiver_connected_to.clone();
-                    let receiver_connecting_to = receiver_connecting_to.clone();
-                    self.ui_weak.upgrade_in_event_loop(move |ui| {
-                        let receiver_connected_to = &receiver_connected_to;
-                        let model = Rc::new(slint::VecModel::<ReceiverItem>::from_iter(
-                            receivers_vec.iter().map(|name| ReceiverItem {
-                                name: name.into(),
-                                connected: name == receiver_connected_to,
-                                connecting: *name == receiver_connecting_to,
-                            }),
-                        ));
-                        ui.set_receiver_is_connecting(false);
-                        ui.set_receiver_is_connected(true);
-                        ui.set_receivers_model(model.into());
+                    self.ui_weak.upgrade_in_event_loop(|ui| {
+                        ui.invoke_receiver_connected();
                     })?;
+
+                    self.update_receivers_in_ui()?;
                 }
                 Event::DisconnectReceiver => {
+                    for r in &mut self.receivers {
+                        if r.0.state == ReceiverState::Connected
+                            || r.0.state == ReceiverState::Connecting
+                        {
+                            r.0.state = ReceiverState::Connectable;
+                            self.update_receivers_in_ui()?;
+                            break;
+                        }
+                    }
+
                     self.session_tx.send(SessionMessage::Disconnect).await?;
                     self.pipeline.remove_transmission_sink().await?;
-                    receiver_connected_to.clear();
-                    let mut receivers_vec = self.receivers.keys().cloned().collect::<Vec<String>>();
-                    receivers_vec.sort();
-                    self.ui_weak.upgrade_in_event_loop(move |ui| {
-                        let model = Rc::new(slint::VecModel::<ReceiverItem>::from_iter(
-                            receivers_vec.iter().map(|name| ReceiverItem {
-                                name: name.into(),
-                                connected: false,
-                                connecting: false,
-                            }),
-                        ));
-                        ui.set_receiver_is_connecting(false);
-                        ui.set_receiver_is_connected(false);
-                        ui.set_receivers_model(model.into());
+
+                    self.ui_weak.upgrade_in_event_loop(|ui| {
+                        ui.invoke_receiver_disconnected();
                     })?;
                 }
                 Event::ChangeSource | Event::PipelineFinished => {
@@ -416,28 +435,15 @@ fn main() -> Result<()> {
 
     {
         let event_tx = event_tx.clone();
-        let ui_weak = ui.as_weak();
         ui.on_start_cast(move || {
-            event_tx.blocking_send(Event::Start).unwrap();
-            ui_weak
-                .upgrade_in_event_loop(|ui| {
-                    ui.set_starting_cast(true);
-                })
-                .unwrap();
+            event_tx.blocking_send(Event::StartCast).unwrap();
         });
     }
 
     {
-        let ui_weak = ui.as_weak();
         let event_tx = event_tx.clone();
         ui.on_stop_cast(move || {
-            event_tx.blocking_send(Event::Stop).unwrap();
-            ui_weak
-                .upgrade_in_event_loop(|ui| {
-                    ui.set_starting_cast(false);
-                    ui.set_casting(false);
-                })
-                .unwrap();
+            event_tx.blocking_send(Event::StopCast).unwrap();
         });
     }
 

@@ -20,7 +20,7 @@ uuid = { version = "1", features = ["v4"] }
 futures = "0.3"
 pin-project-lite = "0.2"
 bytes = "1.10.1"
-common = { path = "../common", features = ["video"] }
+common = { path = "../common", features = ["video", "transmission"] }
 fcast-lib = { path = "../fcast-lib" }
 http = { path = "../http" }
 scap-gstreamer = { path = "../scap-gstreamer" }

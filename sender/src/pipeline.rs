@@ -24,14 +24,12 @@ use gst::glib;
 use gst::prelude::*;
 use log::{debug, error};
 use tokio::sync::mpsc::{Receiver, Sender};
-use transmission_sink::TransmissionSink;
-use transmission_sink::{hls::HlsSink, webrtc::WebrtcSink};
+use common::transmission::TransmissionSink;
+use common::transmission::{hls::HlsSink, webrtc::WebrtcSink};
 
 use gst_gl::prelude::*;
 
-use crate::Event;
-
-mod transmission_sink;
+use crate::{Event, SessionMessage};
 
 pub struct Pipeline {
     inner: gst::Pipeline,
@@ -273,10 +271,11 @@ impl Pipeline {
 
     /// Get the message that should be sent to a receiver to consume the stream if a transmission
     /// sink is present
-    pub async fn get_play_msg(&self) -> Option<crate::SessionMessage> {
+    pub async fn get_play_msg(&self) -> Option<SessionMessage> {
         let tx_sink = self.tx_sink.lock().await;
         if let Some(sink) = &(*tx_sink) {
-            sink.get_play_msg()
+            let msg = sink.get_play_msg()?;
+            Some(SessionMessage::Play { mime: msg.mime, uri: msg.uri })
         } else {
             None
         }

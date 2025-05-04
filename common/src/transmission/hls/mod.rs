@@ -230,8 +230,7 @@ impl HlsSink {
 
         let enc = gst::ElementFactory::make("x264enc")
             .property("bframes", 0u32)
-            // TODO: find a good bitrate
-            .property("bitrate", 2_048_000 / 1000u32)
+            .property("bitrate", 2_048_000 / 1000u32 * 2u32)
             .property("key-int-max", i32::MAX as u32)
             .property_from_str("tune", "zerolatency")
             .property_from_str("speed-preset", "superfast")
