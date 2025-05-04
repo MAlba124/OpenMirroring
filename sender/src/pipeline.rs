@@ -19,13 +19,13 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
 use anyhow::Result;
+use common::transmission::TransmissionSink;
+use common::transmission::{hls::HlsSink, webrtc::WebrtcSink};
 use common::video::GstGlContext;
 use gst::glib;
 use gst::prelude::*;
 use log::{debug, error};
 use tokio::sync::mpsc::{Receiver, Sender};
-use common::transmission::TransmissionSink;
-use common::transmission::{hls::HlsSink, webrtc::WebrtcSink};
 
 use gst_gl::prelude::*;
 
@@ -275,7 +275,10 @@ impl Pipeline {
         let tx_sink = self.tx_sink.lock().await;
         if let Some(sink) = &(*tx_sink) {
             let msg = sink.get_play_msg()?;
-            Some(SessionMessage::Play { mime: msg.mime, uri: msg.uri })
+            Some(SessionMessage::Play {
+                mime: msg.mime,
+                uri: msg.uri,
+            })
         } else {
             None
         }

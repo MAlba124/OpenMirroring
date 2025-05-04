@@ -15,9 +15,9 @@
 // You should have received a copy of the GNU General Public License
 // along with OpenMirroring.  If not, see <https://www.gnu.org/licenses/>.
 
-use std::net::{Ipv4Addr, SocketAddr};
-use std::net::SocketAddrV4;
 use anyhow::Result;
+use std::net::SocketAddrV4;
+use std::net::{Ipv4Addr, SocketAddr};
 
 use log::{debug, error, warn};
 use simple_mdns::async_discovery::ServiceDiscovery;
@@ -54,6 +54,6 @@ pub fn discover(tx: tokio::sync::mpsc::Sender<crate::Event>) -> Result<ServiceDi
                     error!("Failed to send ReceiverAvailable: {err}");
                 }
             }
-        }
+        },
     )?)
 }

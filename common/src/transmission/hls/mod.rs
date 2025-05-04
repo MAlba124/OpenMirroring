@@ -22,12 +22,12 @@ use fake_file_writer::FakeFileWriter;
 use gst::{glib, prelude::*};
 use log::{debug, error, trace};
 use m3u8_rs::{MasterPlaylist, VariantStream};
+use std::str::FromStr;
 use std::{
     collections::HashMap,
     path::PathBuf,
     sync::{Arc, Mutex},
 };
-use std::str::FromStr;
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
     sync::mpsc::{Receiver, Sender},
@@ -222,9 +222,7 @@ impl HlsSink {
             .name("sink_capsfilter")
             .property(
                 "caps",
-                gst::Caps::from_str(
-                    "video/x-raw,width=(int)[16,8192,2],height=(int)[16,8192,2]",
-                )?,
+                gst::Caps::from_str("video/x-raw,width=(int)[16,8192,2],height=(int)[16,8192,2]")?,
             )
             .build()?;
 
@@ -329,8 +327,24 @@ impl HlsSink {
             }),
         );
 
-        pipeline.add_many([&queue, &convert, &scale, &capsfilter, &enc, &enc_caps, &sink])?;
-        gst::Element::link_many([&queue, &convert, &scale, &capsfilter, &enc, &enc_caps, &sink])?;
+        pipeline.add_many([
+            &queue,
+            &convert,
+            &scale,
+            &capsfilter,
+            &enc,
+            &enc_caps,
+            &sink,
+        ])?;
+        gst::Element::link_many([
+            &queue,
+            &convert,
+            &scale,
+            &capsfilter,
+            &enc,
+            &enc_caps,
+            &sink,
+        ])?;
 
         queue.sync_state_with_parent()?;
         convert.sync_state_with_parent()?;
