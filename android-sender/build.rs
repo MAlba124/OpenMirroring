@@ -1,6 +1,6 @@
 use std::env;
-use std::env::current_dir;
-use std::process::Command;
+// use std::env::current_dir;
+// use std::process::Command;
 
 // Source: https://github.com/mvvvv/StereoKit-rust-gstreamer/blob/main/build.rs
 
@@ -18,7 +18,7 @@ fn main() {
     let proj_root = env::current_dir().unwrap();
     let android_ndk_home = env::var("ANDROID_NDK_ROOT").unwrap();
     let gst_libs = env::var("GSTREAMER_ROOT_ANDROID").unwrap();
-    let gst_libs_path = current_dir().unwrap().join(&gst_libs);
+    // let gst_libs_path = current_dir().unwrap().join(&gst_libs);
 
     let gst_android_build_path = "../target/gst-android-build";
 
