@@ -35,7 +35,7 @@ mod transmission_sink;
 
 pub struct Pipeline {
     inner: gst::Pipeline,
-    tx_sink: Arc<tokio::sync::Mutex<Option<Box<dyn TransmissionSink>>>>,
+    tx_sink: Arc<tokio::sync::Mutex<Option<Box<dyn TransmissionSink>>>>, // TODO: must it be mutex?
     tee: gst::Element,
     preview_queue: gst::Element,
     preview_appsink: gst::Element,

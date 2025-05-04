@@ -20,7 +20,7 @@ uuid = { version = "1", features = ["v4"] }
 futures = "0.3"
 pin-project-lite = "0.2"
 bytes = "1.10.1"
-common = { path = "../common" }
+common = { path = "../common", features = ["video"] }
 fcast-lib = { path = "../fcast-lib" }
 http = { path = "../http" }
 scap-gstreamer = { path = "../scap-gstreamer" }
@@ -37,7 +37,3 @@ glutin_egl_sys = "0.7.1"
 
 [build-dependencies]
 slint-build = { workspace = true }
-
-[dev-dependencies]
-quickcheck = "1"
-quickcheck_macros = "1"

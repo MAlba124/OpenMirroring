@@ -18,9 +18,10 @@
 import { VerticalBox, HorizontalBox, Button, ComboBox, Palette, Spinner } from "std-widgets.slint";
 
 import { Settings } from "settings.slint";
+// TODO: use from ui-common
 import { CastDialog, ReceiverItem } from "cast-dialog.slint";
 import { VideoPreview } from "video-preview.slint";
-import { ToolTipArea } from "tool-tip-area.slint";
+import { ToolTipArea } from "../../ui-common/tool-tip-area.slint";
 
 export component MainWindow inherits Window {
     title: "Open Mirroring Sender";
@@ -91,7 +92,6 @@ export component MainWindow inherits Window {
                 if has-source && !casting && !starting-cast: ToolTipArea {
                     text: "Start casting";
                     Button {
-                        enabled: receiver-is-connected;
                         icon: @image-url("../../assets/icons/play.svg");
                         colorize-icon: true;
                         clicked => {
@@ -119,7 +119,7 @@ export component MainWindow inherits Window {
                 }
 
                 if has-source: ToolTipArea {
-                    text: "Open cast dialog";
+                    text: "Open casting dialog";
                     Button {
                         icon: @image-url("../../assets/icons/cast.svg");
                         colorize-icon: true;

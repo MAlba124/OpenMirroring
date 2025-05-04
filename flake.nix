@@ -23,6 +23,7 @@
             pkg-config
             clang
             dig
+            graphviz
             rust-bin.stable.latest.complete
             graphviz
             slint-lsp
@@ -59,6 +60,7 @@
                 ''-I"${pkgs.llvmPackages.libclang.lib}/lib/clang/${pkgs.llvmPackages.libclang.version}/include"''
                 "-I ${pkgs.glibc.dev}/include"
             ];
+
             inherit buildInputs nativeBuildInputs;
           };
         }

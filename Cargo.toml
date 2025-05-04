@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = [ "fcast-lib", "common", "receiver", "sender", "scap", "scap-gstreamer", "http"]
+members = [ "fcast-lib", "common", "receiver", "sender", "scap", "scap-gstreamer", "http", "android-sender"]
 
 [workspace.dependencies]
 gst-video = { package = "gstreamer-video", version = "0.23.5" }
