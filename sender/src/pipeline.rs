@@ -21,13 +21,10 @@ use std::sync::{Arc, Mutex};
 use anyhow::Result;
 use common::transmission::TransmissionSink;
 use common::transmission::{hls::HlsSink, webrtc::WebrtcSink};
-use common::video::GstGlContext;
 use gst::glib;
 use gst::prelude::*;
 use log::{debug, error};
 use tokio::sync::mpsc::{Receiver, Sender};
-
-use gst_gl::prelude::*;
 
 use crate::{Event, SessionMessage};
 
@@ -44,7 +41,6 @@ impl Pipeline {
         event_tx: Sender<Event>,
         selected_rx: Receiver<usize>,
         preview_appsink: gst::Element,
-        gst_gl_context: GstGlContext,
     ) -> Result<Self> {
         let tee = gst::ElementFactory::make("tee").build()?;
         let scapsrc = gst::ElementFactory::make("scapsrc")
@@ -114,39 +110,6 @@ impl Pipeline {
                             .blocking_send(crate::Event::PipelineFinished)
                             .unwrap();
                         pipeline_has_finished.store(true, Ordering::Release);
-                    }
-                }
-                MessageView::NeedContext(ctx) => {
-                    let ctx_type = ctx.context_type();
-
-                    if ctx_type == *gst_gl::GL_DISPLAY_CONTEXT_TYPE {
-                        if let Some(element) = msg
-                            .src()
-                            .and_then(|source| source.downcast_ref::<gst::Element>())
-                        {
-                            let g = gst_gl_context.lock().unwrap();
-                            if let Some((_, gst_gl_display)) = g.as_ref() {
-                                let gst_context = gst::Context::new(ctx_type, true);
-                                gst_context.set_gl_display(gst_gl_display);
-                                element.set_context(&gst_context);
-                            }
-                        }
-                    } else if ctx_type == "gst.gl.app_context" {
-                        if let Some(element) = msg
-                            .src()
-                            .and_then(|source| source.downcast_ref::<gst::Element>())
-                        {
-                            let mut gst_context = gst::Context::new(ctx_type, true);
-                            {
-                                let g = gst_gl_context.lock().unwrap();
-                                if let Some((gst_gl_context, _)) = g.as_ref() {
-                                    let gst_context = gst_context.get_mut().unwrap();
-                                    let structure = gst_context.structure_mut();
-                                    structure.set("context", gst_gl_context);
-                                }
-                            }
-                            element.set_context(&gst_context);
-                        }
                     }
                 }
                 _ => (),

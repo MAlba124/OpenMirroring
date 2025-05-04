@@ -18,7 +18,6 @@
 use anyhow::{bail, Result};
 use common::runtime;
 use common::video::opengl::SlintOpenGLSink;
-use common::video::GstGlContext;
 use fcast_lib::models::PlaybackUpdateMessage;
 use fcast_lib::packet::Packet;
 use log::{debug, warn};
@@ -30,7 +29,6 @@ use tokio::sync::mpsc::{self, Receiver, Sender};
 use tokio::sync::oneshot;
 
 use std::net::Ipv4Addr;
-use std::sync::{Arc, Mutex};
 
 slint::include_modules!();
 
@@ -47,11 +45,10 @@ async fn event_loop(
     ui_weak: slint::Weak<MainWindow>,
     fin_tx: oneshot::Sender<()>,
     appsink: gst::Element,
-    gst_gl_context: GstGlContext,
 ) -> Result<()> {
     let (updates_tx, _) = tokio::sync::broadcast::channel(10);
 
-    let pipeline = Pipeline::new(appsink, gst_gl_context, event_tx.clone())?;
+    let pipeline = Pipeline::new(appsink, event_tx.clone())?;
 
     while let Some(event) = event_rx.recv().await {
         match event {
@@ -132,13 +129,11 @@ fn main() -> Result<()> {
 
     let mut slint_sink = SlintOpenGLSink::new()?;
     let slint_appsink = slint_sink.video_sink();
-    let gst_gl_context = Arc::new(Mutex::new(None::<(gst_gl::GLContext, gst_gl::GLDisplay)>));
 
     let ui = MainWindow::new()?;
     slint::set_xdg_app_id("com.github.malba124.OpenMirroring.receiver")?;
 
     ui.window().set_rendering_notifier({
-        let gst_gl_context = Arc::clone(&gst_gl_context);
         let ui_weak = ui.as_weak();
 
         let new_frame_cb = |ui: MainWindow, new_frame| {
@@ -148,21 +143,18 @@ fn main() -> Result<()> {
         move |state, graphics_api| match state {
             slint::RenderingState::RenderingSetup => {
                 let ui_weak = ui_weak.clone();
-                let mut gst_gl_context = gst_gl_context.lock().unwrap();
-                *gst_gl_context = Some(
-                    slint_sink
-                        .connect(
-                            graphics_api,
-                            Box::new(move || {
-                                ui_weak
-                                    .upgrade_in_event_loop(move |ui| {
-                                        ui.window().request_redraw();
-                                    })
-                                    .ok();
-                            }),
-                        )
-                        .unwrap(),
-                );
+                slint_sink
+                    .connect(
+                        graphics_api,
+                        Box::new(move || {
+                            ui_weak
+                                .upgrade_in_event_loop(move |ui| {
+                                    ui.window().request_redraw();
+                                })
+                                .ok();
+                        }),
+                    )
+                    .unwrap();
             }
             slint::RenderingState::BeforeRendering => {
                 if let Some(next_frame) = slint_sink.fetch_next_frame() {
@@ -182,7 +174,6 @@ fn main() -> Result<()> {
         ui.as_weak(),
         fin_tx,
         slint_appsink,
-        gst_gl_context,
     ));
 
     {

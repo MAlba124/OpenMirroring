@@ -17,7 +17,6 @@
 
 use anyhow::Result;
 use common::video::opengl::SlintOpenGLSink;
-use common::video::GstGlContext;
 use log::{debug, error, trace};
 use sender::discovery::discover;
 use sender::session::session;
@@ -27,7 +26,6 @@ use tokio::sync::{self, oneshot};
 
 use std::net::SocketAddr;
 use std::rc::Rc;
-use std::sync::{Arc, Mutex};
 
 use sender::{pipeline, Event, SessionMessage};
 
@@ -42,7 +40,6 @@ struct Application {
     selected_source: bool,
     receivers: Vec<(ReceiverItem, SocketAddr)>,
     appsink: gst::Element,
-    gst_gl_context: GstGlContext,
     _discovery: ServiceDiscovery,
 }
 
@@ -52,13 +49,11 @@ impl Application {
         event_tx: Sender<Event>,
         session_tx: Sender<SessionMessage>,
         appsink: gst::Element,
-        gst_gl_context: GstGlContext,
     ) -> Result<Self> {
         let (select_source_tx, pipeline) = Self::new_pipeline(
             &ui_weak,
             event_tx.clone(),
             appsink.clone(),
-            Arc::clone(&gst_gl_context),
         )
         .await?;
 
@@ -73,7 +68,6 @@ impl Application {
             selected_source: false,
             receivers: Vec::new(),
             appsink,
-            gst_gl_context,
             _discovery: discovery,
         })
     }
@@ -82,16 +76,13 @@ impl Application {
         ui_weak: &slint::Weak<MainWindow>,
         event_tx: Sender<Event>,
         appsink: gst::Element,
-        gst_gl_context: GstGlContext,
     ) -> Result<(Sender<usize>, pipeline::Pipeline)> {
         let (selected_tx, selected_rx) = sync::mpsc::channel::<usize>(1);
 
         let (pipeline_tx, pipeline_rx) = oneshot::channel();
         ui_weak.upgrade_in_event_loop({
             move |_ui| {
-                let pipeline = {
-                    pipeline::Pipeline::new(event_tx, selected_rx, appsink, gst_gl_context).unwrap()
-                };
+                let pipeline = { pipeline::Pipeline::new(event_tx, selected_rx, appsink).unwrap() };
                 if pipeline_tx.send(pipeline).is_err() {
                     panic!("Failed to send pipeline");
                 }
@@ -317,7 +308,6 @@ impl Application {
             &self.ui_weak,
             self.event_tx.clone(),
             self.appsink.clone(),
-            Arc::clone(&self.gst_gl_context),
         )
         .await?;
 
@@ -356,13 +346,11 @@ fn main() -> Result<()> {
     // This sink is used in every consecutively created pipelines
     let mut slint_sink = SlintOpenGLSink::new()?;
     let slint_appsink = slint_sink.video_sink();
-    let gst_gl_context = Arc::new(Mutex::new(None::<(gst_gl::GLContext, gst_gl::GLDisplay)>));
 
     let ui = MainWindow::new()?;
     slint::set_xdg_app_id("com.github.malba124.OpenMirroring.sender")?;
 
     ui.window().set_rendering_notifier({
-        let gst_gl_context = Arc::clone(&gst_gl_context);
         let ui_weak = ui.as_weak();
 
         let new_frame_cb = |ui: MainWindow, new_frame| {
@@ -372,21 +360,18 @@ fn main() -> Result<()> {
         move |state, graphics_api| match state {
             slint::RenderingState::RenderingSetup => {
                 let ui_weak = ui_weak.clone();
-                let mut gst_gl_context = gst_gl_context.lock().unwrap();
-                *gst_gl_context = Some(
-                    slint_sink
-                        .connect(
-                            graphics_api,
-                            Box::new(move || {
-                                ui_weak
-                                    .upgrade_in_event_loop(move |ui| {
-                                        ui.window().request_redraw();
-                                    })
-                                    .ok();
-                            }),
-                        )
-                        .unwrap(),
-                );
+                slint_sink
+                    .connect(
+                        graphics_api,
+                        Box::new(move || {
+                            ui_weak
+                                .upgrade_in_event_loop(move |ui| {
+                                    ui.window().request_redraw();
+                                })
+                                .ok();
+                        }),
+                    )
+                    .unwrap();
             }
             slint::RenderingState::BeforeRendering => {
                 if let Some(next_frame) = slint_sink.fetch_next_frame() {
@@ -407,7 +392,7 @@ fn main() -> Result<()> {
         let session_tx = session_tx.clone();
         async move {
             let mut app =
-                Application::new(ui_weak, event_tx, session_tx, slint_appsink, gst_gl_context)
+                Application::new(ui_weak, event_tx, session_tx, slint_appsink)
                     .await
                     .unwrap();
             app.run_event_loop(event_rx, fin_tx).await.unwrap();

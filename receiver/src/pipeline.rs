@@ -15,10 +15,8 @@
 // You should have received a copy of the GNU General Public License
 // along with OpenMirroring.  If not, see <https://www.gnu.org/licenses/>.
 
-use common::video::GstGlContext;
 use fcast_lib::models::PlaybackState;
 use gst::prelude::*;
-use gst_gl::prelude::*;
 
 use anyhow::{bail, Result};
 
@@ -31,11 +29,7 @@ pub struct Pipeline {
 }
 
 impl Pipeline {
-    pub fn new(
-        appsink: gst::Element,
-        gst_gl_context: GstGlContext,
-        event_tx: Sender<crate::Event>,
-    ) -> Result<Self> {
+    pub fn new(appsink: gst::Element, event_tx: Sender<crate::Event>) -> Result<Self> {
         let pipeline = gst::Pipeline::new();
 
         let playbin = gst::ElementFactory::make("playbin3").build()?;
@@ -52,39 +46,6 @@ impl Pipeline {
             match msg.view() {
                 MessageView::Eos(_) => debug!("EOS"),
                 MessageView::Error(err) => debug!("{err}"),
-                MessageView::NeedContext(ctx) => {
-                    let ctx_type = ctx.context_type();
-
-                    if ctx_type == *gst_gl::GL_DISPLAY_CONTEXT_TYPE {
-                        if let Some(element) = msg
-                            .src()
-                            .and_then(|source| source.downcast_ref::<gst::Element>())
-                        {
-                            let g = gst_gl_context.lock().unwrap();
-                            if let Some((_, gst_gl_display)) = g.as_ref() {
-                                let gst_context = gst::Context::new(ctx_type, true);
-                                gst_context.set_gl_display(gst_gl_display);
-                                element.set_context(&gst_context);
-                            }
-                        }
-                    } else if ctx_type == "gst.gl.app_context" {
-                        if let Some(element) = msg
-                            .src()
-                            .and_then(|source| source.downcast_ref::<gst::Element>())
-                        {
-                            let mut gst_context = gst::Context::new(ctx_type, true);
-                            {
-                                let g = gst_gl_context.lock().unwrap();
-                                if let Some((gst_gl_context, _)) = g.as_ref() {
-                                    let gst_context = gst_context.get_mut().unwrap();
-                                    let structure = gst_context.structure_mut();
-                                    structure.set("context", gst_gl_context);
-                                }
-                            }
-                            element.set_context(&gst_context);
-                        }
-                    }
-                }
                 _ => (),
             }
 
