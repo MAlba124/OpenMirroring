@@ -13,3 +13,5 @@
 .externalNativeBuild
 .cxx
 local.properties
+/gst-android-1.0-1.26.1
+/gstreamer-1.0-android-universal-1.26.1.tar.xz
