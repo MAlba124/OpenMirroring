@@ -20,10 +20,16 @@ import { Palette, VerticalBox, HorizontalBox, ListView, Spinner, Button } from "
 import { HorizontalRule } from "horizontal-rule.slint";
 import { ToolTipArea } from "tool-tip-area.slint";
 
+export enum ReceiverState {
+    Connectable,
+    Connecting,
+    Connected,
+    Inactive,
+}
+
 export struct ReceiverItem {
     name: string,
-    connected: bool,
-    connecting: bool,
+    state: ReceiverState,
 }
 
 export component CastDialog {
@@ -31,17 +37,19 @@ export component CastDialog {
     callback connect(string);
     callback disconnect();
 
-    // TODO: three vecs
     in property <[ReceiverItem]> receivers-model;
-    in property <bool> is-connected;
-    in property <bool> is-connecting;
+    in property <length> border-radius;
+
+    in property <length> root-height;
+
+    height: min(box.preferred-height + receivers-model.length * 45px, root-height);
 
     Rectangle {
         background: Palette.background;
-        border-radius: 8px;
+        border-radius <=> root.border-radius;
     }
 
-    VerticalBox {
+    box := VerticalBox {
         HorizontalBox {
             alignment: space-between;
             Text {
@@ -50,10 +58,11 @@ export component CastDialog {
                 text: "Cast To";
                 vertical-alignment: center;
             }
+
             ToolTipArea {
                 text: "Close";
                 Button {
-                    icon: @image-url("../../assets/icons/xmark.svg");
+                    icon: @image-url("../assets/icons/xmark.svg");
                     colorize-icon: true;
                     clicked => {
                         root.closed();
@@ -64,32 +73,35 @@ export component CastDialog {
 
         HorizontalRule {
             height: 2px;
-            color: Palette.alternate-background;
+            color: Palette.border;
             z: -1;
         }
 
         if receivers-model.length > 0: VerticalBox {
             alignment: center;
             ListView {
-                for receiver in receivers-model : HorizontalBox {
+                height: 100%;
+
+                for receiver in receivers-model: HorizontalBox {
                     alignment: space-between;
                     Text {
                         text: receiver.name;
                         vertical-alignment: center;
                     }
-                    if is-connecting && receiver.connecting: Spinner {
-                        indeterminate: true;
-                    }
-                    if is-connected && receiver.connected: Button {
-                        text: "Disconnect";
-                        clicked => {
-                            disconnect();
-                        }
-                    }
-                    if !is-connecting && !is-connected: Button {
+
+                    if receiver.state == ReceiverState.Connectable: Button {
                         text: "Connect";
                         clicked => {
                             connect(receiver.name);
+                        }
+                    }
+                    if receiver.state == ReceiverState.Connecting: Spinner {
+                        indeterminate: true;
+                    }
+                    if receiver.state == ReceiverState.Connected: Button {
+                        text: "Disconnect";
+                        clicked => {
+                            disconnect();
                         }
                     }
                 }

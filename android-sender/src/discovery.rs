@@ -18,48 +18,20 @@
 use std::net::{Ipv4Addr, SocketAddr};
 use std::{collections::HashSet, net::SocketAddrV4};
 
+use anyhow::Result;
 use log::{debug, error, warn};
 // TODO: Fork simple_mdns to be able to have more controll over ttl and stuff
 use simple_mdns::InstanceInformation;
 
-pub async fn discover() {
+pub async fn discover() -> Result<()> {
+    debug!("Starting mDNS service discovery");
+
     let discovery = simple_mdns::async_discovery::ServiceDiscovery::new(
         InstanceInformation::new(String::new()),
         "_fcast._tcp.local",
         60,
-    )
-    .unwrap();
-
-    if let Err(err) = crate::tx!()
-        // .send(crate::Event::ReceiverAvailable(
-        // "OpenMirroring-test".to_owned(),
-        // 10.0.2.2
-        // ))
-        // Send a test receiver because emulator can't discover any by itself
-        .send(crate::Event::ReceiverAvailable {
-            name: "OpenMirroring-test".to_owned(),
-            addr: SocketAddr::V4(SocketAddrV4::new(Ipv4Addr::new(10, 0, 2, 2), 46899)),
-        })
-        .await
-    {
-        error!("Failed to send ReceiverAvailable: {err}");
-    }
-
-    // TODO: remove when they expire
-    let mut seen_instances = HashSet::<InstanceInformation>::new();
-
-    debug!("Starting mDNS service discovery");
-
-    loop {
-        let services = discovery.get_known_services().await;
-
-        for service in services.into_iter() {
-            if seen_instances.contains(&service) {
-                continue;
-            }
-
-            debug!("Found FCast receiver: {service:?}");
-
+        // TODO: remove when they expire
+        async move |service| {
             let mut addresses = service.get_socket_addresses().collect::<Vec<SocketAddr>>();
 
             if addresses.is_empty() {
@@ -70,78 +42,27 @@ pub async fn discover() {
                 )));
             }
 
-            // if let Err(err) = crate::tx!()
-                // .send(crate::Event::ReceiverAvailable(crate::Receiver {
-                // name: service.unescaped_instance_name(),
-                // addresses,
-                // }))
-                // .send(crate::Event::ReceiverAvailable(
-                //     service.unescaped_instance_name(),
-                // ))
-                // .await
-            // {
-            //     error!("Failed to send ReceiverAvailable: {err}");
-            // }
+            if let Err(err) = crate::tx!()
+                .send(crate::Event::ReceiverAvailable {
+                    name: "OpenMirroring-test".to_owned(),
+                    addr: SocketAddr::V4(SocketAddrV4::new(Ipv4Addr::new(10, 0, 2, 2), 46899)),
+                })
+                .await
+            {
+                error!("Failed to send ReceiverAvailable: {err}");
+            }
+        },
+    )?;
 
-            seen_instances.insert(service);
-        }
-
-        tokio::time::sleep(std::time::Duration::from_millis(1000)).await;
+    if let Err(err) = crate::tx!()
+        .send(crate::Event::ReceiverAvailable {
+            name: "OpenMirroring-test".to_owned(),
+            addr: SocketAddr::V4(SocketAddrV4::new(Ipv4Addr::new(10, 0, 2, 2), 46899)),
+        })
+        .await
+    {
+        error!("Failed to send ReceiverAvailable: {err}");
     }
+
+    Ok(())
 }
-
-// TODO: use stream
-// use async_stream::stream;
-
-// use futures_core::stream::Stream;
-// use futures_util::stream::StreamExt;
-
-// pub fn discover() -> impl Stream<Item = crate::Event> {
-//     stream! {
-//         let discovery = simple_mdns::async_discovery::ServiceDiscovery::new(
-//             InstanceInformation::new(String::new()),
-//             "_fcast._tcp.local",
-//             60,
-//         )
-//         .unwrap();
-
-//         // TODO: remove when they expire
-//         let mut seen_instances = HashSet::<InstanceInformation>::new();
-
-//         debug!("Starting mDNS service discovery");
-
-//         loop {
-//             let services = discovery.get_known_services().await;
-
-//             for service in services.into_iter() {
-//                 if seen_instances.contains(&service) {
-//                     continue;
-//                 }
-
-//                 debug!("Found FCast receiver: {service:?}");
-
-//                 let mut addresses = service.get_socket_addresses().collect::<Vec<SocketAddr>>();
-
-//                 if addresses.is_empty() {
-//                     warn!("FCast receiver with no addresses, adding localhost");
-//                     addresses.push(SocketAddr::V4(SocketAddrV4::new(Ipv4Addr::LOCALHOST, 46899)));
-//                 }
-
-//                 yield crate::Event::CaptureStarted;
-//                 // if let Err(err) = tx
-//                 //     .send(crate::Event::ReceiverAvailable(crate::Receiver {
-//                 //         name: service.unescaped_instance_name(),
-//                 //         addresses,
-//                 //     }))
-//                 //     .await
-//                 // {
-//                 //     error!("Failed to send ReceiverAvailable: {err}");
-//                 // }
-
-//                 seen_instances.insert(service);
-//             }
-
-//             tokio::time::sleep(std::time::Duration::from_millis(1000)).await;
-//         }
-//     }
-// }

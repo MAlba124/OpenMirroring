@@ -42,6 +42,7 @@
             patchelf
             graphviz
             slint-lsp
+            android-tools
           ];
           buildInputs = with pkgs; [];
         in

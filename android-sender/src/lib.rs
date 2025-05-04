@@ -17,6 +17,8 @@
 
 use std::collections::HashMap;
 use std::net::SocketAddr;
+use std::rc::Rc;
+use std::sync::Arc;
 
 use gst_video::VideoFrameExt;
 use jni::objects::JObject;
@@ -33,6 +35,7 @@ mod pipeline;
 mod session;
 
 lazy_static::lazy_static! {
+    // TODO: does this have to be global?
     pub static ref EVENT_CHAN: (async_channel::Sender<Event>, async_channel::Receiver<Event>) =
         async_channel::unbounded();
 
@@ -65,6 +68,10 @@ pub enum Event {
     ConnectedToReceiver,
     Quit,
     PipelineIsPlaying,
+    SelectReceiver(String),
+    DisconnectReceiver,
+    StartCast,
+    StopCast,
 }
 
 #[derive(Debug)]
@@ -76,61 +83,175 @@ pub enum SessionMessage {
     Disconnect,
 }
 
-async fn event_loop(
-    ui: slint::Weak<MainWindow>,
+struct Application {
+    ui_weak: slint::Weak<MainWindow>,
     session_tx: tokio::sync::mpsc::Sender<SessionMessage>,
-) {
-    let mut receivers: HashMap<String, SocketAddr> = HashMap::new();
+    receivers: Vec<(ReceiverItem, SocketAddr)>,
+}
 
-    let mut pipeline = Pipeline::new().unwrap();
-    // pipeline.add_webrtc_sink().unwrap();
-    pipeline.add_hls_sink().unwrap();
-    // session_tx
-    //     .send(SessionMessage::Connect(SocketAddr::new(
-    //         std::net::IpAddr::V4(std::net::Ipv4Addr::new(10, 0, 2, 2)),
-    //         46899,
-    //     )))
-    //     .await
-    //     .unwrap();
-
-    // debug!("sleeping for 10s...");
-    // tokio::time::sleep(std::time::Duration::from_secs(10)).await;
-
-    session_tx
-        .send(pipeline.get_play_msg().unwrap())
-        .await
-        .unwrap();
-
-    while let Ok(event) = rx!().recv().await {
-        match event {
-            Event::CaptureStarted => {
-                ui.upgrade_in_event_loop(move |handle| {
-                    handle.invoke_screen_capture_started();
-                })
-                .unwrap();
-            }
-            Event::CaptureStopped => {
-                ui.upgrade_in_event_loop(move |handle| {
-                    handle.invoke_screen_capture_stopped();
-                })
-                .unwrap();
-            }
-            Event::ReceiverAvailable { name, addr } => {
-                if receivers.insert(name, addr).is_some() {
-                    debug!("Receiver dup {name}");
-                }
-
-                let mut receivers_vec = receivers.keys().cloned().collect::<Vec<String>>();
-                receivers_vec.sort();
-            } // debug!("Reveiver available: {n}"),
-            Event::Packet(packet) => (),
-            Event::ConnectedToReceiver => (),
-            Event::Quit => break,
-            Event::PipelineIsPlaying => pipeline.playing().await,
+impl Application {
+    pub fn new(
+        ui_weak: slint::Weak<MainWindow>,
+        session_tx: tokio::sync::mpsc::Sender<SessionMessage>,
+    ) -> Self {
+        Self {
+            ui_weak,
+            session_tx,
+            receivers: Vec::new(),
         }
     }
 
-    debug!("Quitting");
+    fn receivers_contains(&self, x: &str) -> Option<usize> {
+        for (idx, y) in self.receivers.iter().enumerate() {
+            if y.0.name == x {
+                return Some(idx);
+            }
+        }
+
+        None
+    }
+
+    /// Returns the state for all non connecting/connected receivers.
+    fn receivers_general_state(&self) -> ReceiverState {
+        for r in &self.receivers {
+            if r.0.state != ReceiverState::Connectable {
+                return ReceiverState::Inactive;
+            }
+        }
+
+        ReceiverState::Connectable
+    }
+
+    fn update_receivers_in_ui(&mut self) -> Result<()> {
+        let g_state = self.receivers_general_state();
+        for r in &mut self.receivers {
+            if r.0.state != ReceiverState::Connecting && r.0.state != ReceiverState::Connected {
+                r.0.state = g_state;
+            }
+        }
+
+        let receivers = self
+            .receivers
+            .iter()
+            .map(|r| r.0.clone())
+            .collect::<Vec<ReceiverItem>>();
+        self.ui_weak.upgrade_in_event_loop(move |ui| {
+            let model = Rc::new(slint::VecModel::<ReceiverItem>::from_iter(
+                receivers.into_iter(),
+            ));
+            ui.set_receivers_model(model.into());
+        })?;
+
+        Ok(())
+    }
+
+    pub async fn run_event_loop(mut self) -> Result<()> {
+        let mut pipeline = Pipeline::new()?;
+        pipeline.add_hls_sink()?;
+
+        while let Ok(event) = rx!().recv().await {
+            match event {
+                Event::CaptureStarted => {
+                    self.ui_weak.upgrade_in_event_loop(move |handle| {
+                        handle.invoke_screen_capture_started();
+                    })?;
+                }
+                Event::CaptureStopped => {
+                    self.ui_weak.upgrade_in_event_loop(move |handle| {
+                        handle.invoke_screen_capture_stopped();
+                    })?;
+                }
+                Event::ReceiverAvailable { name, addr } => {
+                    if let Some(idx) = self.receivers_contains(&name) {
+                        self.receivers[idx].1 = addr;
+                    } else {
+                        self.receivers.push((
+                            ReceiverItem {
+                                name: name.into(),
+                                state: self.receivers_general_state(),
+                            },
+                            addr,
+                        ));
+                    }
+
+                    self.update_receivers_in_ui()?;
+                }
+                Event::Packet(packet) => (),
+                Event::ConnectedToReceiver => {
+                    debug!("Succesfully connected to receiver");
+
+                    for r in &mut self.receivers {
+                        if r.0.state == ReceiverState::Connecting {
+                            r.0.state = ReceiverState::Connected;
+                            break;
+                        }
+                    }
+
+                    self.ui_weak.upgrade_in_event_loop(|ui| {
+                        ui.invoke_receiver_connected();
+                    })?;
+
+                    self.update_receivers_in_ui()?;
+                }
+                Event::Quit => break,
+                Event::PipelineIsPlaying => pipeline.playing().await,
+                Event::SelectReceiver(receiver) => {
+                    if let Some(idx) = self.receivers_contains(&receiver) {
+                        self.receivers[idx].0.state = ReceiverState::Connecting;
+
+                        self.session_tx
+                            .send(SessionMessage::Connect(self.receivers[idx].1))
+                            .await?;
+
+                        self.update_receivers_in_ui()?;
+                    } else {
+                        error!("No receiver `{receiver}` available");
+                    }
+                }
+                Event::DisconnectReceiver => {
+                    for r in &mut self.receivers {
+                        if r.0.state == ReceiverState::Connected
+                            || r.0.state == ReceiverState::Connecting
+                        {
+                            r.0.state = ReceiverState::Connectable;
+                            self.update_receivers_in_ui()?;
+                            break;
+                        }
+                    }
+
+                    self.session_tx.send(SessionMessage::Disconnect).await?;
+
+                    self.ui_weak.upgrade_in_event_loop(|ui| {
+                        ui.invoke_receiver_disconnected();
+                    })?;
+                }
+                Event::StartCast => {
+                    let Some(play_msg) = pipeline.get_play_msg() else {
+                        error!("Pipeline could not provide play message");
+                        // TODO: tell UI
+                        continue;
+                    };
+
+                    self.session_tx.send(play_msg).await?;
+
+                    self.ui_weak.upgrade_in_event_loop(|ui| {
+                        ui.invoke_cast_started();
+                    })?;
+                }
+                Event::StopCast => {
+                    self.session_tx.send(SessionMessage::Stop).await?;
+
+                    self.ui_weak.upgrade_in_event_loop(|ui| {
+                        ui.invoke_cast_stopped();
+                    })?;
+                }
+            }
+        }
+
+        debug!("Quitting");
+
+        Ok(())
+    }
 }
 
 #[no_mangle]
@@ -183,11 +304,29 @@ fn android_main(app: slint::android::AndroidApp) {
         }
     });
 
+    ui.on_connect_receiver(|receiver| {
+        tx!()
+            .send_blocking(Event::SelectReceiver(receiver.to_string()))
+            .unwrap();
+    });
+
+    ui.on_disconnect_receiver(|| {
+        tx!().send_blocking(Event::DisconnectReceiver).unwrap();
+    });
+
+    ui.on_start_cast(|| {
+        tx!().send_blocking(Event::StartCast).unwrap();
+    });
+
+    ui.on_stop_cast(|| {
+        tx!().send_blocking(Event::StopCast).unwrap();
+    });
+
     let ui_weak = ui.as_weak();
 
     let (session_tx, session_rx) = tokio::sync::mpsc::channel(10);
 
-    common::runtime().spawn(event_loop(ui_weak, session_tx));
+    common::runtime().spawn(Application::new(ui_weak, session_tx).run_event_loop());
 
     common::runtime().spawn(discovery::discover());
 

@@ -1,62 +1,142 @@
+// Copyright (C) 2025 Marcus L. Hanestad <marlhan@proton.me>
+//
+// This file is part of OpenMirroring.
+//
+// OpenMirroring is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// OpenMirroring is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with OpenMirroring.  If not, see <https://www.gnu.org/licenses/>.
+
 import { StandardButton, Button, VerticalBox, Palette } from "std-widgets.slint";
 
-import { CastDialog } from "cast-dialog.slint";
-
-// Maybe have global vars that hold the window size that is updated from native code?
+import { CastDialog, ReceiverItem } from "../../ui-common/cast-dialog.slint";
+import { ToolTipArea } from "../../ui-common/tool-tip-area.slint";
 
 export component MainWindow inherits Window {
     callback request-start-capture;
+    callback connect-receiver(string);
+    callback disconnect-receiver();
+    callback start-cast();
+    callback stop-cast();
+
+    in property <[ReceiverItem]> receivers-model: [];
+
+    property <bool> has-source: false;
+    property <bool> casting: false;
+    property <bool> starting-cast: false;
+    property <bool> receiver-is-connected: false;
 
     public function screen-capture-started() {
-        vbox.screen-capture-started();
+        has-source = true;
     }
 
     public function screen-capture-stopped() {
-        vbox.screen-capture-stopped();
+        has-source = false;
+    }
+
+    public function receiver-connected() {
+        receiver-is-connected = true;
+    }
+
+    public function receiver-disconnected() {
+        receiver-is-connected = false;
+    }
+
+    public function cast-started() {
+        casting = true;
+    }
+
+    public function cast-stopped() {
+        casting = false;
     }
 
     vbox := VerticalBox {
         alignment: center;
 
-        public function screen-capture-started() {
-            start-capture-btn.enabled = false;
-            start-capture-btn.text = "Capturing Screen";
-        }
-
-        public function screen-capture-stopped() {
-            start-capture-btn.enabled = true;
-            start-capture-btn.text = "Capture Screen";
-        }
-
-        start-capture-btn := Button {
-            text: "Capture Screen";
-            clicked => {
-                root.request-start-capture();
+        ToolTipArea {
+            text: "Select source";
+            start-capture-btn := Button {
+                icon: @image-url("../../assets/icons/input.svg");
+                colorize-icon: true;
+                clicked => {
+                    root.request-start-capture();
+                }
             }
         }
-        Button {
-            text: "Cast To";
-            clicked => {
-                blur-overlay.visible = true;
-                cast-dialog.show();
+
+        if receiver-is-connected && !casting: ToolTipArea {
+            text: "Start casting";
+            Button {
+                icon: @image-url("../../assets/icons/play.svg");
+                colorize-icon: true;
+                clicked => {
+                    start-cast();
+                }
+            }
+        }
+
+        if casting: ToolTipArea {
+            text: "Stop casting";
+            Button {
+                icon: @image-url("../../assets/icons/stop.svg");
+                colorize-icon: true;
+                clicked => {
+                    stop-cast();
+                }
+            }
+        }
+
+        ToolTipArea {
+            text: "Open casting dialog";
+            Button {
+                icon: @image-url("../../assets/icons/cast.svg");
+                colorize-icon: true;
+                clicked => {
+                    shadow.visible = true;
+                    cast-dialog.visible = true;
+                }
             }
         }
     }
 
-    blur-overlay := Rectangle {
+    shadow := Rectangle {
+        visible: false;
         width: 100%;
         height: 100%;
-        visible: false;
-        opacity: self.visible ? 0.7 : 0.0;
-        background: black;
+        background: #000000A0;
+
+        TouchArea {
+            // Consume all interactions so that no elements behind the menus can be accessed
+        }
     }
 
     cast-dialog := CastDialog {
-        parent-width <=> root.width;
-        parent-height <=> root.height;
+        visible: false;
+
+        receivers-model <=> receivers-model;
+        width: root.width >= 500px ? 500px : root.width;
+        root-height <=> root.height;
+        border-radius: 0px;
+
+        connect(receiver) => {
+            connect-receiver(receiver);
+        }
+
+        disconnect() => {
+            disconnect-receiver();
+        }
 
         closed => {
-            blur-overlay.visible = false;
+            self.visible = false;
+            shadow.visible = false;
         }
     }
 }

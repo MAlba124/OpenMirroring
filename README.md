@@ -23,7 +23,10 @@ OMSender can cast to other FCast receivers as well.
 
 #### Mobile
 
-TODO
+![Android demo](./assets/android_poc.png)
+
+`android-sender/` contains a proof of concept sender implementation for Android. It's barely usable with
+extremely high latency as one can see from the clock in the top left corner in the screenshot above.
 
 ### Installing
 
