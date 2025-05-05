@@ -405,17 +405,13 @@ fn main() -> Result<()> {
             slint::RenderingState::RenderingSetup => {
                 let ui_weak = ui_weak.clone();
                 slint_sink
-                    .connect(
-                        graphics_api,
-                        // TODO: make generic (i.e. no need to Box?)
-                        Box::new(move || {
-                            ui_weak
-                                .upgrade_in_event_loop(move |ui| {
-                                    ui.window().request_redraw();
-                                })
-                                .ok();
-                        }),
-                    )
+                    .connect(graphics_api, move || {
+                        ui_weak
+                            .upgrade_in_event_loop(move |ui| {
+                                ui.window().request_redraw();
+                            })
+                            .ok();
+                    })
                     .unwrap();
                 if let Some(tx) = gotten_gl_tx.take() {
                     assert!(tx.send(()).is_ok());

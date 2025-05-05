@@ -167,11 +167,14 @@ impl SlintOpenGLSink {
         }
     }
 
-    pub fn connect(
+    pub fn connect<F>(
         &mut self,
         graphics_api: &slint::GraphicsAPI<'_>,
-        next_frame_available_notifier: Box<dyn Fn() + Send>,
-    ) -> Result<()> {
+        next_frame_available_notifier: F,
+    ) -> Result<()>
+    where
+        F: Fn() + Send + 'static,
+    {
         #[cfg(target_os = "linux")]
         let (gst_gl_context, gst_gl_display) = {
             if is_on_wayland()? {
