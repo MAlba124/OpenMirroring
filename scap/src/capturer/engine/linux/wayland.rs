@@ -100,7 +100,7 @@ fn param_changed_callback(
 
     user_data.format_height = format.size().height as usize;
 
-    debug!("New info: {new_info:?}");
+    debug!("New video info: {new_info:?}");
 
     (user_data.on_format_changed)(new_info);
 
@@ -234,7 +234,7 @@ fn process_callback(stream: &StreamRef, user_data: &mut ListenerUserData) {
                         libc::munmap(ptr, size);
                     }
                 }
-                _ => warn!("Got data of type: {:?}, ignoring", data.type_()),
+                _ => warn!("Got data of type: `{:?}`, ignoring because it's unsupported", data.type_()),
             }
         }
     } else {
