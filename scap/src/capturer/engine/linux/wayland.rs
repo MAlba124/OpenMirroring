@@ -234,7 +234,10 @@ fn process_callback(stream: &StreamRef, user_data: &mut ListenerUserData) {
                         libc::munmap(ptr, size);
                     }
                 }
-                _ => warn!("Got data of type: `{:?}`, ignoring because it's unsupported", data.type_()),
+                _ => warn!(
+                    "Got data of type: `{:?}`, ignoring because it's unsupported",
+                    data.type_()
+                ),
             }
         }
     } else {

@@ -41,8 +41,26 @@ pub(crate) enum LinuxDisplay {
 #[cfg(target_os = "linux")]
 impl Debug for LinuxDisplay {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        // TODO: finishme
-        write!(f, "Display")
+        match self {
+            LinuxDisplay::Wayland { .. } => f
+                .debug_struct("LinuxDisplay::Wayland")
+                .field("connection", &"{...}")
+                .finish(),
+            LinuxDisplay::X11 {
+                raw_handle,
+                width,
+                height,
+                x_offset,
+                y_offset,
+            } => f
+                .debug_struct("LinuxDisplay::X11")
+                .field("raw_handle", &raw_handle)
+                .field("width", width)
+                .field("height", height)
+                .field("x_offset", x_offset)
+                .field("y_offset", y_offset)
+                .finish(),
+        }
     }
 }
 
