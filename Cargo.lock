@@ -1180,6 +1180,7 @@ dependencies = [
  "async-trait",
  "async-tungstenite 0.29.1 (git+https://github.com/MAlba124/async-tungstenite.git?rev=96b8e852d08b33825388824148c80b689d6ec9db)",
  "bytes",
+ "crossbeam-channel",
  "futures",
  "gio 0.20.9",
  "glutin_egl_sys",

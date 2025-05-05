@@ -21,13 +21,15 @@ use log::{debug, error, trace};
 use sender::discovery::discover;
 use sender::session::session;
 use simple_mdns::async_discovery::ServiceDiscovery;
+use std::sync::atomic::{AtomicBool, Ordering};
 use tokio::sync::mpsc::{Receiver, Sender};
 use tokio::sync::{self, oneshot};
 
 use std::net::SocketAddr;
 use std::rc::Rc;
 
-use sender::{pipeline, Event, SessionMessage};
+use common::sender::pipeline;
+use sender::{Event, SessionMessage};
 
 slint::include_modules!();
 
@@ -49,13 +51,14 @@ impl Application {
         event_tx: Sender<Event>,
         session_tx: Sender<SessionMessage>,
         appsink: gst::Element,
+        gotten_gl: tokio::sync::oneshot::Receiver<()>,
     ) -> Result<Self> {
-        let (select_source_tx, pipeline) = Self::new_pipeline(
-            &ui_weak,
-            event_tx.clone(),
-            appsink.clone(),
-        )
-        .await?;
+        // We need to wait until the preview sink has gotten it's required GL contexts,
+        // if not the pipeline would fail to init
+        gotten_gl.await?;
+
+        let (select_source_tx, pipeline) =
+            Self::new_pipeline(event_tx.clone(), appsink.clone()).await?;
 
         let discovery = discover(event_tx.clone())?;
 
@@ -73,23 +76,58 @@ impl Application {
     }
 
     async fn new_pipeline(
-        ui_weak: &slint::Weak<MainWindow>,
         event_tx: Sender<Event>,
         appsink: gst::Element,
     ) -> Result<(Sender<usize>, pipeline::Pipeline)> {
         let (selected_tx, selected_rx) = sync::mpsc::channel::<usize>(1);
 
-        let (pipeline_tx, pipeline_rx) = oneshot::channel();
-        ui_weak.upgrade_in_event_loop({
-            move |_ui| {
-                let pipeline = { pipeline::Pipeline::new(event_tx, selected_rx, appsink).unwrap() };
-                if pipeline_tx.send(pipeline).is_err() {
-                    panic!("Failed to send pipeline");
+        let pipeline = pipeline::Pipeline::new(
+            appsink,
+            {
+                let event_tx = event_tx.clone();
+                let pipeline_has_finished = std::sync::Arc::new(AtomicBool::new(false));
+                move |event| {
+                    let event_tx = event_tx.clone();
+                    let pipeline_has_finished = std::sync::Arc::clone(&pipeline_has_finished);
+                    async move {
+                        match event {
+                            pipeline::Event::PipelineIsPlaying => {
+                                event_tx
+                                    .send(crate::Event::PipelineIsPlaying)
+                                    .await
+                                    .unwrap();
+                            }
+                            pipeline::Event::Eos => {
+                                if !pipeline_has_finished.load(Ordering::Acquire) {
+                                    event_tx.send(crate::Event::PipelineFinished).await.unwrap();
+                                    pipeline_has_finished.store(true, Ordering::Release);
+                                }
+                            }
+                            pipeline::Event::Error => {
+                                if !pipeline_has_finished.load(Ordering::Acquire) {
+                                    event_tx.send(crate::Event::PipelineFinished).await.unwrap();
+                                    pipeline_has_finished.store(true, Ordering::Release);
+                                }
+                            }
+                        }
+                    }
                 }
-            }
-        })?;
+            },
+            {
+                let selected_rx = std::sync::Arc::new(std::sync::Mutex::new(selected_rx));
+                move |vals| {
+                    let sources = vals[1].get::<Vec<String>>().unwrap();
+                    event_tx.blocking_send(Event::Sources(sources)).unwrap();
+                    let mut selected_rx = selected_rx.lock().unwrap();
+                    let res = selected_rx.blocking_recv().unwrap() as u64;
+                    use gst::prelude::*;
+                    Some(res.to_value())
+                }
+            },
+        )
+        .await?;
 
-        Ok((selected_tx, pipeline_rx.await?))
+        Ok((selected_tx, pipeline))
     }
 
     fn receivers_contains(&self, x: &str) -> Option<usize> {
@@ -145,12 +183,17 @@ impl Application {
             match event {
                 Event::Quit => break,
                 Event::StartCast => {
-                    let Some(play_msg) = self.pipeline.get_play_msg().await else {
+                    let Some(play_msg) = self.pipeline.get_play_msg() else {
                         error!("Could not get stream uri");
                         continue;
                     };
 
-                    self.session_tx.send(play_msg).await?;
+                    self.session_tx
+                        .send(SessionMessage::Play {
+                            mime: play_msg.mime,
+                            uri: play_msg.uri,
+                        })
+                        .await?;
                     self.ui_weak.upgrade_in_event_loop(|ui| {
                         ui.invoke_cast_started();
                     })?;
@@ -190,9 +233,9 @@ impl Application {
 
                         if r.0.name.starts_with("OpenMirroring") {
                             // self.pipeline.add_hls_sink().await?;
-                            self.pipeline.add_webrtc_sink().await?;
+                            self.pipeline.add_webrtc_sink()?;
                         } else {
-                            self.pipeline.add_hls_sink().await?;
+                            self.pipeline.add_hls_sink()?;
                         }
 
                         self.update_receivers_in_ui()?;
@@ -244,9 +287,9 @@ impl Application {
 
                             if r.0.name.starts_with("OpenMirroring") {
                                 // self.pipeline.add_hls_sink().await?;
-                                self.pipeline.add_webrtc_sink().await?;
+                                self.pipeline.add_webrtc_sink()?;
                             } else {
-                                self.pipeline.add_hls_sink().await?;
+                                self.pipeline.add_hls_sink()?;
                             }
                             break;
                         }
@@ -270,7 +313,7 @@ impl Application {
                     }
 
                     self.session_tx.send(SessionMessage::Disconnect).await?;
-                    self.pipeline.remove_transmission_sink().await?;
+                    self.pipeline.remove_transmission_sink()?;
 
                     self.ui_weak.upgrade_in_event_loop(|ui| {
                         ui.invoke_receiver_disconnected();
@@ -279,6 +322,9 @@ impl Application {
                 Event::ChangeSource | Event::PipelineFinished => {
                     self.shutdown_pipeline_and_create_new_and_update_ui()
                         .await?;
+                }
+                Event::PipelineIsPlaying => {
+                    self.pipeline.playing().await;
                 }
             }
         }
@@ -290,7 +336,7 @@ impl Application {
             self.select_source_tx.send(0).await?;
         }
 
-        self.pipeline.shutdown().await?;
+        self.pipeline.shutdown()?;
 
         fin_tx.send(()).unwrap();
 
@@ -302,14 +348,10 @@ impl Application {
             self.select_source_tx.send(0).await?;
         }
 
-        self.pipeline.shutdown().await?;
+        self.pipeline.shutdown()?;
 
-        let (new_select_srouce_tx, new_pipeline) = Self::new_pipeline(
-            &self.ui_weak,
-            self.event_tx.clone(),
-            self.appsink.clone(),
-        )
-        .await?;
+        let (new_select_srouce_tx, new_pipeline) =
+            Self::new_pipeline(self.event_tx.clone(), self.appsink.clone()).await?;
 
         self.pipeline = new_pipeline;
         self.select_source_tx = new_select_srouce_tx;
@@ -350,6 +392,8 @@ fn main() -> Result<()> {
     let ui = MainWindow::new()?;
     slint::set_xdg_app_id("com.github.malba124.OpenMirroring.sender")?;
 
+    let (gotten_gl_tx, gotten_gl_rx) = tokio::sync::oneshot::channel();
+
     ui.window().set_rendering_notifier({
         let ui_weak = ui.as_weak();
 
@@ -357,12 +401,15 @@ fn main() -> Result<()> {
             ui.set_preview_frame(new_frame);
         };
 
+        let mut gotten_gl_tx = Some(gotten_gl_tx);
+
         move |state, graphics_api| match state {
             slint::RenderingState::RenderingSetup => {
                 let ui_weak = ui_weak.clone();
                 slint_sink
                     .connect(
                         graphics_api,
+                        // TODO: make generic (i.e. no need to Box?)
                         Box::new(move || {
                             ui_weak
                                 .upgrade_in_event_loop(move |ui| {
@@ -372,6 +419,9 @@ fn main() -> Result<()> {
                         }),
                     )
                     .unwrap();
+                if let Some(tx) = gotten_gl_tx.take() {
+                    assert!(tx.send(()).is_ok());
+                }
             }
             slint::RenderingState::BeforeRendering => {
                 if let Some(next_frame) = slint_sink.fetch_next_frame() {
@@ -392,7 +442,7 @@ fn main() -> Result<()> {
         let session_tx = session_tx.clone();
         async move {
             let mut app =
-                Application::new(ui_weak, event_tx, session_tx, slint_appsink)
+                Application::new(ui_weak, event_tx, session_tx, slint_appsink, gotten_gl_rx)
                     .await
                     .unwrap();
             app.run_event_loop(event_rx, fin_tx).await.unwrap();

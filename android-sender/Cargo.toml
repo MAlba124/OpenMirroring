@@ -16,7 +16,7 @@ futures-core = "0.3.31"
 async-stream = "0.3.6"
 futures-util = "0.3.31"
 tokio = { workspace = true }
-common = { path = "../common", features = ["transmission"] }
+common = { path = "../common", features = ["sender"] }
 gst = { workspace = true, features = ["v1_24"] }
 gst-app = { workspace = true, features = ["v1_24"] }
 gst-video = { workspace = true }

@@ -6,8 +6,8 @@ pub mod net;
 #[cfg(feature = "video")]
 pub mod video;
 
-#[cfg(feature = "transmission")]
-pub mod transmission;
+#[cfg(feature = "sender")]
+pub mod sender;
 
 pub fn runtime() -> &'static Runtime {
     static RUNTIME: OnceLock<Runtime> = OnceLock::new();

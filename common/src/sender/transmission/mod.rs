@@ -18,7 +18,6 @@
 use gst::glib;
 
 pub mod hls;
-// #[cfg(not(target_os = "android"))]
 pub mod webrtc;
 
 pub struct PlayMessage {

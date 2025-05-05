@@ -16,7 +16,7 @@
 // along with OpenMirroring.  If not, see <https://www.gnu.org/licenses/>.
 
 use std::net::{Ipv4Addr, SocketAddr};
-use std::{collections::HashSet, net::SocketAddrV4};
+use std::net::SocketAddrV4;
 
 use anyhow::Result;
 use log::{debug, error, warn};
@@ -26,7 +26,7 @@ use simple_mdns::InstanceInformation;
 pub async fn discover() -> Result<()> {
     debug!("Starting mDNS service discovery");
 
-    let discovery = simple_mdns::async_discovery::ServiceDiscovery::new(
+    let _discovery = simple_mdns::async_discovery::ServiceDiscovery::new(
         InstanceInformation::new(String::new()),
         "_fcast._tcp.local",
         60,

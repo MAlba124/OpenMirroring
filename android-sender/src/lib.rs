@@ -15,11 +15,10 @@
 // You should have received a copy of the GNU General Public License
 // along with OpenMirroring.  If not, see <https://www.gnu.org/licenses/>.
 
-use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::rc::Rc;
-use std::sync::Arc;
 
+use common::sender::pipeline;
 use gst_video::VideoFrameExt;
 use jni::objects::JObject;
 use jni::JavaVM;
@@ -28,14 +27,12 @@ use log::debug;
 use log::error;
 
 use anyhow::Result;
-use pipeline::Pipeline;
+use log::trace;
 
 mod discovery;
-mod pipeline;
 mod session;
 
 lazy_static::lazy_static! {
-    // TODO: does this have to be global?
     pub static ref EVENT_CHAN: (async_channel::Sender<Event>, async_channel::Receiver<Event>) =
         async_channel::unbounded();
 
@@ -146,7 +143,16 @@ impl Application {
     }
 
     pub async fn run_event_loop(mut self) -> Result<()> {
-        let mut pipeline = Pipeline::new()?;
+        let mut pipeline = pipeline::Pipeline::new(FRAME_CHAN.1.clone(), async move |event| {
+            match event {
+                pipeline::Event::PipelineIsPlaying => {
+                    tx!().send(Event::PipelineIsPlaying).await.unwrap();
+                }
+                pipeline::Event::Eos => (),   // TODO
+                pipeline::Event::Error => (), // TODO
+            }
+        })
+        .await?;
         pipeline.add_hls_sink()?;
 
         while let Ok(event) = rx!().recv().await {
@@ -176,7 +182,7 @@ impl Application {
 
                     self.update_receivers_in_ui()?;
                 }
-                Event::Packet(packet) => (),
+                Event::Packet(packet) => trace!("{packet:?}"),
                 Event::ConnectedToReceiver => {
                     debug!("Succesfully connected to receiver");
 
@@ -232,7 +238,12 @@ impl Application {
                         continue;
                     };
 
-                    self.session_tx.send(play_msg).await?;
+                    self.session_tx
+                        .send(SessionMessage::Play {
+                            mime: play_msg.mime,
+                            uri: play_msg.uri,
+                        })
+                        .await?;
 
                     self.ui_weak.upgrade_in_event_loop(|ui| {
                         ui.invoke_cast_started();
@@ -269,7 +280,8 @@ fn android_main(app: slint::android::AndroidApp) {
     }
 
     gst::init().unwrap();
-    common::transmission::init().unwrap();
+    // common::transmission::init().unwrap();
+    common::sender::pipeline::init().unwrap();
 
     // let payloaders = gst::ElementFactory::factories_with_type(gst::ElementFactoryType::PAYLOADER, gst::Rank::MARGINAL,); for p in payloaders {debug!("{p:?}");}
 
@@ -370,7 +382,7 @@ pub extern "C" fn Java_com_github_malba124_openmirroring_android_sender_ScreenCa
     width: jni::sys::jint,
     height: jni::sys::jint,
     pixel_stride: jni::sys::jint,
-    row_stride: jni::sys::jint,
+    _row_stride: jni::sys::jint,
 ) {
     if FRAME_CHAN.0.is_full() {
         return;
@@ -379,7 +391,6 @@ pub extern "C" fn Java_com_github_malba124_openmirroring_android_sender_ScreenCa
     let width = width as usize;
     let height = height as usize;
     let pixel_stride = pixel_stride as usize;
-    let row_stride = row_stride as usize;
     let frame_size = width * height * pixel_stride;
 
     let buffer_cap = match env.get_direct_buffer_capacity(&buffer) {
@@ -408,7 +419,7 @@ pub extern "C" fn Java_com_github_malba124_openmirroring_android_sender_ScreenCa
 
     let buffer_slice: &[u8] = unsafe { std::slice::from_raw_parts(buffer_ptr, buffer_cap) };
 
-    let mut buffer = gst::Buffer::with_size(frame_size).unwrap();
+    let buffer = gst::Buffer::with_size(frame_size).unwrap();
 
     let info = match gst_video::VideoInfo::builder(
         gst_video::VideoFormat::Rgba,

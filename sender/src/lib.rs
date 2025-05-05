@@ -18,7 +18,6 @@
 use std::net::SocketAddr;
 
 pub mod discovery;
-pub mod pipeline;
 pub mod session;
 
 #[derive(Debug)]
@@ -52,4 +51,5 @@ pub enum Event {
     DisconnectReceiver,
     ChangeSource,
     PipelineFinished,
+    PipelineIsPlaying,
 }
