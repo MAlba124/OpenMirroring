@@ -27,6 +27,7 @@
             rust-bin.stable.latest.complete
             graphviz
             slint-lsp
+            heaptrack
           ];
           buildInputs = with pkgs; [
             libGL
