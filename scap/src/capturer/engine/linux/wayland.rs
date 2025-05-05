@@ -387,7 +387,6 @@ pub struct WaylandCapturer {
 }
 
 impl WaylandCapturer {
-    // TODO: Error handling
     pub fn new(
         options: Options,
         on_format_changed: OnFormatChangedCb,

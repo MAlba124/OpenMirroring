@@ -20,7 +20,6 @@ use std::net::SocketAddrV4;
 
 use anyhow::Result;
 use log::{debug, error, warn};
-// TODO: Fork simple_mdns to be able to have more controll over ttl and stuff
 use simple_mdns::InstanceInformation;
 
 pub async fn discover() -> Result<()> {
