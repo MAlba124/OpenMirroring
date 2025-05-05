@@ -18,16 +18,6 @@
 use std::net::SocketAddr;
 
 pub mod discovery;
-pub mod session;
-
-#[derive(Debug)]
-pub enum SessionMessage {
-    Play { mime: String, uri: String },
-    Quit,
-    Stop,
-    Connect(SocketAddr),
-    Disconnect,
-}
 
 pub type ProducerId = String;
 
@@ -39,7 +29,6 @@ pub struct Receiver {
 
 #[derive(Debug)]
 pub enum Event {
-    Quit,
     StartCast,
     StopCast,
     Sources(Vec<String>),
@@ -52,4 +41,5 @@ pub enum Event {
     ChangeSource,
     PipelineFinished,
     PipelineIsPlaying,
+    SessionTerminated,
 }

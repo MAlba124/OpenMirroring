@@ -19,6 +19,7 @@ use std::net::SocketAddr;
 use std::rc::Rc;
 
 use common::sender::pipeline;
+use common::sender::session::{self, SessionMessage};
 use gst_video::VideoFrameExt;
 use jni::objects::JObject;
 use jni::JavaVM;
@@ -30,7 +31,6 @@ use anyhow::Result;
 use log::trace;
 
 mod discovery;
-mod session;
 
 lazy_static::lazy_static! {
     pub static ref EVENT_CHAN: (async_channel::Sender<Event>, async_channel::Receiver<Event>) =
@@ -63,21 +63,12 @@ pub enum Event {
     ReceiverAvailable { name: String, addr: SocketAddr },
     Packet(fcast_lib::packet::Packet),
     ConnectedToReceiver,
-    Quit,
+    SessionTerminated,
     PipelineIsPlaying,
     SelectReceiver(String),
     DisconnectReceiver,
     StartCast,
     StopCast,
-}
-
-#[derive(Debug)]
-pub enum SessionMessage {
-    Play { mime: String, uri: String },
-    Quit,
-    Stop,
-    Connect(SocketAddr),
-    Disconnect,
 }
 
 struct Application {
@@ -199,7 +190,7 @@ impl Application {
 
                     self.update_receivers_in_ui()?;
                 }
-                Event::Quit => break,
+                Event::SessionTerminated => break,
                 Event::PipelineIsPlaying => pipeline.playing().await,
                 Event::SelectReceiver(receiver) => {
                     if let Some(idx) = self.receivers_contains(&receiver) {
@@ -341,7 +332,19 @@ fn android_main(app: slint::android::AndroidApp) {
 
     common::runtime().spawn(discovery::discover());
 
-    common::runtime().spawn(session::session(session_rx));
+    common::runtime().spawn(session::session(session_rx, async move |event| {
+        match event {
+            session::Event::SessionTerminated => {
+                tx!().send(Event::SessionTerminated).await.unwrap();
+            }
+            session::Event::FcastPacket(packet) => {
+                tx!().send(Event::Packet(packet)).await.unwrap();
+            }
+            session::Event::ConnectedToReceiver => {
+                tx!().send(Event::ConnectedToReceiver).await.unwrap();
+            }
+        }
+    }));
 
     ui.run().unwrap();
 }

@@ -19,7 +19,7 @@ use anyhow::Result;
 use common::video::opengl::SlintOpenGLSink;
 use log::{debug, error, trace};
 use sender::discovery::discover;
-use sender::session::session;
+use common::sender::session::{self, SessionMessage};
 use simple_mdns::async_discovery::ServiceDiscovery;
 use std::sync::atomic::{AtomicBool, Ordering};
 use tokio::sync::mpsc::{Receiver, Sender};
@@ -29,7 +29,7 @@ use std::net::SocketAddr;
 use std::rc::Rc;
 
 use common::sender::pipeline;
-use sender::{Event, SessionMessage};
+use sender::Event;
 
 slint::include_modules!();
 
@@ -181,7 +181,7 @@ impl Application {
     ) -> Result<()> {
         while let Some(event) = event_rx.recv().await {
             match event {
-                Event::Quit => break,
+                Event::SessionTerminated => break,
                 Event::StartCast => {
                     let Some(play_msg) = self.pipeline.get_play_msg() else {
                         error!("Could not get stream uri");
@@ -429,7 +429,28 @@ fn main() -> Result<()> {
         }
     })?;
 
-    common::runtime().spawn(session(session_rx, event_tx.clone()));
+    common::runtime().spawn(
+        session::session(session_rx, {
+            let event_tx = event_tx.clone();
+            move |event| {
+                let event_tx = event_tx.clone();
+                async move {
+                    match event {
+                        session::Event::SessionTerminated => {
+                            event_tx.send(Event::SessionTerminated).await.unwrap();
+                        }
+                        session::Event::FcastPacket(packet) => {
+                            event_tx.send(Event::Packet(packet)).await.unwrap();
+                        }
+                        session::Event::ConnectedToReceiver => {
+                            event_tx.send(Event::ConnectedToReceiver).await.unwrap();
+                        }
+                    }
+                }
+            }
+        })
+    );
+
     common::runtime().spawn({
         let ui_weak = ui.as_weak();
         let event_tx = event_tx.clone();

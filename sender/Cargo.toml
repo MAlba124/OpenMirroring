@@ -30,6 +30,7 @@ simple-mdns = { workspace = true }
 slint = { workspace = true }
 async-trait = "0.1.88"
 anyhow = { workspace = true }
+tokio-stream = "0.1.17"
 
 [target.'cfg(target_os = "linux")'.dependencies]
 gst-gl-egl = { package = "gstreamer-gl-egl", version = "0.23.5" }

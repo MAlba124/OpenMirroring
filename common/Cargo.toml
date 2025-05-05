@@ -20,12 +20,13 @@ uuid = { version = "1", features = ["v4"], optional = true }
 pin-project-lite = { version = "0.2", optional = true }
 bytes = { version = "1.10.1", optional = true }
 async-trait = { version = "0.1.88", optional = true }
-
 gst-video = { workspace = true, optional = true, features = [ "v1_24" ] }
 gst-pbutils = { package = "gstreamer-pbutils", version = "0.23.5", features = [ "v1_24" ], optional = true }
 gst = { workspace = true, optional = true, features = [ "v1_24" ] }
 gst-webrtc = { workspace = true, optional = true, default-features = false, features = [ "v1_22" ] }
 gst-app = { workspace = true, optional = true, features = [ "v1_24" ] }
+fcast-lib = { path = "../fcast-lib", optional = true }
+tokio-stream = { version = "0.1.17", optional = true }
 
 [target.'cfg(target_os = "android")'.dependencies]
 crossbeam-channel = { version = "0.5.15", optional = true }
@@ -47,7 +48,8 @@ glutin_glx_sys = "0.6.1"
 video = ["gst", "gst-app", "gst-video", "gst-gl"]
 sender = ["gst", "gst-video", "serde", "serde_json", "gio", "m3u8-rs", "gst-pbutils",
         "http", "gst-webrtc", "futures", "async-tungstenite", "uuid", "pin-project-lite",
-        "bytes", "async-tungstenite", "async-trait", "crossbeam-channel", "gst-app"]
+        "bytes", "async-tungstenite", "async-trait", "crossbeam-channel", "gst-app",
+        "fcast-lib", "tokio-stream"]
 
 [dev-dependencies]
 quickcheck = "1"
