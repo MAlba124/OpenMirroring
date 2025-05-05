@@ -254,13 +254,12 @@ impl Pipeline {
         gst::Element::link_many([&scapsrc, &tee])?;
         gst::Element::link_many([&preview_queue, &preview_appsink])?;
 
-        let tee_preview_pad = tee.request_pad_simple("src_%u").map_or_else(
-            || Err(anyhow::anyhow!("`request_pad_simple()` failed")),
-            Ok,
-        )?;
-        let queue_preview_pad = preview_queue.static_pad("sink").ok_or(anyhow::anyhow!(
-            "preview_queue is missing static sink pad"
-        ))?;
+        let tee_preview_pad = tee
+            .request_pad_simple("src_%u")
+            .map_or_else(|| Err(anyhow::anyhow!("`request_pad_simple()` failed")), Ok)?;
+        let queue_preview_pad = preview_queue
+            .static_pad("sink")
+            .ok_or(anyhow::anyhow!("preview_queue is missing static sink pad"))?;
         tee_preview_pad.link(&queue_preview_pad)?;
 
         // Start the pipeline in background thread because `scapsrc` initialization will block until

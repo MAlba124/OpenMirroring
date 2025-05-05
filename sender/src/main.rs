@@ -232,7 +232,6 @@ impl Application {
                         }
 
                         if r.0.name.starts_with("OpenMirroring") {
-                            // self.pipeline.add_hls_sink().await?;
                             self.pipeline.add_webrtc_sink()?;
                         } else {
                             self.pipeline.add_hls_sink()?;
@@ -286,7 +285,6 @@ impl Application {
                             r.0.state = ReceiverState::Connected;
 
                             if r.0.name.starts_with("OpenMirroring") {
-                                // self.pipeline.add_hls_sink().await?;
                                 self.pipeline.add_webrtc_sink()?;
                             } else {
                                 self.pipeline.add_hls_sink()?;
@@ -379,7 +377,7 @@ fn main() -> Result<()> {
 
     gst::init()?;
     scapgst::plugin_register_static()?;
-    gst_webrtc::plugin_register_static()?;
+    common::sender::pipeline::init()?;
 
     let (event_tx, event_rx) = sync::mpsc::channel::<Event>(100);
     let (session_tx, session_rx) = sync::mpsc::channel::<SessionMessage>(100);

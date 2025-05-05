@@ -276,11 +276,10 @@ fn android_main(app: slint::android::AndroidApp) {
     #[cfg(debug_assertions)]
     {
         std::env::set_var("GST_DEBUG_NO_COLOR", "true");
-        std::env::set_var("GST_DEBUG", "3");
+        std::env::set_var("GST_DEBUG", "2");
     }
 
     gst::init().unwrap();
-    // common::transmission::init().unwrap();
     common::sender::pipeline::init().unwrap();
 
     // let payloaders = gst::ElementFactory::factories_with_type(gst::ElementFactoryType::PAYLOADER, gst::Rank::MARGINAL,); for p in payloaders {debug!("{p:?}");}

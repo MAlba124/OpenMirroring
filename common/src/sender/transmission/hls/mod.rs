@@ -238,6 +238,7 @@ impl HlsSink {
                 "caps",
                 gst::Caps::builder("video/x-h264")
                     .field("profile", "main")
+                    .field("framerate", gst::Fraction::new(0, 1))
                     .build(),
             )
             .build()?;

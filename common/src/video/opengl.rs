@@ -49,6 +49,8 @@ impl SlintOpenGLSink {
                     .format(gst_video::VideoFormat::Rgba)
                     .field("texture-target", "2D")
                     .field("pixel-aspect-ratio", gst::Fraction::new(1, 1))
+                    .width_range(1..i32::MAX)
+                    .height_range(1..i32::MAX)
                     .build(),
             )
             .enable_last_sample(false)
@@ -89,7 +91,7 @@ impl SlintOpenGLSink {
 
         unsafe {
             let egl_display = egl.GetCurrentDisplay();
-            let display = gst_gl_egl::GLDisplayEGL::with_egl_display(egl_display as usize).unwrap();
+            let display = gst_gl_egl::GLDisplayEGL::with_egl_display(egl_display as usize)?;
             let native_context = egl.GetCurrentContext();
 
             Ok((
@@ -99,7 +101,7 @@ impl SlintOpenGLSink {
                     platform,
                     gst_gl::GLContext::current_gl_api(platform).0,
                 )
-                .expect("unable to create wrapped GL context"),
+                .ok_or(anyhow::anyhow!("unable to create wrapped GL context"))?,
                 display.upcast(),
             ))
         }
@@ -122,7 +124,7 @@ impl SlintOpenGLSink {
 
         unsafe {
             let glx_display = glx.GetCurrentDisplay();
-            let display = gst_gl_x11::GLDisplayX11::with_display(glx_display as usize).unwrap();
+            let display = gst_gl_x11::GLDisplayX11::with_display(glx_display as usize)?;
             let native_context = glx.GetCurrentContext();
 
             Ok((
@@ -132,7 +134,7 @@ impl SlintOpenGLSink {
                     platform,
                     gst_gl::GLContext::current_gl_api(platform).0,
                 )
-                .expect("unable to create wrapped GL context"),
+                .ok_or(anyhow::anyhow!("unable to create wrapped GL context"))?,
                 display.upcast(),
             ))
         }
@@ -156,13 +158,13 @@ impl SlintOpenGLSink {
 
         gst_display.filter_gl_api(gl_api);
 
-        let Some(wrapped_context) =
-            (unsafe { gst_gl::GLContext::new_wrapped(&gst_display, gl_ctx, platform, gl_api) })
-        else {
-            bail!("Failed to create wrapped GL context");
-        };
-
-        Ok((wrapped_context, gst_display))
+        unsafe {
+            Ok((
+                gst_gl::GLContext::new_wrapped(&gst_display, gl_ctx, platform, gl_api)
+                    .ok_or(anyhow::anyhow!("unable to create wrapped GL context"))?,
+                gst_display,
+            ))
+        }
     }
 
     pub fn connect(
