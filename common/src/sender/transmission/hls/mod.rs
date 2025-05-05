@@ -131,15 +131,8 @@ async fn serve_dir(
                                 status: http::StatusCode::Ok,
                             },
                             headers: vec![
-                                // TODO: function
-                                http::Header {
-                                    key: "Content-Type".to_owned(),
-                                    value: "application/octet-stream".to_owned(),
-                                },
-                                http::Header {
-                                    key: "Content-Length".to_owned(),
-                                    value: file_contents.len().to_string(),
-                                },
+                                http::Header::new("Content-Type", "application/octet-stream"),
+                                http::Header::new("Content-Length", file_contents.len().to_string()),
                             ],
                             body: Some(file_contents),
                         };

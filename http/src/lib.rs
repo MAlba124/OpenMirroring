@@ -182,6 +182,13 @@ pub struct Header {
 }
 
 impl Header {
+    pub fn new(key: impl Into<String>, value: impl Into<String>) -> Self {
+        Self {
+            key: key.into(),
+            value: value.into(),
+        }
+    }
+
     /// Takes in a header buffer with the "\r\n" suffix removed and returns the parsed value
     pub fn parse(header: &[u8]) -> Result<Self, HttpError> {
         let mut i = 0;
