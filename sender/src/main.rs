@@ -322,7 +322,7 @@ impl Application {
                         .await?;
                 }
                 Event::PipelineIsPlaying => {
-                    self.pipeline.playing().await;
+                    self.pipeline.playing().await?;
                 }
             }
         }

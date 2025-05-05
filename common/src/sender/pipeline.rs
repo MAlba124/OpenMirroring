@@ -16,7 +16,7 @@
 // along with OpenMirroring.  If not, see <https://www.gnu.org/licenses/>.
 
 use super::transmission::{self, hls::HlsSink, webrtc::WebrtcSink, TransmissionSink};
-use anyhow::Result;
+use anyhow::{bail, Result};
 use futures::StreamExt;
 use gst::prelude::*;
 use log::error;
@@ -283,10 +283,10 @@ impl Pipeline {
         })
     }
 
-    pub async fn playing(&mut self) {
+    pub async fn playing(&mut self) -> Result<()> {
         match &mut self.tx_sink {
             Some(sink) => sink.playing().await,
-            None => error!("No sink available to send playing signal to"),
+            None => bail!("No sink available to send playing signal to"),
         }
     }
 

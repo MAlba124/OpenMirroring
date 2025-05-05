@@ -37,7 +37,7 @@ pub trait TransmissionSink: Send {
     fn get_play_msg(&self) -> Option<PlayMessage>;
 
     /// Called when the pipeline enters the playing state
-    async fn playing(&mut self);
+    async fn playing(&mut self) -> anyhow::Result<()>;
 
     /// Perform any necessary shutdown procedures
     fn shutdown(&mut self);

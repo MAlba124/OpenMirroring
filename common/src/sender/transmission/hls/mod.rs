@@ -437,8 +437,8 @@ impl TransmissionSink for HlsSink {
     }
 
     // TODO: -> Result
-    async fn playing(&mut self) {
-        self.write_manifest_file().await.unwrap();
+    async fn playing(&mut self) -> Result<()> {
+        self.write_manifest_file().await
     }
 
     fn shutdown(&mut self) {}

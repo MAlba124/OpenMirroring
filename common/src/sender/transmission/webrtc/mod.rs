@@ -20,6 +20,7 @@ use std::sync::Mutex;
 
 #[cfg(not(target_os = "android"))]
 use crate::net::get_default_ipv4_addr;
+use anyhow::Result;
 use gst::glib;
 use gst::prelude::*;
 use tokio::sync::oneshot;
@@ -119,7 +120,9 @@ impl TransmissionSink for WebrtcSink {
         })
     }
 
-    async fn playing(&mut self) {}
+    async fn playing(&mut self) -> Result<()> {
+        Ok(())
+    }
 
     fn shutdown(&mut self) {
         if let Some(signaller_quit_tx) = self.signaller_quit_tx.take() {
