@@ -97,6 +97,8 @@ async fn event_loop(
         }
     }
 
+    debug!("Quitting");
+
     if fin_tx.send(()).is_err() {
         bail!("Failed to send fin");
     }
@@ -173,13 +175,14 @@ fn main() -> Result<()> {
         slint_appsink,
     ));
 
+    let (disp_fin_tx, disp_fin_rx) = tokio::sync::oneshot::channel();
     {
         let event_tx = event_tx.clone();
         runtime().spawn(async move {
             Dispatcher::new(event_tx)
                 .await
                 .unwrap()
-                .run()
+                .run(disp_fin_rx)
                 .await
                 .unwrap();
         });
@@ -190,7 +193,9 @@ fn main() -> Result<()> {
     ui.run()?;
 
     runtime().block_on(async move {
-        event_tx.blocking_send(Event::Quit).unwrap();
+        debug!("Shutting down...");
+
+        disp_fin_tx.send(()).unwrap();
         fin_rx.await.unwrap();
     });
 

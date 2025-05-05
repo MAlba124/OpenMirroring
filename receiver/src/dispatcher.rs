@@ -16,7 +16,7 @@
 // along with OpenMirroring.  If not, see <https://www.gnu.org/licenses/>.
 
 use anyhow::Result;
-use log::info;
+use log::{debug, info};
 use simple_mdns::async_discovery::ServiceDiscovery;
 use tokio::net::TcpListener;
 
@@ -60,25 +60,30 @@ impl Dispatcher {
     }
 
     // TODO: Websocket listener
-    // TODO: Fin oneshot
-    pub async fn run(self) -> tokio::io::Result<()> {
+    pub async fn run(mut self, mut fin_rx: tokio::sync::oneshot::Receiver<()>) -> Result<()> {
         info!("Listening on {:?}", self.listener.local_addr());
 
         let mut id: SessionId = 0;
 
         loop {
-            let (stream, _) = self.listener.accept().await?;
-            self.event_tx
-                .send(Event::CreateSessionRequest { stream, id })
-                .await
-                .unwrap();
-            id += 1;
+            tokio::select! {
+                _ = &mut fin_rx => break,
+                r = self.listener.accept() => {
+                    let (stream, _) = r?;
+                    self.event_tx
+                        .send(Event::CreateSessionRequest { stream, id })
+                        .await?;
+                    id += 1;
+                }
+            }
         }
-    }
-}
 
-impl Drop for Dispatcher {
-    fn drop(&mut self) {
-        common::runtime().block_on(self.discovery.remove_service_from_discovery());
+        debug!("Quitting");
+
+        self.discovery.remove_service_from_discovery().await;
+
+        self.event_tx.send(Event::Quit).await?;
+
+        Ok(())
     }
 }
