@@ -55,8 +55,15 @@ async fn event_loop(
         match event {
             Event::CreateSessionRequest { stream, id } => {
                 debug!("Got CreateSessionRequest id={id}");
-                runtime()
-                    .spawn(Session::new(stream, event_tx.clone(), id).run(updates_tx.subscribe()));
+                runtime().spawn({
+                    let event_tx = event_tx.clone();
+                    let updates_rx = updates_tx.subscribe();
+                    async move {
+                        if let Err(err) = Session::new(stream, event_tx, id).run(updates_rx).await {
+                            log::error!("Session exited with error: {err}");
+                        }
+                    }
+                });
             }
             Event::Pause => pipeline.pause()?,
             Event::Play(play_message) => {

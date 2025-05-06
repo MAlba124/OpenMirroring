@@ -26,7 +26,7 @@ gst = { workspace = true, optional = true, features = [ "v1_24" ] }
 gst-webrtc = { workspace = true, optional = true, default-features = false, features = [ "v1_22" ] }
 gst-app = { workspace = true, optional = true, features = [ "v1_24" ] }
 fcast-lib = { path = "../fcast-lib", optional = true }
-tokio-stream = { version = "0.1.17", optional = true }
+tokio-stream = { workspace = true, optional = true }
 
 [target.'cfg(target_os = "android")'.dependencies]
 crossbeam-channel = { version = "0.5.15", optional = true }

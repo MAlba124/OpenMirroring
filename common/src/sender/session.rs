@@ -19,9 +19,9 @@ use std::future::Future;
 use std::net::SocketAddr;
 
 use anyhow::Result;
-use fcast_lib::{models, models::Header, packet::Packet};
+use fcast_lib::{models, packet::Packet, read_packet, write_packet};
 use log::{debug, error, warn};
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::io::AsyncWriteExt;
 use tokio::net::TcpStream;
 use tokio::sync::mpsc::Receiver;
 use tokio_stream::StreamExt;
@@ -39,33 +39,6 @@ pub enum SessionMessage {
     Stop,
     Connect(SocketAddr),
     Disconnect,
-}
-
-const HEADER_BUFFER_SIZE: usize = 5;
-
-/// Attempt to read and decode FCast packet from `stream`.
-async fn read_packet_from_stream(stream: &mut tokio::net::tcp::ReadHalf<'_>) -> Result<Packet> {
-    let mut header_buf: [u8; HEADER_BUFFER_SIZE] = [0; HEADER_BUFFER_SIZE];
-
-    stream.read_exact(&mut header_buf).await?;
-
-    let header = Header::decode(header_buf);
-
-    let mut body_string = String::new();
-
-    if header.size > 0 {
-        let mut body_buf = vec![0; header.size as usize];
-        stream.read_exact(&mut body_buf).await?;
-        body_string = String::from_utf8(body_buf)?;
-    }
-
-    Ok(Packet::decode(header, &body_string)?)
-}
-
-async fn send_packet(stream: &mut tokio::net::tcp::WriteHalf<'_>, packet: Packet) -> Result<()> {
-    let bytes = packet.encode();
-    stream.write_all(&bytes).await?;
-    Ok(())
 }
 
 /// Relay messages to/from receiver.
@@ -90,7 +63,7 @@ where
     }
 
     let packets_stream = futures::stream::unfold(tcp_stream_rx, |mut tcp_stream| async move {
-        match read_packet_from_stream(&mut tcp_stream).await {
+        match read_packet(&mut tcp_stream).await {
             Ok(p) => Some((Message::Packet(p), tcp_stream)),
             Err(err) => {
                 error!("Failed to receive packet: {err}");
@@ -113,7 +86,7 @@ where
     while let Some(msg) = msg_stream.next().await {
         match msg {
             Message::Packet(packet) => match packet {
-                Packet::Ping => send_packet(&mut tcp_stream_tx, Packet::Pong).await?,
+                Packet::Ping => write_packet(&mut tcp_stream_tx, Packet::Pong).await?,
                 _ => on_event(Event::FcastPacket(packet)).await,
             },
             Message::Inst(inst) => {
@@ -128,9 +101,9 @@ where
                             speed: None,
                             headers: None,
                         });
-                        send_packet(&mut tcp_stream_tx, packet).await?;
+                        write_packet(&mut tcp_stream_tx, packet).await?;
                     }
-                    SessionMessage::Stop => send_packet(&mut tcp_stream_tx, Packet::Stop).await?,
+                    SessionMessage::Stop => write_packet(&mut tcp_stream_tx, Packet::Stop).await?,
                     SessionMessage::Quit => return Ok(true),
                     SessionMessage::Disconnect => return Ok(false),
                     _ => warn!("Received invalid message ({inst:?}) for the current session state"),

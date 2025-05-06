@@ -15,15 +15,17 @@
 // You should have received a copy of the GNU General Public License
 // along with OpenMirroring.  If not, see <https://www.gnu.org/licenses/>.
 
+use std::pin::pin;
+
+use anyhow::Result;
+use futures::stream::unfold;
 use log::{debug, error, trace, warn};
-use tokio::{
-    io::{AsyncReadExt, AsyncWriteExt},
-    net::TcpStream,
-};
+use tokio::{io::AsyncWriteExt, net::TcpStream, sync::broadcast::Receiver};
+use tokio_stream::StreamExt;
 
 use crate::Event;
-use fcast_lib::models::Header;
 use fcast_lib::packet::Packet;
+use fcast_lib::{read_packet, write_packet};
 
 pub type SessionId = u64;
 
@@ -32,8 +34,6 @@ pub struct Session {
     event_tx: tokio::sync::mpsc::Sender<Event>,
     id: SessionId,
 }
-
-const HEADER_BUFFER_SIZE: usize = 5;
 
 impl Session {
     pub fn new(
@@ -48,66 +48,75 @@ impl Session {
         }
     }
 
-    async fn get_next_packet(&mut self) -> Result<Packet, tokio::io::Error> {
-        let mut header_buf: [u8; HEADER_BUFFER_SIZE] = [0; HEADER_BUFFER_SIZE];
+    pub async fn run(mut self, updates_rx: Receiver<Vec<u8>>) -> Result<()> {
+        debug!("id={} Session was started", self.id);
 
-        self.stream.read_exact(&mut header_buf).await?;
+        let (tcp_stream_rx, mut tcp_stream_tx) = self.stream.split();
 
-        let header = Header::decode(header_buf);
-
-        let mut body_string = String::new();
-
-        if header.size > 0 {
-            let mut body_buf = vec![0; header.size as usize];
-            self.stream.read_exact(&mut body_buf).await?;
-            body_string =
-                String::from_utf8(body_buf).map_err(|e| tokio::io::Error::other(e.to_string()))?;
+        enum Message {
+            Packet(Packet),
+            Update(Vec<u8>),
         }
 
-        Packet::decode(header, &body_string).map_err(|e| tokio::io::Error::other(e.to_string()))
-    }
+        let packets_stream = unfold(tcp_stream_rx, |mut tcp_stream| async move {
+            match read_packet(&mut tcp_stream).await {
+                Ok(p) => Some((Message::Packet(p), tcp_stream)),
+                Err(err) => {
+                    error!("Failed to receive packet: {err}");
+                    None
+                }
+            }
+        });
 
-    pub async fn run(mut self, mut updates_rx: tokio::sync::broadcast::Receiver<Vec<u8>>) {
-        debug!("id={} Session was started", self.id);
-        // TODO: stream
-        loop {
-            tokio::select! {
-                maybe_packet = self.get_next_packet() => {
-                    match maybe_packet {
-                        Ok(packet) => {
-                        trace!("id={} Got packet: {packet:?}", self.id);
-                        match packet {
-                            Packet::None => {}
-                            Packet::Play(play_message) => self.event_tx.send(Event::Play(play_message)).await.unwrap(),
-                            Packet::Pause => self.event_tx.send(Event::Pause).await.unwrap(),
-                            Packet::Resume => self.event_tx.send(Event::Resume).await.unwrap(),
-                            Packet::Stop => self.event_tx.send(Event::Stop).await.unwrap(),
-                            Packet::Seek(seek_message) => self.event_tx.send(Event::Seek(seek_message)).await.unwrap(),
-                            Packet::SetVolume(set_volume_message) => {
-                                self.event_tx.send(Event::SetVolume(set_volume_message)).await.unwrap()
-                            }
-                            Packet::SetSpeed(set_speed_message) => {
-                                self.event_tx.send(Event::SetSpeed(set_speed_message)).await.unwrap()
-                            }
-                            Packet::Ping => todo!(), // TODO
-                            Packet::Pong => trace!("id={} Got pong from sender", self.id),
-                            _ => warn!("id={} Invalid packet from sender packet={packet:?}", self.id),
+        let updates_stream = unfold(updates_rx, |mut updates_rx: Receiver<Vec<u8>>| async move {
+            updates_rx
+                .recv()
+                .await
+                .ok()
+                .map(|update| (Message::Update(update), updates_rx))
+        });
+
+        let mut msg_stream = pin!(packets_stream.merge(updates_stream));
+        while let Some(msg) = msg_stream.next().await {
+            match msg {
+                Message::Packet(packet) => {
+                    trace!("id={} Got packet: {packet:?}", self.id);
+                    match packet {
+                        Packet::None => (),
+                        Packet::Play(play_message) => {
+                            self.event_tx.send(Event::Play(play_message)).await?
                         }
+                        Packet::Pause => self.event_tx.send(Event::Pause).await?,
+                        Packet::Resume => self.event_tx.send(Event::Resume).await?,
+                        Packet::Stop => self.event_tx.send(Event::Stop).await?,
+                        Packet::Seek(seek_message) => {
+                            self.event_tx.send(Event::Seek(seek_message)).await?
                         }
-                        Err(err) => {
-                            error!("id={} Got error: `{err}`, treating it as disconnect", self.id);
-                            return;
+                        Packet::SetVolume(set_volume_message) => {
+                            self.event_tx
+                                .send(Event::SetVolume(set_volume_message))
+                                .await?;
                         }
+                        Packet::SetSpeed(set_speed_message) => {
+                            self.event_tx
+                                .send(Event::SetSpeed(set_speed_message))
+                                .await?;
+                        }
+                        Packet::Ping => write_packet(&mut tcp_stream_tx, Packet::Pong).await?,
+                        Packet::Pong => trace!("id={} Got pong from sender", self.id),
+                        _ => warn!(
+                            "id={} Invalid packet from sender packet={packet:?}",
+                            self.id
+                        ),
                     }
                 }
-                maybe_update = updates_rx.recv() => match maybe_update {
-                    Ok(update) => {
-                        self.stream.write_all(&update).await.unwrap();
-                        trace!("id={} Sent update", self.id);
-                    }
-                    Err(err) => panic!("{err}"),
+                Message::Update(update) => {
+                    tcp_stream_tx.write_all(&update).await?;
+                    trace!("id={} Sent update", self.id);
                 }
             }
         }
+
+        Ok(())
     }
 }
