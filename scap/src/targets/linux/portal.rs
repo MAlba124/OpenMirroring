@@ -186,8 +186,6 @@ impl Stream {
         let mut stream = stream.as_iter()?.next()?.as_iter()?;
         let pipewire_node_id = stream.next()?.as_iter()?.next()?.as_u64()?;
 
-        // TODO: Get the rest of the properties
-
         Some(Self(
             pipewire_node_id as u32,
             StreamVardict {

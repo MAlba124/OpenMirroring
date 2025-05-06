@@ -357,8 +357,9 @@ impl BaseSrcImpl for ScapSrc {
                 .unwrap()
                 .set_pts(gst::ClockTime::from_nseconds(pts));
 
-            // TODO: handle error
-            let _ = event_tx.try_send(Event::Frame(buffer));
+            if let Err(err) = event_tx.try_send(Event::Frame(buffer)) {
+                gst::fixme!(CAT, "Failed to send frame: {err}");
+            }
         };
 
         let mut new_capturer = Capturer::build(

@@ -198,13 +198,13 @@ pub struct HlsSink {
     file_tx: Sender<fake_file_writer::ChannelElement>,
 }
 
-// TODO: Bin!
 impl HlsSink {
     pub fn new(pipeline: &gst::Pipeline, src_pad: gst::Pad) -> Result<Self, glib::BoolError> {
         let queue = gst::ElementFactory::make("queue")
             .name("sink_queue")
             .property("silent", true)
             .build()?;
+
         let convert = gst::ElementFactory::make("videoconvert")
             .name("sink_convert")
             .build()?;
@@ -429,7 +429,6 @@ impl TransmissionSink for HlsSink {
             })
     }
 
-    // TODO: -> Result
     async fn playing(&mut self) -> Result<()> {
         self.write_manifest_file().await
     }
