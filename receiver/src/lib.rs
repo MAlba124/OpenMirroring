@@ -45,4 +45,6 @@ pub enum Event {
         speed: f64,
     },
     Quit,
+    PipelineEos,
+    PipelineError,
 }

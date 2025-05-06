@@ -5476,6 +5476,7 @@ dependencies = [
  "common",
  "env_logger 0.11.8",
  "fcast-lib",
+ "futures",
  "gethostname 1.0.1",
  "gstreamer",
  "gstreamer-gl",

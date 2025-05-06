@@ -69,6 +69,7 @@ impl Session {
 
     pub async fn run(mut self, mut updates_rx: tokio::sync::broadcast::Receiver<Vec<u8>>) {
         debug!("id={} Session was started", self.id);
+        // TODO: stream
         loop {
             tokio::select! {
                 maybe_packet = self.get_next_packet() => {
@@ -88,13 +89,13 @@ impl Session {
                             Packet::SetSpeed(set_speed_message) => {
                                 self.event_tx.send(Event::SetSpeed(set_speed_message)).await.unwrap()
                             }
-                            Packet::Ping => todo!(),
+                            Packet::Ping => todo!(), // TODO
                             Packet::Pong => trace!("id={} Got pong from sender", self.id),
                             _ => warn!("id={} Invalid packet from sender packet={packet:?}", self.id),
                         }
                         }
                         Err(err) => {
-                            error!("id={} Got error: {err} treating it as disconnect", self.id);
+                            error!("id={} Got error: `{err}`, treating it as disconnect", self.id);
                             return;
                         }
                     }

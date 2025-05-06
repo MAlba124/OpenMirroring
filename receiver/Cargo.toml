@@ -16,6 +16,7 @@ common = { path = "../common", features = ["video"] }
 gethostname = "1.0.1"
 slint = { workspace = true }
 anyhow = { workspace = true }
+futures = { workspace = true }
 
 [build-dependencies]
 slint-build = { workspace = true }

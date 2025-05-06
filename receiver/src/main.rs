@@ -39,6 +39,7 @@ fn current_time_millis() -> u64 {
         .as_millis() as u64
 }
 
+// TODO: Application struct
 async fn event_loop(
     mut event_rx: Receiver<Event>,
     event_tx: Sender<Event>,
@@ -48,7 +49,7 @@ async fn event_loop(
 ) -> Result<()> {
     let (updates_tx, _) = tokio::sync::broadcast::channel(10);
 
-    let pipeline = Pipeline::new(appsink, event_tx.clone())?;
+    let pipeline = Pipeline::new(appsink, event_tx.clone()).await?;
 
     while let Some(event) = event_rx.recv().await {
         match event {
@@ -94,6 +95,17 @@ async fn event_loop(
                 }
             }
             Event::Quit => break,
+            Event::PipelineEos => {
+                debug!("Pipeline reached EOS");
+                pipeline.stop()?;
+            }
+            Event::PipelineError => {
+                pipeline.stop()?;
+                // TODO: Show error in the UI
+                ui_weak.upgrade_in_event_loop(|ui| {
+                    ui.set_playing(false);
+                })?;
+            }
         }
     }
 

@@ -16,11 +16,12 @@
 // along with OpenMirroring.  If not, see <https://www.gnu.org/licenses/>.
 
 use fcast_lib::models::PlaybackState;
+use futures::StreamExt;
 use gst::prelude::*;
 
-use anyhow::{bail, Result};
+use anyhow::{anyhow, bail, Result};
 
-use log::debug;
+use log::{debug, error};
 use tokio::sync::mpsc::Sender;
 
 pub struct Pipeline {
@@ -29,7 +30,7 @@ pub struct Pipeline {
 }
 
 impl Pipeline {
-    pub fn new(appsink: gst::Element, event_tx: Sender<crate::Event>) -> Result<Self> {
+    pub async fn new(appsink: gst::Element, event_tx: Sender<crate::Event>) -> Result<Self> {
         let pipeline = gst::Pipeline::new();
 
         let playbin = gst::ElementFactory::make("playbin3").build()?;
@@ -38,25 +39,40 @@ impl Pipeline {
 
         pipeline.set_state(gst::State::Ready)?;
 
-        let bus = pipeline.bus().expect("Pipeline without bus");
+        tokio::spawn({
+            let bus = pipeline.bus().ok_or(anyhow!("Pipeline without bus"))?;
+            let event_tx = event_tx.clone();
 
-        bus.set_sync_handler(move |_, msg| {
-            use gst::MessageView;
+            async move {
+                let mut messages = bus.stream();
 
-            match msg.view() {
-                MessageView::Eos(_) => debug!("EOS"),
-                MessageView::Error(err) => debug!("{err}"),
-                _ => (),
+                while let Some(msg) = messages.next().await {
+                    use gst::MessageView;
+
+                    match msg.view() {
+                        MessageView::Eos(..) => {
+                            event_tx.send(crate::Event::PipelineEos).await.unwrap()
+                        }
+                        MessageView::Error(err) => {
+                            error!(
+                                "Error from {:?}: {} ({:?})",
+                                err.src().map(|s| s.path_string()),
+                                err.error(),
+                                err.debug()
+                            );
+                            event_tx.send(crate::Event::PipelineError).await.unwrap();
+                        }
+                        _ => (),
+                    }
+                }
             }
-
-            gst::BusSyncReply::Drop
         });
 
         playbin.set_property("video-sink", &appsink);
 
         {
             let pipeline = pipeline.clone();
-            common::runtime().spawn(async move {
+            tokio::spawn(async move {
                 loop {
                     tokio::time::sleep(std::time::Duration::from_millis(1000)).await;
 
@@ -106,17 +122,23 @@ impl Pipeline {
         self.inner.set_state(gst::State::Ready)?;
         self.playbin.set_property("uri", uri);
 
+        debug!("Playback URI set to: {uri}");
+
         Ok(())
     }
 
     pub fn pause(&self) -> Result<()> {
         self.inner.set_state(gst::State::Paused)?;
 
+        debug!("Playback paused");
+
         Ok(())
     }
 
     pub fn play_or_resume(&self) -> Result<()> {
         self.inner.set_state(gst::State::Playing)?;
+
+        debug!("Playback resumed");
 
         Ok(())
     }
@@ -125,12 +147,16 @@ impl Pipeline {
         self.inner.set_state(gst::State::Null)?;
         self.playbin.set_property("uri", "");
 
+        debug!("Playback stopped");
+
         Ok(())
     }
 
     pub fn set_volume(&self, new_volume: f64) {
         self.playbin
             .set_property("volume", new_volume.clamp(0.0, 1.0));
+
+        debug!("Volume set to {}", new_volume.clamp(0.0, 1.0));
     }
 
     pub fn seek(&self, seek_to: f64) -> Result<()> {
@@ -138,6 +164,8 @@ impl Pipeline {
             gst::SeekFlags::ACCURATE | gst::SeekFlags::FLUSH,
             gst::ClockTime::from_seconds_f64(seek_to),
         )?;
+
+        debug!("Seeked to: {seek_to}");
 
         Ok(())
     }
@@ -166,6 +194,8 @@ impl Pipeline {
                 position,
             )?;
         }
+
+        debug!("Playback speed set to: {new_speed}");
 
         Ok(())
     }

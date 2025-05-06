@@ -18,6 +18,7 @@ simple-mdns = { git = "https://github.com/MAlba124/simple-dns.git", rev = "afb61
 slint = "1.11.0"
 slint-build = "1.11.0"
 anyhow = "1.0.98"
+futures = "0.3"
 
 [profile.release]
 lto = true
