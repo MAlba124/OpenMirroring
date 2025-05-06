@@ -15,7 +15,7 @@
 // You should have received a copy of the GNU General Public License
 // along with OpenMirroring.  If not, see <https://www.gnu.org/licenses/>.
 
-use fcast_lib::models::PlaybackState;
+use fcast_lib::models::{PlaybackState, PlaybackUpdateMessage};
 use futures::StreamExt;
 use gst::prelude::*;
 
@@ -70,51 +70,48 @@ impl Pipeline {
 
         playbin.set_property("video-sink", &appsink);
 
-        {
-            let pipeline = pipeline.clone();
-            tokio::spawn(async move {
-                loop {
-                    tokio::time::sleep(std::time::Duration::from_millis(1000)).await;
-
-                    let position: Option<gst::ClockTime> = pipeline.query_position();
-                    let duration: Option<gst::ClockTime> = pipeline.query_duration();
-                    let speed = {
-                        let mut query = gst::query::Segment::new(gst::Format::Time);
-                        if pipeline.query(&mut query) {
-                            query
-                                .get_mut()
-                                .unwrap() // We know the query succeeded
-                                .result()
-                                .0
-                        } else {
-                            1.0f64
-                        }
-                    };
-                    let state = match pipeline.state(gst::ClockTime::NONE).1 {
-                        gst::State::Paused => PlaybackState::Paused,
-                        gst::State::Playing => PlaybackState::Playing,
-                        _ => PlaybackState::Idle,
-                    };
-                    if event_tx
-                        .send(crate::Event::PlaybackUpdate {
-                            time: position.unwrap_or_default().seconds_f64(),
-                            duration: duration.unwrap_or_default().seconds_f64(),
-                            state,
-                            speed,
-                        })
-                        .await
-                        .is_err()
-                    {
-                        break;
-                    }
-                }
-                debug!("Playback update watcher finished");
-            });
-        }
-
         Ok(Self {
             inner: pipeline,
             playbin,
+        })
+    }
+
+    pub fn get_playback_state(&self) -> Result<PlaybackUpdateMessage> {
+        let position: Option<gst::ClockTime> = self.inner.query_position();
+        let duration: Option<gst::ClockTime> = self.inner.query_duration();
+
+        let speed = {
+            let mut query = gst::query::Segment::new(gst::Format::Time);
+            if self.inner.query(&mut query) {
+                query
+                    .get_mut()
+                    .unwrap() // We know the query succeeded
+                    .result()
+                    .0
+            } else {
+                1.0f64
+            }
+        };
+
+        let state = match self.inner.state(gst::ClockTime::NONE).1 {
+            gst::State::Paused => PlaybackState::Paused,
+            gst::State::Playing => PlaybackState::Playing,
+            _ => PlaybackState::Idle,
+        };
+
+        fn current_time_millis() -> u64 {
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_millis() as u64
+        }
+
+        Ok(PlaybackUpdateMessage {
+            time: position.unwrap_or_default().seconds_f64(),
+            duration: duration.unwrap_or_default().seconds_f64(),
+            state,
+            speed,
+            generation: current_time_millis(),
         })
     }
 
