@@ -102,8 +102,8 @@ impl Application {
                 Event::SendPlaybackUpdate => {
                     if updates_tx.receiver_count() > 0 {
                         let update = self.pipeline.get_playback_state()?;
+                        debug!("Sending update ({update:?})");
                         updates_tx.send(Packet::from(update).encode())?;
-                        debug!("Sent update");
                     }
                 }
                 Event::Quit => break,
