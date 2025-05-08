@@ -19,6 +19,7 @@
 use crate::net::get_default_ipv4_addr;
 use anyhow::{anyhow, Result};
 use fake_file_writer::FakeFileWriter;
+use fcast_lib::models::PlayMessage;
 use gst::{glib, prelude::*};
 use log::{debug, error, trace};
 use m3u8_rs::{MasterPlaylist, VariantStream};
@@ -411,22 +412,24 @@ impl HlsSink {
 
 #[async_trait::async_trait]
 impl TransmissionSink for HlsSink {
-    fn get_play_msg(&self) -> Option<super::PlayMessage> {
+    fn get_play_msg(&self) -> Option<PlayMessage> {
         let server_port = self.server_port.lock().unwrap();
 
-        (*server_port)
-            .as_ref()
-            .map(|server_port| super::PlayMessage {
-                mime: HLS_MIME_TYPE.to_owned(),
-                #[cfg(not(target_os = "android"))]
-                uri: format!(
-                    "http://{}:{server_port}/manifest.m3u8",
-                    get_default_ipv4_addr(),
-                ),
-                // TODO: use real address when not emulating
-                #[cfg(target_os = "android")]
-                uri: format!("http://127.0.0.1:{server_port}/manifest.m3u8"),
-            })
+        (*server_port).as_ref().map(|server_port| PlayMessage {
+            container: HLS_MIME_TYPE.to_owned(),
+            #[cfg(not(target_os = "android"))]
+            url: Some(format!(
+                "http://{}:{server_port}/manifest.m3u8",
+                get_default_ipv4_addr(),
+            )),
+            // TODO: use real address when not emulating
+            #[cfg(target_os = "android")]
+            url: Some(format!("http://127.0.0.1:{server_port}/manifest.m3u8")),
+            content: None,
+            time: Some(0.0),
+            speed: Some(1.0),
+            headers: None,
+        })
     }
 
     async fn playing(&mut self) -> Result<()> {

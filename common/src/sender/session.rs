@@ -19,7 +19,8 @@ use std::future::Future;
 use std::net::SocketAddr;
 
 use anyhow::Result;
-use fcast_lib::{models, packet::Packet, read_packet, write_packet};
+use fcast_lib::models::PlayMessage;
+use fcast_lib::{packet::Packet, read_packet, write_packet};
 use log::{debug, error, warn};
 use tokio::io::AsyncWriteExt;
 use tokio::net::TcpStream;
@@ -34,7 +35,7 @@ pub enum Event {
 
 #[derive(Debug)]
 pub enum SessionMessage {
-    Play { mime: String, uri: String },
+    Play(PlayMessage),
     Quit,
     Stop,
     Connect(SocketAddr),
@@ -92,15 +93,8 @@ where
             Message::Inst(inst) => {
                 debug!("Got instruction: {inst:?}");
                 match inst {
-                    SessionMessage::Play { mime, uri } => {
-                        let packet = Packet::from(models::PlayMessage {
-                            container: mime,
-                            url: Some(uri),
-                            content: None,
-                            time: None,
-                            speed: None,
-                            headers: None,
-                        });
+                    SessionMessage::Play(play_msg) => {
+                        let packet = Packet::from(play_msg);
                         write_packet(&mut tcp_stream_tx, packet).await?;
                     }
                     SessionMessage::Stop => write_packet(&mut tcp_stream_tx, Packet::Stop).await?,

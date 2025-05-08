@@ -189,10 +189,7 @@ impl Application {
                     };
 
                     self.session_tx
-                        .send(SessionMessage::Play {
-                            mime: play_msg.mime,
-                            uri: play_msg.uri,
-                        })
+                        .send(SessionMessage::Play(play_msg))
                         .await?;
                     self.ui_weak.upgrade_in_event_loop(|ui| {
                         ui.invoke_cast_started();

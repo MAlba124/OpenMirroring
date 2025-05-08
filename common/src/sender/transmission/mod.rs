@@ -15,25 +15,19 @@
 // You should have received a copy of the GNU General Public License
 // along with OpenMirroring.  If not, see <https://www.gnu.org/licenses/>.
 
+use fcast_lib::models::PlayMessage;
 use gst::glib;
 
 pub mod hls;
 pub mod rtp;
 
-pub struct PlayMessage {
-    pub mime: String,
-    pub uri: String,
-}
-
 pub fn init() -> Result<(), gst::glib::BoolError> {
     Ok(())
 }
 
-// TODO: eventually remove the async stuff
 #[async_trait::async_trait]
 pub trait TransmissionSink: Send {
     /// Get the message that should be sent to a receiver to consume the stream
-    // TODO: maybe just return fcast_lib's PlayMessage?
     fn get_play_msg(&self) -> Option<PlayMessage>;
 
     /// Called when the pipeline enters the playing state

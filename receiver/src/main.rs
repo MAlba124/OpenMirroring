@@ -19,7 +19,7 @@ use anyhow::{bail, Result};
 use common::runtime;
 use common::video::opengl::SlintOpenGLSink;
 use fcast_lib::packet::Packet;
-use log::{debug, warn};
+use log::debug;
 use receiver::dispatcher::Dispatcher;
 use receiver::pipeline::Pipeline;
 use receiver::session::Session;
@@ -148,7 +148,9 @@ fn main() -> Result<()> {
     for ip in common::net::get_all_ip_addresses() {
         match ip {
             std::net::IpAddr::V4(v4) if !v4.is_loopback() => ips.push(v4),
-            std::net::IpAddr::V6(v6) if !v6.is_loopback() => debug!("Ignoring IPv6 address ({v6:?})"),
+            std::net::IpAddr::V6(v6) if !v6.is_loopback() => {
+                debug!("Ignoring IPv6 address ({v6:?})")
+            }
             _ => debug!("Ignoring loopback IP address ({ip:?})"),
         }
     }

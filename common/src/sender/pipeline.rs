@@ -17,6 +17,7 @@
 
 use super::transmission::{self, hls::HlsSink, rtp::RtpSink, TransmissionSink};
 use anyhow::Result;
+use fcast_lib::models::PlayMessage;
 use futures::StreamExt;
 use gst::prelude::*;
 use log::error;
@@ -376,7 +377,7 @@ impl Pipeline {
 
     /// Get the message that should be sent to a receiver to consume the stream if a transmission
     /// sink is present
-    pub fn get_play_msg(&self) -> Option<transmission::PlayMessage> {
+    pub fn get_play_msg(&self) -> Option<PlayMessage> {
         if let Some(sink) = &self.tx_sink {
             sink.get_play_msg()
         } else {

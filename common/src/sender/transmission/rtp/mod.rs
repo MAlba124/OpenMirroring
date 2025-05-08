@@ -171,25 +171,31 @@ impl RtpSink {
 impl TransmissionSink for RtpSink {
     fn get_play_msg(&self) -> Option<PlayMessage> {
         Some(PlayMessage {
-            mime: FCAST_GST_WEBRTC_MIME_TYPE.to_owned(),
+            container: FCAST_GST_WEBRTC_MIME_TYPE.to_owned(),
             #[cfg(not(target_os = "android"))]
-            uri: format!(
+            url: Some(format!(
                 "rtp://{}:5004?rtp://127.0.0.1:5004?\
-                     media=video\
-                     &clock-rate=90000\
-                     &encoding-name=H264\
-                     &payload=96\
-                     &rtp-profile=1",
+                    media=video\
+                    &clock-rate=90000\
+                    &encoding-name=H264\
+                    &payload=96\
+                    &rtp-profile=1",
                 self.host
-            ),
+            )),
             #[cfg(target_os = "android")]
-            uri: "rtp://127.0.0.1:5004\
+            url: Some(
+                "rtp://127.0.0.1:5004\
                     ?media=video\
-                     &clock-rate=90000\
-                     &encoding-name=H264\
-                     &payload=96\
-                     &rtp-profile=1"
-                .to_owned(),
+                    &clock-rate=90000\
+                    &encoding-name=H264\
+                    &payload=96\
+                    &rtp-profile=1"
+                    .to_owned(),
+            ),
+            content: None,
+            time: Some(0.0),
+            speed: Some(1.0),
+            headers: None,
         })
     }
 
