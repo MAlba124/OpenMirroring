@@ -3,15 +3,13 @@ name = "scap"
 description = "Modern, high-performance screen capture library for Rust. Cross-platform."
 version = "0.0.8"
 edition = "2021"
-rust-version = "1.71"
-license = "MIT"
+license = "GPL-3.0-or-later"
 authors = [
 	"Siddharth <siddharth99c@gmail.com>",
 	"Pranav <pranav2000joglekar@gmail.com>",
+    "Marcus L. Hanestad <marlhan@proton.me>",
 ]
 readme = "README.md"
-repository = "https://github.com/helmerapp/scap"
-documentation = "https://docs.rs/scap"
 keywords = ["screen", "recording", "video", "capture", "media"]
 categories = ["graphics", "multimedia", "multimedia::video"]
 
