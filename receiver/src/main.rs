@@ -113,7 +113,8 @@ impl Application {
                 }
                 Event::PipelineError => {
                     self.pipeline.stop()?;
-                    // TODO: Show error in the UI
+                    // TODO: show error in the UI
+                    // TODO: send error message to sessions
                     ui_weak.upgrade_in_event_loop(|ui| {
                         ui.set_playing(false);
                     })?;
@@ -146,8 +147,9 @@ fn main() -> Result<()> {
     let mut ips: Vec<Ipv4Addr> = Vec::new();
     for ip in common::net::get_all_ip_addresses() {
         match ip {
-            std::net::IpAddr::V4(v4) => ips.push(v4),
-            std::net::IpAddr::V6(v6) => warn!("Found IPv6 address ({v6:?}), ignoring"),
+            std::net::IpAddr::V4(v4) if !v4.is_loopback() => ips.push(v4),
+            std::net::IpAddr::V6(v6) if !v6.is_loopback() => debug!("Ignoring IPv6 address ({v6:?})"),
+            _ => debug!("Ignoring loopback IP address ({ip:?})"),
         }
     }
 
