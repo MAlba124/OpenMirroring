@@ -16,7 +16,7 @@
 // along with OpenMirroring.  If not, see <https://www.gnu.org/licenses/>.
 
 use fcast_lib::models::{
-    PlayMessage, PlaybackState, SeekMessage, SetSpeedMessage, SetVolumeMessage,
+    PlayMessage, SeekMessage, SetSpeedMessage, SetVolumeMessage,
 };
 use session::SessionId;
 use tokio::net::TcpStream;
@@ -38,12 +38,7 @@ pub enum Event {
     SetSpeed(SetSpeedMessage),
     Seek(SeekMessage),
     SetVolume(SetVolumeMessage),
-    PlaybackUpdate {
-        time: f64,
-        duration: f64,
-        state: PlaybackState,
-        speed: f64,
-    },
+    SendPlaybackUpdate,
     Quit,
     PipelineEos,
     PipelineError,

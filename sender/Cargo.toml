@@ -9,7 +9,6 @@ log = { workspace = true }
 tokio = { workspace = true }
 gst = { workspace = true }
 gst-video = { workspace = true }
-gst-webrtc = { workspace = true }
 gst-app = { workspace = true }
 gst-gl = { workspace = true }
 gst-pbutils = { package = "gstreamer-pbutils", version = "0.23.5", features = [ "v1_22" ] }

@@ -543,10 +543,8 @@ dependencies = [
  "futures-task",
  "futures-util",
  "log",
- "native-tls",
  "pin-project-lite",
  "tokio",
- "tokio-native-tls",
  "tungstenite 0.26.2 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
 
@@ -1115,7 +1113,7 @@ dependencies = [
  "cocoa-foundation",
  "core-foundation 0.9.4",
  "core-graphics 0.23.2",
- "foreign-types 0.5.0",
+ "foreign-types",
  "libc",
  "objc",
 ]
@@ -1186,7 +1184,6 @@ dependencies = [
  "gio 0.20.9",
  "glutin_egl_sys",
  "glutin_glx_sys",
- "gst-plugin-webrtc",
  "gstreamer",
  "gstreamer-app",
  "gstreamer-gl",
@@ -1308,7 +1305,7 @@ dependencies = [
  "bitflags 1.3.2",
  "core-foundation 0.9.4",
  "core-graphics-types 0.1.3",
- "foreign-types 0.5.0",
+ "foreign-types",
  "libc",
 ]
 
@@ -1321,7 +1318,7 @@ dependencies = [
  "bitflags 2.9.0",
  "core-foundation 0.10.0",
  "core-graphics-types 0.2.0",
- "foreign-types 0.5.0",
+ "foreign-types",
  "libc",
 ]
 
@@ -1334,7 +1331,7 @@ dependencies = [
  "bitflags 2.9.0",
  "core-foundation 0.9.4",
  "core-graphics-types 0.1.3",
- "foreign-types 0.5.0",
+ "foreign-types",
  "libc",
 ]
 
@@ -1368,7 +1365,7 @@ checksum = "c9d2790b5c08465d49f8dc05c8bcae9fea467855947db39b0f8145c091aaced5"
 dependencies = [
  "core-foundation 0.9.4",
  "core-graphics 0.23.2",
- "foreign-types 0.5.0",
+ "foreign-types",
  "libc",
 ]
 
@@ -1974,21 +1971,12 @@ dependencies = [
 
 [[package]]
 name = "foreign-types"
-version = "0.3.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f6f339eb8adc052cd2ca78910fda869aefa38d22d5cb648e6485e4d3fc06f3b1"
-dependencies = [
- "foreign-types-shared 0.1.1",
-]
-
-[[package]]
-name = "foreign-types"
 version = "0.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d737d9aa519fb7b749cbc3b962edcf310a8dd1f4b67c91c4f83975dbdd17d965"
 dependencies = [
  "foreign-types-macros",
- "foreign-types-shared 0.3.1",
+ "foreign-types-shared",
 ]
 
 [[package]]
@@ -2001,12 +1989,6 @@ dependencies = [
  "quote",
  "syn 2.0.101",
 ]
-
-[[package]]
-name = "foreign-types-shared"
-version = "0.1.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "00b0228411908ca8685dba7fc2cdd70ec9990a6e753e89b6ac91a84c40fbaf4b"
 
 [[package]]
 name = "foreign-types-shared"
@@ -2555,53 +2537,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "gst-plugin-webrtc"
-version = "0.13.5"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1884c7d861fbb25ae8c7dea5894ebc5ce4a8446230e890faffa7bb74c0908d2a"
-dependencies = [
- "anyhow",
- "async-tungstenite 0.29.1 (registry+https://github.com/rust-lang/crates.io-index)",
- "chrono",
- "fastrand",
- "futures",
- "gst-plugin-version-helper",
- "gst-plugin-webrtc-signalling-protocol",
- "gstreamer",
- "gstreamer-app",
- "gstreamer-audio",
- "gstreamer-base",
- "gstreamer-net",
- "gstreamer-rtp",
- "gstreamer-sdp",
- "gstreamer-utils",
- "gstreamer-video",
- "gstreamer-webrtc",
- "human_bytes",
- "once_cell",
- "parse_link_header",
- "rand 0.9.1",
- "serde",
- "serde_json",
- "thiserror 2.0.12",
- "tokio",
- "tokio-native-tls",
- "tokio-stream",
- "url",
- "uuid",
-]
-
-[[package]]
-name = "gst-plugin-webrtc-signalling-protocol"
-version = "0.13.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "05dbbcc188a11301558ef6c7309e45f1e6c59e4a3f3fd75e38a1d333d79ed946"
-dependencies = [
- "serde",
- "serde_json",
-]
-
-[[package]]
 name = "gstreamer"
 version = "0.23.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2622,8 +2557,6 @@ dependencies = [
  "option-operations",
  "paste",
  "pin-project-lite",
- "serde",
- "serde_bytes",
  "smallvec",
  "thiserror 2.0.12",
 ]
@@ -2669,7 +2602,6 @@ dependencies = [
  "gstreamer-base",
  "libc",
  "once_cell",
- "serde",
  "smallvec",
 ]
 
@@ -2795,31 +2727,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "gstreamer-net"
-version = "0.23.5"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f7a57013f1af740373c5cbf1602b6ff25238d4a0e300eff179b75676c9c7781e"
-dependencies = [
- "gio 0.20.9",
- "glib 0.20.9",
- "gstreamer",
- "gstreamer-net-sys",
-]
-
-[[package]]
-name = "gstreamer-net-sys"
-version = "0.23.5"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6b0291a3064e6e94d640f2d662264b726e5e0c2067ceb17f2b56dec6f6920877"
-dependencies = [
- "gio-sys 0.20.9",
- "glib-sys 0.20.9",
- "gstreamer-sys",
- "libc",
- "system-deps 7.0.3",
-]
-
-[[package]]
 name = "gstreamer-pbutils"
 version = "0.23.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2850,54 +2757,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "gstreamer-rtp"
-version = "0.23.5"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "bf35002f6eff177f5afc255fa7a2e7ab718fe8186a737dfdb791784e63571154"
-dependencies = [
- "glib 0.20.9",
- "gstreamer",
- "gstreamer-rtp-sys",
- "libc",
-]
-
-[[package]]
-name = "gstreamer-rtp-sys"
-version = "0.23.5"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2b874248d40bd6678be9c7218ec880735258cf2ba77000c72efda8bb3271b0fe"
-dependencies = [
- "glib-sys 0.20.9",
- "gstreamer-base-sys",
- "gstreamer-sys",
- "libc",
- "system-deps 7.0.3",
-]
-
-[[package]]
-name = "gstreamer-sdp"
-version = "0.23.5"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "57f94ab92cb1dbd6d00e41208ab463b5fbce3eca65a4c9710585fede015a9d65"
-dependencies = [
- "glib 0.20.9",
- "gstreamer",
- "gstreamer-sdp-sys",
-]
-
-[[package]]
-name = "gstreamer-sdp-sys"
-version = "0.23.5"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "de44d5e90138ac1786a6418a38c73d9a78ee0d15680129f09f91df5309d658e0"
-dependencies = [
- "glib-sys 0.20.9",
- "gstreamer-sys",
- "libc",
- "system-deps 7.0.3",
-]
-
-[[package]]
 name = "gstreamer-sys"
 version = "0.23.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2907,19 +2766,6 @@ dependencies = [
  "gobject-sys 0.20.9",
  "libc",
  "system-deps 7.0.3",
-]
-
-[[package]]
-name = "gstreamer-utils"
-version = "0.23.5"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "18281b9e31c9480b38f16dc8fadc6b34df6844895bd080aef565a416e87c431f"
-dependencies = [
- "gstreamer",
- "gstreamer-app",
- "gstreamer-video",
- "once_cell",
- "thiserror 2.0.12",
 ]
 
 [[package]]
@@ -2936,7 +2782,6 @@ dependencies = [
  "gstreamer-video-sys",
  "libc",
  "once_cell",
- "serde",
  "thiserror 2.0.12",
 ]
 
@@ -2949,32 +2794,6 @@ dependencies = [
  "glib-sys 0.20.9",
  "gobject-sys 0.20.9",
  "gstreamer-base-sys",
- "gstreamer-sys",
- "libc",
- "system-deps 7.0.3",
-]
-
-[[package]]
-name = "gstreamer-webrtc"
-version = "0.23.5"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4c475e2fa45c6c14b971e2ac40e7bae035f19592cac68c391d12eb659fd1722b"
-dependencies = [
- "glib 0.20.9",
- "gstreamer",
- "gstreamer-sdp",
- "gstreamer-webrtc-sys",
- "libc",
-]
-
-[[package]]
-name = "gstreamer-webrtc-sys"
-version = "0.23.5"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2c0ce6dd5e17757933233bf3fce2226eb2e8c06ec2325c2459a1022ae1d7d279"
-dependencies = [
- "glib-sys 0.20.9",
- "gstreamer-sdp-sys",
  "gstreamer-sys",
  "libc",
  "system-deps 7.0.3",
@@ -3113,12 +2932,6 @@ name = "httparse"
 version = "1.10.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6dbf3de79e51f3d586ab4cb9d5c3e2c14aa28ed23d180cf89b4df0454a69cc87"
-
-[[package]]
-name = "human_bytes"
-version = "0.4.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "91f255a4535024abf7640cb288260811fc14794f62b063652ed349f9a6c2348e"
 
 [[package]]
 name = "i-slint-backend-android-activity"
@@ -4194,23 +4007,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "956787520e75e9bd233246045d19f42fb73242759cc57fba9611d940ae96d4b0"
 
 [[package]]
-name = "native-tls"
-version = "0.2.14"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "87de3442987e9dbec73158d5c715e7ad9072fda936bb03d19d7fa10e00520f0e"
-dependencies = [
- "libc",
- "log",
- "openssl",
- "openssl-probe",
- "openssl-sys",
- "schannel",
- "security-framework",
- "security-framework-sys",
- "tempfile",
-]
-
-[[package]]
 name = "ndk"
 version = "0.8.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4372,7 +4168,6 @@ dependencies = [
  "num-bigint",
  "num-integer",
  "num-traits",
- "serde",
 ]
 
 [[package]]
@@ -4798,50 +4593,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "openssl"
-version = "0.10.72"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "fedfea7d58a1f73118430a55da6a286e7b044961736ce96a16a17068ea25e5da"
-dependencies = [
- "bitflags 2.9.0",
- "cfg-if",
- "foreign-types 0.3.2",
- "libc",
- "once_cell",
- "openssl-macros",
- "openssl-sys",
-]
-
-[[package]]
-name = "openssl-macros"
-version = "0.1.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a948666b637a0f465e8564c73e89d4dde00d72d4d473cc972f390fc3dcee7d9c"
-dependencies = [
- "proc-macro2",
- "quote",
- "syn 2.0.101",
-]
-
-[[package]]
-name = "openssl-probe"
-version = "0.1.6"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d05e27ee213611ffe7d6348b942e8f942b37114c00cc03cec254295a4a17852e"
-
-[[package]]
-name = "openssl-sys"
-version = "0.9.107"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8288979acd84749c744a9014b4382d42b8f7b2592847b5afb2ed29e5d16ede07"
-dependencies = [
- "cc",
- "libc",
- "pkg-config",
- "vcpkg",
-]
-
-[[package]]
 name = "option-operations"
 version = "0.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4930,18 +4681,6 @@ dependencies = [
  "redox_syscall 0.5.11",
  "smallvec",
  "windows-targets 0.52.6",
-]
-
-[[package]]
-name = "parse_link_header"
-version = "0.4.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "fbc23fdb8bbf668d582b0c17120bf6b7f91d85ccad3a5b39706f019a4efda005"
-dependencies = [
- "http 1.3.1",
- "lazy_static",
- "regex",
- "url",
 ]
 
 [[package]]
@@ -5711,15 +5450,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "schannel"
-version = "0.1.27"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1f29ebaa345f945cec9fbbc532eb307f0fdad8161f281b6369539c8d84876b3d"
-dependencies = [
- "windows-sys 0.59.0",
-]
-
-[[package]]
 name = "scoped-tls"
 version = "1.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5774,29 +5504,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "security-framework"
-version = "2.11.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "897b2245f0b511c87893af39b033e5ca9cce68824c4d7e7630b5a1d339658d02"
-dependencies = [
- "bitflags 2.9.0",
- "core-foundation 0.9.4",
- "core-foundation-sys",
- "libc",
- "security-framework-sys",
-]
-
-[[package]]
-name = "security-framework-sys"
-version = "2.14.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "49db231d56a190491cb4aeda9527f1ad45345af50b0851622a7adb8c03b01c32"
-dependencies = [
- "core-foundation-sys",
- "libc",
-]
-
-[[package]]
 name = "semver"
 version = "1.0.26"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5816,7 +5523,6 @@ dependencies = [
  "futures",
  "gio 0.20.9",
  "glutin_egl_sys",
- "gst-plugin-webrtc",
  "gstreamer",
  "gstreamer-app",
  "gstreamer-gl",
@@ -5845,15 +5551,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "5f0e2c6ed6606019b4e29e69dbaba95b11854410e5347d525002456dbbb786b6"
 dependencies = [
  "serde_derive",
-]
-
-[[package]]
-name = "serde_bytes"
-version = "0.11.17"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8437fd221bde2d4ca316d61b90e337e9e702b3820b87d63caa9ba6c02bd06d96"
-dependencies = [
- "serde",
 ]
 
 [[package]]
@@ -6149,7 +5846,7 @@ dependencies = [
  "cfg_aliases",
  "core-graphics 0.24.0",
  "fastrand",
- "foreign-types 0.5.0",
+ "foreign-types",
  "js-sys",
  "log",
  "memmap2",
@@ -6520,16 +6217,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "tokio-native-tls"
-version = "0.3.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "bbae76ab933c85776efabc971569dd6119c580d8f5d448769dec1764bf796ef2"
-dependencies = [
- "native-tls",
- "tokio",
-]
-
-[[package]]
 name = "tokio-stream"
 version = "0.1.17"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -6661,11 +6348,9 @@ dependencies = [
  "http 1.3.1",
  "httparse",
  "log",
- "native-tls",
  "rand 0.9.1",
  "sha1",
  "thiserror 2.0.12",
- "url",
  "utf-8",
 ]
 
@@ -6895,12 +6580,6 @@ dependencies = [
  "num-traits",
  "wasm-bindgen",
 ]
-
-[[package]]
-name = "vcpkg"
-version = "0.2.15"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "accd4ea62f7bb7a82fe23066fb0957d48ef677f6eeb8215f372f52e48bb32426"
 
 [[package]]
 name = "version-compare"

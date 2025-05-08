@@ -23,7 +23,6 @@ async-trait = { version = "0.1.88", optional = true }
 gst-video = { workspace = true, optional = true, features = [ "v1_24" ] }
 gst-pbutils = { package = "gstreamer-pbutils", version = "0.23.5", features = [ "v1_24" ], optional = true }
 gst = { workspace = true, optional = true, features = [ "v1_24" ] }
-gst-webrtc = { workspace = true, optional = true, default-features = false, features = [ "v1_22" ] }
 gst-app = { workspace = true, optional = true, features = [ "v1_24" ] }
 fcast-lib = { path = "../fcast-lib", optional = true }
 tokio-stream = { workspace = true, optional = true }
@@ -47,7 +46,7 @@ glutin_glx_sys = "0.6.1"
 [features]
 video = ["gst", "gst-app", "gst-video", "gst-gl"]
 sender = ["gst", "gst-video", "serde", "serde_json", "gio", "m3u8-rs", "gst-pbutils",
-        "http", "gst-webrtc", "futures", "async-tungstenite", "uuid", "pin-project-lite",
+        "http", "futures", "async-tungstenite", "uuid", "pin-project-lite",
         "bytes", "async-tungstenite", "async-trait", "crossbeam-channel", "gst-app",
         "fcast-lib", "tokio-stream"]
 

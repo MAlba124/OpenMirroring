@@ -18,7 +18,6 @@
 use anyhow::{bail, Result};
 use common::runtime;
 use common::video::opengl::SlintOpenGLSink;
-use fcast_lib::models::PlaybackUpdateMessage;
 use fcast_lib::packet::Packet;
 use log::{debug, warn};
 use receiver::dispatcher::Dispatcher;
@@ -32,13 +31,6 @@ use std::net::Ipv4Addr;
 
 slint::include_modules!();
 
-fn current_time_millis() -> u64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap()
-        .as_millis() as u64
-}
-
 // TODO: Application struct
 async fn event_loop(
     mut event_rx: Receiver<Event>,
@@ -50,6 +42,16 @@ async fn event_loop(
     let (updates_tx, _) = tokio::sync::broadcast::channel(10);
 
     let pipeline = Pipeline::new(appsink, event_tx.clone()).await?;
+
+    tokio::spawn({
+        let event_tx = event_tx.clone();
+        async move {
+            loop {
+                tokio::time::sleep(std::time::Duration::from_millis(1000)).await;
+                event_tx.send(Event::SendPlaybackUpdate).await.unwrap();
+            }
+        }
+    });
 
     while let Some(event) = event_rx.recv().await {
         match event {
@@ -83,22 +85,11 @@ async fn event_loop(
             Event::SetSpeed(set_speed_message) => pipeline.set_speed(set_speed_message.speed)?,
             Event::Seek(seek_message) => pipeline.seek(seek_message.time)?,
             Event::SetVolume(set_volume_message) => pipeline.set_volume(set_volume_message.volume),
-            Event::PlaybackUpdate {
-                time,
-                duration,
-                state,
-                speed,
-            } => {
-                let packet = Packet::from(PlaybackUpdateMessage {
-                    generation: current_time_millis(),
-                    time,
-                    duration,
-                    state,
-                    speed,
-                });
-                let encoded_packet = packet.encode();
+            Event::SendPlaybackUpdate => {
                 if updates_tx.receiver_count() > 0 {
-                    updates_tx.send(encoded_packet).unwrap();
+                    let update = pipeline.get_playback_state()?;
+                    updates_tx.send(Packet::from(update).encode())?;
+                    debug!("Sent update");
                 }
             }
             Event::Quit => break,
