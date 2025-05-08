@@ -18,6 +18,7 @@
 use gst::glib;
 
 pub mod hls;
+pub mod rtp;
 pub mod webrtc;
 
 pub struct PlayMessage {
@@ -34,6 +35,7 @@ pub fn init() -> Result<(), gst::glib::BoolError> {
 #[async_trait::async_trait]
 pub trait TransmissionSink: Send {
     /// Get the message that should be sent to a receiver to consume the stream
+    // TODO: maybe just return fcast_lib's PlayMessage?
     fn get_play_msg(&self) -> Option<PlayMessage>;
 
     /// Called when the pipeline enters the playing state
