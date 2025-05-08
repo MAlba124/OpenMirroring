@@ -15,7 +15,7 @@
 // You should have received a copy of the GNU General Public License
 // along with OpenMirroring.  If not, see <https://www.gnu.org/licenses/>.
 
-use super::transmission::{self, hls::HlsSink, webrtc::WebrtcSink, TransmissionSink};
+use super::transmission::{self, hls::HlsSink, rtp::RtpSink, TransmissionSink};
 use anyhow::Result;
 use futures::StreamExt;
 use gst::prelude::*;
@@ -305,33 +305,6 @@ impl Pipeline {
     }
 
     #[cfg(not(target_os = "android"))]
-    pub fn add_webrtc_sink(&mut self) -> Result<()> {
-        let tee_pad = self
-            .tee
-            .request_pad_simple("src_%u")
-            .ok_or(anyhow::anyhow!("`request_pad_simple()` failed"))?;
-        let webrtc = WebrtcSink::new(&self.inner, tee_pad)?;
-        self.tx_sink = Some(Box::new(webrtc));
-
-        debug!("Added WebRTC sink");
-
-        Ok(())
-    }
-
-    #[cfg(target_os = "android")]
-    pub fn add_webrtc_sink(&mut self) -> Result<()> {
-        let appsrc_pad = self
-            .appsrc
-            .static_pad("src")
-            .ok_or(anyhow::anyhow!("appsrc is missing src pad"))?;
-        self.tx_sink = Some(Box::new(WebrtcSink::new(&self.inner, appsrc_pad)?));
-
-        // self.inner.set_state(gst::State::Playing)?;
-
-        Ok(())
-    }
-
-    #[cfg(not(target_os = "android"))]
     pub fn add_hls_sink(&mut self) -> Result<()> {
         let tee_pad = self
             .tee
@@ -353,7 +326,39 @@ impl Pipeline {
             .ok_or(anyhow::anyhow!("appsrc is missing src pad"))?;
         self.tx_sink = Some(Box::new(HlsSink::new(&self.inner, appsrc_pad)?));
 
-        self.inner.set_state(gst::State::Playing)?;
+        self.inner.set_state(gst::State::Playing)?; // NOTE: beware this is here
+
+        log::debug!("Added HLS sink");
+
+        Ok(())
+    }
+
+    #[cfg(not(target_os = "android"))]
+    pub fn add_rtp_sink(&mut self) -> Result<()> {
+        let tee_pad = self
+            .tee
+            .request_pad_simple("src_%u")
+            .ok_or(anyhow::anyhow!("`request_pad_simple()` failed"))?;
+        let rtp = RtpSink::new(&self.inner, tee_pad)?;
+        self.tx_sink = Some(Box::new(rtp));
+
+        debug!("Added RTP sink");
+
+        Ok(())
+    }
+
+    #[cfg(target_os = "android")]
+    pub fn add_rtp_sink(&mut self) -> Result<()> {
+        let appsrc_pad = self
+            .appsrc
+            .static_pad("src")
+            .ok_or(anyhow::anyhow!("appsrc is missing src pad"))?;
+        let rtp = RtpSink::new(&self.inner, appsrc_pad)?;
+        self.tx_sink = Some(Box::new(rtp));
+
+        log::debug!("Added RTP sink");
+
+        self.inner.set_state(gst::State::Playing)?; // NOTE: beware this is here
 
         Ok(())
     }

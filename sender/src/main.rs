@@ -232,7 +232,7 @@ impl Application {
                         }
 
                         if r.0.name.starts_with("OpenMirroring") {
-                            self.pipeline.add_webrtc_sink()?;
+                            self.pipeline.add_rtp_sink()?;
                         } else {
                             self.pipeline.add_hls_sink()?;
                         }
@@ -285,7 +285,7 @@ impl Application {
                             r.0.state = ReceiverState::Connected;
 
                             if r.0.name.starts_with("OpenMirroring") {
-                                self.pipeline.add_webrtc_sink()?;
+                                self.pipeline.add_rtp_sink()?;
                             } else {
                                 self.pipeline.add_hls_sink()?;
                             }

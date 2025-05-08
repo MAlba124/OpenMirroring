@@ -49,7 +49,6 @@ async fn event_loop(
             loop {
                 tokio::time::sleep(std::time::Duration::from_millis(1000)).await;
                 event_tx.send(Event::SendPlaybackUpdate).await.unwrap();
-                debug!("......");
             }
         }
     });

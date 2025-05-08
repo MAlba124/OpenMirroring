@@ -144,7 +144,9 @@ impl Application {
             }
         })
         .await?;
-        pipeline.add_hls_sink()?;
+
+        // NOTE: untested because I can't get emu to work
+        pipeline.add_rtp_sink()?;
 
         while let Ok(event) = rx!().recv().await {
             match event {
@@ -267,7 +269,7 @@ fn android_main(app: slint::android::AndroidApp) {
     #[cfg(debug_assertions)]
     {
         std::env::set_var("GST_DEBUG_NO_COLOR", "true");
-        std::env::set_var("GST_DEBUG", "2");
+        std::env::set_var("GST_DEBUG", "3");
     }
 
     gst::init().unwrap();
