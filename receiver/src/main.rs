@@ -31,89 +31,104 @@ use std::net::Ipv4Addr;
 
 slint::include_modules!();
 
-// TODO: Application struct
-async fn event_loop(
-    mut event_rx: Receiver<Event>,
+struct Application {
+    pipeline: Pipeline,
     event_tx: Sender<Event>,
-    ui_weak: slint::Weak<MainWindow>,
-    fin_tx: oneshot::Sender<()>,
-    appsink: gst::Element,
-) -> Result<()> {
-    let (updates_tx, _) = tokio::sync::broadcast::channel(10);
+}
 
-    let pipeline = Pipeline::new(appsink, event_tx.clone()).await?;
+impl Application {
+    pub async fn new(appsink: gst::Element, event_tx: Sender<Event>) -> Result<Self> {
+        let pipeline = Pipeline::new(appsink, event_tx.clone()).await?;
 
-    tokio::spawn({
-        let event_tx = event_tx.clone();
-        async move {
-            loop {
-                tokio::time::sleep(std::time::Duration::from_millis(1000)).await;
-                event_tx.send(Event::SendPlaybackUpdate).await.unwrap();
-            }
-        }
-    });
-
-    while let Some(event) = event_rx.recv().await {
-        match event {
-            Event::CreateSessionRequest { stream, id } => {
-                debug!("Got CreateSessionRequest id={id}");
-                runtime().spawn({
-                    let event_tx = event_tx.clone();
-                    let updates_rx = updates_tx.subscribe();
-                    async move {
-                        if let Err(err) = Session::new(stream, event_tx, id).run(updates_rx).await {
-                            log::error!("Session exited with error: {err}");
-                        }
-                    }
-                });
-            }
-            Event::Pause => pipeline.pause()?,
-            Event::Play(play_message) => {
-                pipeline.set_playback_uri(&play_message.url.unwrap())?;
-                pipeline.play_or_resume()?;
-                ui_weak.upgrade_in_event_loop(|ui| {
-                    ui.set_playing(true);
-                })?
-            }
-            Event::Resume => pipeline.play_or_resume()?,
-            Event::Stop => {
-                pipeline.stop()?;
-                ui_weak.upgrade_in_event_loop(|ui| {
-                    ui.set_playing(false);
-                })?;
-            }
-            Event::SetSpeed(set_speed_message) => pipeline.set_speed(set_speed_message.speed)?,
-            Event::Seek(seek_message) => pipeline.seek(seek_message.time)?,
-            Event::SetVolume(set_volume_message) => pipeline.set_volume(set_volume_message.volume),
-            Event::SendPlaybackUpdate => {
-                if updates_tx.receiver_count() > 0 {
-                    let update = pipeline.get_playback_state()?;
-                    updates_tx.send(Packet::from(update).encode())?;
-                    debug!("Sent update");
+        tokio::spawn({
+            let event_tx = event_tx.clone();
+            async move {
+                loop {
+                    tokio::time::sleep(std::time::Duration::from_millis(1000)).await;
+                    event_tx.send(Event::SendPlaybackUpdate).await.unwrap();
                 }
             }
-            Event::Quit => break,
-            Event::PipelineEos => {
-                debug!("Pipeline reached EOS");
-                pipeline.stop()?;
-            }
-            Event::PipelineError => {
-                pipeline.stop()?;
-                // TODO: Show error in the UI
-                ui_weak.upgrade_in_event_loop(|ui| {
-                    ui.set_playing(false);
-                })?;
+        });
+
+        Ok(Self { pipeline, event_tx })
+    }
+
+    pub async fn run_event_loop(
+        self,
+        mut event_rx: Receiver<Event>,
+        ui_weak: slint::Weak<MainWindow>,
+        fin_tx: oneshot::Sender<()>,
+    ) -> Result<()> {
+        let (updates_tx, _) = tokio::sync::broadcast::channel(10);
+
+        while let Some(event) = event_rx.recv().await {
+            match event {
+                Event::CreateSessionRequest { stream, id } => {
+                    debug!("Got CreateSessionRequest id={id}");
+                    runtime().spawn({
+                        let event_tx = self.event_tx.clone();
+                        let updates_rx = updates_tx.subscribe();
+                        async move {
+                            if let Err(err) =
+                                Session::new(stream, event_tx, id).run(updates_rx).await
+                            {
+                                log::error!("Session exited with error: {err}");
+                            }
+                        }
+                    });
+                }
+                Event::Pause => self.pipeline.pause()?,
+                Event::Play(play_message) => {
+                    self.pipeline.set_playback_uri(&play_message.url.unwrap())?;
+                    self.pipeline.play_or_resume()?;
+                    ui_weak.upgrade_in_event_loop(|ui| {
+                        ui.set_playing(true);
+                    })?
+                }
+                Event::Resume => self.pipeline.play_or_resume()?,
+                Event::Stop => {
+                    self.pipeline.stop()?;
+                    ui_weak.upgrade_in_event_loop(|ui| {
+                        ui.set_playing(false);
+                    })?;
+                }
+                Event::SetSpeed(set_speed_message) => {
+                    self.pipeline.set_speed(set_speed_message.speed)?
+                }
+                Event::Seek(seek_message) => self.pipeline.seek(seek_message.time)?,
+                Event::SetVolume(set_volume_message) => {
+                    self.pipeline.set_volume(set_volume_message.volume)
+                }
+                Event::SendPlaybackUpdate => {
+                    if updates_tx.receiver_count() > 0 {
+                        let update = self.pipeline.get_playback_state()?;
+                        updates_tx.send(Packet::from(update).encode())?;
+                        debug!("Sent update");
+                    }
+                }
+                Event::Quit => break,
+                Event::PipelineEos => {
+                    debug!("Pipeline reached EOS");
+                    self.pipeline.stop()?;
+                }
+                Event::PipelineError => {
+                    self.pipeline.stop()?;
+                    // TODO: Show error in the UI
+                    ui_weak.upgrade_in_event_loop(|ui| {
+                        ui.set_playing(false);
+                    })?;
+                }
             }
         }
+
+        debug!("Quitting");
+
+        if fin_tx.send(()).is_err() {
+            bail!("Failed to send fin");
+        }
+
+        Ok(())
     }
-
-    debug!("Quitting");
-
-    if fin_tx.send(()).is_err() {
-        bail!("Failed to send fin");
-    }
-
-    Ok(())
 }
 
 fn main() -> Result<()> {
@@ -177,13 +192,18 @@ fn main() -> Result<()> {
         }
     })?;
 
-    common::runtime().spawn(event_loop(
-        event_rx,
-        event_tx.clone(),
-        ui.as_weak(),
-        fin_tx,
-        slint_appsink,
-    ));
+    common::runtime().spawn({
+        let ui_weak = ui.as_weak();
+        let event_tx = event_tx.clone();
+        async move {
+            Application::new(slint_appsink, event_tx)
+                .await
+                .unwrap()
+                .run_event_loop(event_rx, ui_weak, fin_tx)
+                .await
+                .unwrap();
+        }
+    });
 
     let (disp_fin_tx, disp_fin_rx) = tokio::sync::oneshot::channel();
     {

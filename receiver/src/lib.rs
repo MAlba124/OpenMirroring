@@ -15,9 +15,7 @@
 // You should have received a copy of the GNU General Public License
 // along with OpenMirroring.  If not, see <https://www.gnu.org/licenses/>.
 
-use fcast_lib::models::{
-    PlayMessage, SeekMessage, SetSpeedMessage, SetVolumeMessage,
-};
+use fcast_lib::models::{PlayMessage, SeekMessage, SetSpeedMessage, SetVolumeMessage};
 use session::SessionId;
 use tokio::net::TcpStream;
 
@@ -27,10 +25,7 @@ pub mod session;
 
 #[derive(Debug)]
 pub enum Event {
-    CreateSessionRequest {
-        stream: TcpStream,
-        id: SessionId,
-    },
+    CreateSessionRequest { stream: TcpStream, id: SessionId },
     Pause,
     Play(PlayMessage),
     Resume,
