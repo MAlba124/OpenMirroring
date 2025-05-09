@@ -80,7 +80,7 @@ impl RtpSink {
             .property("sync", true)
             .build()?;
 
-        pipeline.add_many(&[
+        pipeline.add_many([
             &queue,
             &convert,
             &scale,
@@ -92,7 +92,7 @@ impl RtpSink {
             &rtpbin,
             &sink,
         ])?;
-        gst::Element::link_many(&[
+        gst::Element::link_many([
             &queue,
             &convert,
             &scale,

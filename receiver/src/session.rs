@@ -15,8 +15,6 @@
 // You should have received a copy of the GNU General Public License
 // along with OpenMirroring.  If not, see <https://www.gnu.org/licenses/>.
 
-use std::pin::pin;
-
 use anyhow::Result;
 use futures::stream::unfold;
 use log::{debug, error, trace, warn};
@@ -49,14 +47,9 @@ impl Session {
 
         let (tcp_stream_rx, mut tcp_stream_tx) = self.stream.split();
 
-        enum Message {
-            Packet(Packet),
-            Update(Vec<u8>),
-        }
-
         let packets_stream = unfold(tcp_stream_rx, |mut tcp_stream| async move {
             match read_packet(&mut tcp_stream).await {
-                Ok(p) => Some((Message::Packet(p), tcp_stream)),
+                Ok(p) => Some((p, tcp_stream)),
                 Err(err) => {
                     error!("Failed to receive packet: {err}");
                     None
@@ -69,14 +62,21 @@ impl Session {
                 .recv()
                 .await
                 .ok()
-                .map(|update| (Message::Update(update), updates_rx))
+                .map(|update| (update, updates_rx))
         });
 
-        let mut msg_stream = pin!(packets_stream.merge(updates_stream));
-        while let Some(msg) = msg_stream.next().await {
-            match msg {
-                Message::Packet(packet) => {
+        tokio::pin!(packets_stream);
+        tokio::pin!(updates_stream);
+
+        loop {
+            tokio::select! {
+                r = packets_stream.next() => {
+                    let Some(packet) = r else {
+                        break;
+                    };
+
                     trace!("id={} Got packet: {packet:?}", self.id);
+
                     match packet {
                         Packet::None => (),
                         Packet::Play(play_message) => {
@@ -102,7 +102,11 @@ impl Session {
                         ),
                     }
                 }
-                Message::Update(update) => {
+                r = updates_stream.next() => {
+                    let Some(update) = r else {
+                        break;
+                    };
+
                     tcp_stream_tx.write_all(&update).await?;
                     trace!("id={} Sent update", self.id);
                 }

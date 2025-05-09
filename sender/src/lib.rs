@@ -42,4 +42,5 @@ pub enum Event {
     PipelineFinished,
     PipelineIsPlaying,
     SessionTerminated,
+    DisconnectedFromReceiver,
 }

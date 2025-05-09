@@ -31,6 +31,7 @@ pub enum Event {
     SessionTerminated,
     FcastPacket(Packet),
     ConnectedToReceiver,
+    DisconnectedFromReceiver,
 }
 
 #[derive(Debug)]
@@ -58,14 +59,9 @@ where
 
     on_event(Event::ConnectedToReceiver).await;
 
-    enum Message {
-        Packet(Packet),
-        Inst(SessionMessage),
-    }
-
     let packets_stream = futures::stream::unfold(tcp_stream_rx, |mut tcp_stream| async move {
         match read_packet(&mut tcp_stream).await {
-            Ok(p) => Some((Message::Packet(p), tcp_stream)),
+            Ok(p) => Some((p, tcp_stream)),
             Err(err) => {
                 error!("Failed to receive packet: {err}");
                 None
@@ -79,18 +75,30 @@ where
             instruction_rx
                 .recv()
                 .await
-                .map(|inst| (Message::Inst(inst), instruction_rx))
+                .map(|inst| (inst, instruction_rx))
         },
     );
 
-    let mut msg_stream = std::pin::pin!(packets_stream.merge(instruction_stream));
-    while let Some(msg) = msg_stream.next().await {
-        match msg {
-            Message::Packet(packet) => match packet {
-                Packet::Ping => write_packet(&mut tcp_stream_tx, Packet::Pong).await?,
-                _ => on_event(Event::FcastPacket(packet)).await,
-            },
-            Message::Inst(inst) => {
+    tokio::pin!(packets_stream);
+    tokio::pin!(instruction_stream);
+
+    loop {
+        tokio::select! {
+            r = packets_stream.next() => {
+                let Some(packet) = r else {
+                    break;
+                };
+
+                match packet {
+                    Packet::Ping => write_packet(&mut tcp_stream_tx, Packet::Pong).await?,
+                    _ => on_event(Event::FcastPacket(packet)).await,
+                }
+            }
+            r = instruction_stream.next() => {
+                let Some(inst) = r else {
+                    break;
+                };
+
                 debug!("Got instruction: {inst:?}");
                 match inst {
                     SessionMessage::Play(play_msg) => {
@@ -139,6 +147,7 @@ where
                         error!("Error occured while connecting to receiver: {err}");
                     }
                 }
+                on_event(Event::DisconnectedFromReceiver).await;
             }
             SessionMessage::Quit => break,
             _ => warn!("Received invalid message ({msg:?}) for the current session state"),

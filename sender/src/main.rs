@@ -151,6 +151,14 @@ impl Application {
         ReceiverState::Connectable
     }
 
+    fn set_all_receivers_connectable(&mut self) {
+        for r in &mut self.receivers {
+            if r.0.state != ReceiverState::Connectable {
+                r.0.state = ReceiverState::Connectable;
+            }
+        }
+    }
+
     fn update_receivers_in_ui(&mut self) -> Result<()> {
         let g_state = self.receivers_general_state();
         for r in &mut self.receivers {
@@ -322,6 +330,16 @@ impl Application {
                 Event::PipelineIsPlaying => {
                     self.pipeline.playing().await?;
                 }
+                Event::DisconnectedFromReceiver => {
+                    debug!("Disconnected from receiver");
+
+                    self.set_all_receivers_connectable();
+                    self.update_receivers_in_ui()?;
+
+                    self.ui_weak.upgrade_in_event_loop(|ui| {
+                        ui.invoke_receiver_disconnected();
+                    })?;
+                }
             }
         }
 
@@ -366,6 +384,7 @@ fn main() -> Result<()> {
     env_logger::Builder::from_default_env()
         .filter_module("sender", common::default_log_level())
         .filter_module("scap", common::default_log_level())
+        .filter_module("common", common::default_log_level())
         .init();
 
     slint::BackendSelector::new()
@@ -441,6 +460,9 @@ fn main() -> Result<()> {
                     }
                     session::Event::ConnectedToReceiver => {
                         event_tx.send(Event::ConnectedToReceiver).await.unwrap();
+                    }
+                    session::Event::DisconnectedFromReceiver => {
+                        event_tx.send(Event::DisconnectedFromReceiver).await.unwrap();
                     }
                 }
             }

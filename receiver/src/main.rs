@@ -363,12 +363,10 @@ fn main() -> Result<()> {
                     if let Some(next_frame) = slint_sink.fetch_next_frame() {
                         new_frame_cb(ui, next_frame);
                     }
-                } else {
-                    if let Some(underlay) = underlay.as_mut() {
-                        let window_size = ui.window().size();
-                        underlay.render(window_size.width as f32, window_size.height as f32);
-                        ui.window().request_redraw();
-                    }
+                } else if let Some(underlay) = underlay.as_mut() {
+                    let window_size = ui.window().size();
+                    underlay.render(window_size.width as f32, window_size.height as f32);
+                    ui.window().request_redraw();
                 }
             }
             slint::RenderingState::RenderingTeardown => {
