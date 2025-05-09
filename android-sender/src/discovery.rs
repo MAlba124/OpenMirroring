@@ -15,8 +15,8 @@
 // You should have received a copy of the GNU General Public License
 // along with OpenMirroring.  If not, see <https://www.gnu.org/licenses/>.
 
-use std::net::{Ipv4Addr, SocketAddr};
 use std::net::SocketAddrV4;
+use std::net::{Ipv4Addr, SocketAddr};
 
 use anyhow::Result;
 use log::{debug, error, warn};

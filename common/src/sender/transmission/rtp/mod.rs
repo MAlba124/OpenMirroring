@@ -46,11 +46,11 @@ impl RtpSink {
             .build()?;
 
         // TODO: dynamically select the fastest/best(?) codec, HW or SW
-        // TODO: these settings give awful quality
+        // TODO: these settings give awful quality, fix settings
         let enc = gst::ElementFactory::make("x264enc")
             .property("bframes", 0u32)
-            .property("bitrate", 1024 * 4u32)
-            .property("key-int-max", 0u32)
+            .property("bitrate", 1024 * 6u32)
+            .property("key-int-max", 1u32)
             .property_from_str("tune", "zerolatency")
             .property_from_str("speed-preset", "superfast")
             .build()?;
@@ -174,7 +174,7 @@ impl TransmissionSink for RtpSink {
             container: FCAST_GST_WEBRTC_MIME_TYPE.to_owned(),
             #[cfg(not(target_os = "android"))]
             url: Some(format!(
-                "rtp://{}:5004?rtp://127.0.0.1:5004?\
+                "rtp://{}:5004?\
                     media=video\
                     &clock-rate=90000\
                     &encoding-name=H264\

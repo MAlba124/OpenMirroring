@@ -231,9 +231,7 @@ impl Application {
                         continue;
                     };
 
-                    self.session_tx
-                        .send(SessionMessage::Play(play_msg))
-                        .await?;
+                    self.session_tx.send(SessionMessage::Play(play_msg)).await?;
 
                     self.ui_weak.upgrade_in_event_loop(|ui| {
                         ui.invoke_cast_started();
@@ -331,8 +329,9 @@ fn android_main(app: slint::android::AndroidApp) {
 
     common::runtime().spawn(discovery::discover());
 
-    common::runtime().spawn(session::session(session_rx, async move |event| {
-        match event {
+    common::runtime().spawn(session::session(
+        session_rx,
+        async move |event| match event {
             session::Event::SessionTerminated => {
                 tx!().send(Event::SessionTerminated).await.unwrap();
             }
@@ -342,8 +341,8 @@ fn android_main(app: slint::android::AndroidApp) {
             session::Event::ConnectedToReceiver => {
                 tx!().send(Event::ConnectedToReceiver).await.unwrap();
             }
-        }
-    }));
+        },
+    ));
 
     ui.run().unwrap();
 }

@@ -4,7 +4,10 @@ pub mod packet;
 use anyhow::Result;
 use models::Header;
 use packet::Packet;
-use tokio::{io::{AsyncReadExt, AsyncWriteExt}, net::tcp::{ReadHalf, WriteHalf}};
+use tokio::{
+    io::{AsyncReadExt, AsyncWriteExt},
+    net::tcp::{ReadHalf, WriteHalf},
+};
 
 const HEADER_BUFFER_SIZE: usize = 5;
 

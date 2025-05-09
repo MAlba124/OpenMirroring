@@ -15,11 +15,11 @@
 // You should have received a copy of the GNU General Public License
 // along with OpenMirroring.  If not, see <https://www.gnu.org/licenses/>.
 
-use anyhow::{bail, Result};
+use anyhow::{anyhow, bail, Result};
 use common::runtime;
 use common::video::opengl::SlintOpenGLSink;
 use fcast_lib::packet::Packet;
-use log::debug;
+use log::{debug, error};
 use receiver::dispatcher::Dispatcher;
 use receiver::pipeline::Pipeline;
 use receiver::session::Session;
@@ -30,6 +30,148 @@ use tokio::sync::oneshot;
 use std::net::Ipv4Addr;
 
 slint::include_modules!();
+
+use glow::HasContext;
+
+// Modified from https://github.com/slint-ui/slint/blob/master/examples/opengl_underlay/main.rs
+struct EGLUnderlay {
+    gl: glow::Context,
+    program: glow::Program,
+    effect_time_location: glow::UniformLocation,
+    width_location: glow::UniformLocation,
+    height_location: glow::UniformLocation,
+    vbo: glow::Buffer,
+    vao: glow::VertexArray,
+    start_time: std::time::Instant,
+}
+
+impl EGLUnderlay {
+    fn new(gl: glow::Context) -> Result<Self> {
+        unsafe {
+            let program = gl.create_program().expect("Cannot create program");
+
+            // TODO: try out https://www.shadertoy.com/view/sldGDf or any from wallpaper tag on shader toy https://www.shadertoy.com/results?query=tag%3Dwallpaper
+            let (vertex_shader_source, fragment_shader_source) = (
+                include_str!("../shaders/vertex.glsl"),
+                include_str!("../shaders/fragment.glsl"),
+            );
+
+            let shader_sources = [
+                (glow::VERTEX_SHADER, vertex_shader_source),
+                (glow::FRAGMENT_SHADER, fragment_shader_source),
+            ];
+
+            let mut shaders = Vec::with_capacity(shader_sources.len());
+
+            for (shader_type, shader_source) in shader_sources.iter() {
+                let shader = gl
+                    .create_shader(*shader_type)
+                    .expect("Cannot create shader");
+                gl.shader_source(shader, shader_source);
+                gl.compile_shader(shader);
+                if !gl.get_shader_compile_status(shader) {
+                    panic!("{}", gl.get_shader_info_log(shader));
+                }
+                gl.attach_shader(program, shader);
+                shaders.push(shader);
+            }
+
+            gl.link_program(program);
+            if !gl.get_program_link_status(program) {
+                panic!("{}", gl.get_program_info_log(program));
+            }
+
+            for shader in shaders {
+                gl.detach_shader(program, shader);
+                gl.delete_shader(shader);
+            }
+
+            let effect_time_location = gl
+                .get_uniform_location(program, "effect_time")
+                .ok_or(anyhow!("Failed to get uniform location of `effect_time`"))?;
+            let width_location = gl
+                .get_uniform_location(program, "win_width")
+                .ok_or(anyhow!("Failed to get uniform location of `win_width`"))?;
+            let height_location = gl
+                .get_uniform_location(program, "win_height")
+                .ok_or(anyhow!("Failed to get uniform location of `win_height`"))?;
+            let position_location = gl
+                .get_attrib_location(program, "position")
+                .ok_or(anyhow!("Failed to get uniform location of `position`"))?;
+
+            let vbo = gl.create_buffer().expect("Cannot create buffer");
+            gl.bind_buffer(glow::ARRAY_BUFFER, Some(vbo));
+
+            let vertices = [
+                -1.0f32, 1.0f32, -1.0f32, -1.0f32, 1.0f32, 1.0f32, 1.0f32, -1.0f32,
+            ];
+
+            gl.buffer_data_u8_slice(glow::ARRAY_BUFFER, vertices.align_to().1, glow::STATIC_DRAW);
+
+            let vao = gl.create_vertex_array().map_err(|err| anyhow!("{err}"))?;
+            gl.bind_vertex_array(Some(vao));
+            gl.enable_vertex_attrib_array(position_location);
+            gl.vertex_attrib_pointer_f32(position_location, 2, glow::FLOAT, false, 8, 0);
+
+            gl.bind_buffer(glow::ARRAY_BUFFER, None);
+            gl.bind_vertex_array(None);
+
+            Ok(Self {
+                gl,
+                program,
+                effect_time_location,
+                vbo,
+                vao,
+                start_time: std::time::Instant::now(),
+                width_location,
+                height_location,
+            })
+        }
+    }
+
+    fn render(&mut self, width: f32, height: f32) {
+        unsafe {
+            let gl = &self.gl;
+
+            gl.use_program(Some(self.program));
+
+            let old_buffer =
+                std::num::NonZeroU32::new(gl.get_parameter_i32(glow::ARRAY_BUFFER_BINDING) as u32)
+                    .map(glow::NativeBuffer);
+
+            gl.bind_buffer(glow::ARRAY_BUFFER, Some(self.vbo));
+
+            let old_vao =
+                std::num::NonZeroU32::new(gl.get_parameter_i32(glow::VERTEX_ARRAY_BINDING) as u32)
+                    .map(glow::NativeVertexArray);
+
+            gl.bind_vertex_array(Some(self.vao));
+
+            let elapsed = self.start_time.elapsed().as_secs_f32() / 1.5;
+            gl.uniform_1_f32(Some(&self.effect_time_location), elapsed);
+
+            // TODO: room for optimization?
+            gl.uniform_1_f32(Some(&self.width_location), width);
+            gl.uniform_1_f32(Some(&self.height_location), height);
+
+            gl.draw_arrays(glow::TRIANGLE_STRIP, 0, 4);
+
+            gl.bind_buffer(glow::ARRAY_BUFFER, old_buffer);
+            gl.bind_vertex_array(old_vao);
+            gl.use_program(None);
+        }
+    }
+}
+
+impl Drop for EGLUnderlay {
+    fn drop(&mut self) {
+        unsafe {
+            self.gl.delete_program(self.program);
+            self.gl.delete_vertex_array(self.vao);
+            self.gl.delete_buffer(self.vbo);
+        }
+    }
+}
 
 struct Application {
     pipeline: Pipeline,
@@ -65,31 +207,44 @@ impl Application {
             match event {
                 Event::CreateSessionRequest { stream, id } => {
                     debug!("Got CreateSessionRequest id={id}");
-                    runtime().spawn({
+                    tokio::spawn({
                         let event_tx = self.event_tx.clone();
                         let updates_rx = updates_tx.subscribe();
                         async move {
                             if let Err(err) =
-                                Session::new(stream, event_tx, id).run(updates_rx).await
+                                Session::new(stream, id).run(updates_rx, &event_tx).await
                             {
-                                log::error!("Session exited with error: {err}");
+                                error!("Session exited with error: {err}");
                             }
+
+                            event_tx.send(Event::SessionFinished).await.unwrap();
                         }
                     });
+                    ui_weak.upgrade_in_event_loop(|ui| {
+                        ui.invoke_device_connected();
+                    })?;
+                }
+                Event::SessionFinished => {
+                    ui_weak.upgrade_in_event_loop(|ui| {
+                        ui.invoke_device_disconnected();
+                    })?;
                 }
                 Event::Pause => self.pipeline.pause()?,
                 Event::Play(play_message) => {
                     self.pipeline.set_playback_uri(&play_message.url.unwrap())?;
-                    self.pipeline.play_or_resume()?;
-                    ui_weak.upgrade_in_event_loop(|ui| {
-                        ui.set_playing(true);
-                    })?
+                    if let Err(err) = self.pipeline.play_or_resume() {
+                        error!("Failed to play_or_resume pipeline: {err}");
+                    } else {
+                        ui_weak.upgrade_in_event_loop(|ui| {
+                            ui.invoke_playback_started();
+                        })?
+                    }
                 }
                 Event::Resume => self.pipeline.play_or_resume()?,
                 Event::Stop => {
                     self.pipeline.stop()?;
                     ui_weak.upgrade_in_event_loop(|ui| {
-                        ui.set_playing(false);
+                        ui.invoke_playback_stopped();
                     })?;
                 }
                 Event::SetSpeed(set_speed_message) => {
@@ -113,10 +268,9 @@ impl Application {
                 }
                 Event::PipelineError => {
                     self.pipeline.stop()?;
-                    // TODO: show error in the UI
                     // TODO: send error message to sessions
                     ui_weak.upgrade_in_event_loop(|ui| {
-                        ui.set_playing(false);
+                        ui.invoke_playback_stopped_with_error("Error unclear (todo)".into());
                     })?;
                 }
             }
@@ -164,6 +318,8 @@ fn main() -> Result<()> {
     let ui = MainWindow::new()?;
     slint::set_xdg_app_id("com.github.malba124.OpenMirroring.receiver")?;
 
+    let mut underlay = None;
+
     ui.window().set_rendering_notifier({
         let ui_weak = ui.as_weak();
 
@@ -183,14 +339,41 @@ fn main() -> Result<()> {
                             .ok();
                     })
                     .unwrap();
+                let glow_context = match graphics_api {
+                    slint::GraphicsAPI::NativeOpenGL { get_proc_address } => unsafe {
+                        glow::Context::from_loader_function_cstr(|s| get_proc_address(s))
+                    },
+                    _ => unreachable!(),
+                };
+                underlay = match EGLUnderlay::new(glow_context) {
+                    Ok(underlay) => Some(underlay),
+                    Err(err) => {
+                        error!("Failed to crate GL underlay: {err}");
+                        None
+                    }
+                }
             }
             slint::RenderingState::BeforeRendering => {
-                if let Some(next_frame) = slint_sink.fetch_next_frame() {
-                    new_frame_cb(ui_weak.unwrap(), next_frame);
+                let Some(ui) = ui_weak.upgrade() else {
+                    error!("Failed to upgrade ui");
+                    return;
+                };
+
+                if ui.get_playing() {
+                    if let Some(next_frame) = slint_sink.fetch_next_frame() {
+                        new_frame_cb(ui, next_frame);
+                    }
+                } else {
+                    if let Some(underlay) = underlay.as_mut() {
+                        let window_size = ui.window().size();
+                        underlay.render(window_size.width as f32, window_size.height as f32);
+                        ui.window().request_redraw();
+                    }
                 }
             }
             slint::RenderingState::RenderingTeardown => {
                 slint_sink.deactivate_and_pause();
+                drop(underlay.take());
             }
             _ => (),
         }
@@ -222,7 +405,7 @@ fn main() -> Result<()> {
         });
     }
 
-    ui.set_label(format!("Listening on {ips:?}:46899").into());
+    ui.set_label(format!("{ips:?}").into());
 
     ui.run()?;
 

@@ -5150,6 +5150,7 @@ dependencies = [
  "fcast-lib",
  "futures",
  "gethostname 1.0.1",
+ "glow",
  "gstreamer",
  "log",
  "simple-mdns",

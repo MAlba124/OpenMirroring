@@ -16,10 +16,10 @@
 // along with OpenMirroring.  If not, see <https://www.gnu.org/licenses/>.
 
 use anyhow::Result;
+use common::sender::session::{self, SessionMessage};
 use common::video::opengl::SlintOpenGLSink;
 use log::{debug, error, trace};
 use sender::discovery::discover;
-use common::sender::session::{self, SessionMessage};
 use simple_mdns::async_discovery::ServiceDiscovery;
 use std::sync::atomic::{AtomicBool, Ordering};
 use tokio::sync::mpsc::{Receiver, Sender};
@@ -188,9 +188,10 @@ impl Application {
                         continue;
                     };
 
-                    self.session_tx
-                        .send(SessionMessage::Play(play_msg))
-                        .await?;
+                    debug!("Sending play message: {play_msg:?}");
+
+                    self.session_tx.send(SessionMessage::Play(play_msg)).await?;
+
                     self.ui_weak.upgrade_in_event_loop(|ui| {
                         ui.invoke_cast_started();
                     })?;
@@ -426,27 +427,25 @@ fn main() -> Result<()> {
         }
     })?;
 
-    common::runtime().spawn(
-        session::session(session_rx, {
+    common::runtime().spawn(session::session(session_rx, {
+        let event_tx = event_tx.clone();
+        move |event| {
             let event_tx = event_tx.clone();
-            move |event| {
-                let event_tx = event_tx.clone();
-                async move {
-                    match event {
-                        session::Event::SessionTerminated => {
-                            event_tx.send(Event::SessionTerminated).await.unwrap();
-                        }
-                        session::Event::FcastPacket(packet) => {
-                            event_tx.send(Event::Packet(packet)).await.unwrap();
-                        }
-                        session::Event::ConnectedToReceiver => {
-                            event_tx.send(Event::ConnectedToReceiver).await.unwrap();
-                        }
+            async move {
+                match event {
+                    session::Event::SessionTerminated => {
+                        event_tx.send(Event::SessionTerminated).await.unwrap();
+                    }
+                    session::Event::FcastPacket(packet) => {
+                        event_tx.send(Event::Packet(packet)).await.unwrap();
+                    }
+                    session::Event::ConnectedToReceiver => {
+                        event_tx.send(Event::ConnectedToReceiver).await.unwrap();
                     }
                 }
             }
-        })
-    );
+        }
+    }));
 
     common::runtime().spawn({
         let ui_weak = ui.as_weak();

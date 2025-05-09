@@ -16,6 +16,7 @@ slint = { workspace = true }
 anyhow = { workspace = true }
 futures = { workspace = true }
 tokio-stream = { workspace = true }
+glow = "0.16.0"
 
 [build-dependencies]
 slint-build = { workspace = true }

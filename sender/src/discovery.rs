@@ -38,7 +38,10 @@ pub fn discover(tx: tokio::sync::mpsc::Sender<crate::Event>) -> Result<ServiceDi
 
                 if addresses.is_empty() {
                     // TODO: there is something wrong, this condition often happens when it really shouldn't
-                    warn!("FCast receiver ({}) with no addresses, adding localhost", service.unescaped_instance_name());
+                    warn!(
+                        "FCast receiver ({}) with no addresses, adding localhost",
+                        service.unescaped_instance_name()
+                    );
                     addresses.push(SocketAddr::V4(SocketAddrV4::new(
                         Ipv4Addr::LOCALHOST,
                         46899,

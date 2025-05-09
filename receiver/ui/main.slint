@@ -15,24 +15,172 @@
 // You should have received a copy of the GNU General Public License
 // along with OpenMirroring.  If not, see <https://www.gnu.org/licenses/>.
 
-import { Spinner } from "std-widgets.slint";
+import { Spinner, HorizontalBox, Button, Palette, VerticalBox } from "std-widgets.slint";
+import { HorizontalRule } from "../../ui-common/horizontal-rule.slint";
+
+// TODO: animate in and out transitions
+component ErrorAlert {
+    in property <string> message;
+
+    visible: false;
+
+    public function show() {
+        self.visible = true;
+        timer.counter = 0;
+        timer.running = true;
+    }
+
+    function close() {
+        self.visible = false;
+        timer.running = true;
+    }
+
+    states [
+        hover when ta.has-hover : {
+            im.colorize: #DEDEDE;
+        }
+    ]
+
+    Rectangle {
+        height: hb.preferred-height;
+        background: #FF4131;
+        border-radius: 8px;
+
+        hb := HorizontalBox {
+            alignment: space-between;
+            Text {
+                color: white;
+                vertical-alignment: center;
+                text <=> message;
+                wrap: word-wrap;
+                font-weight: 800;
+            }
+            ta := TouchArea {
+                height: 32px;
+                width: 32px;
+                clicked => {
+                    root.close();
+                }
+                Rectangle {
+                    im := Image {
+                        height: 100%;
+                        source: @image-url("../../assets/icons/xmark.svg");
+                        colorize: white;
+                        animate colorize { duration: 150ms; }
+                    }
+                }
+            }
+        }
+    }
+
+    timer := Timer {
+        in-out property <int> counter: 0;
+        interval: 1s;
+        running: true;
+        triggered => {
+            counter += 1;
+            if counter >= 4 {
+                root.close();
+            }
+        }
+    }
+}
 
 export component MainWindow inherits Window {
     title: "Open Mirroring Receiver";
 
-    in property <bool> playing: false;
     in property <string> label;
-    // property <bool> playing: true;
     in property <image> preview-frame <=> preview.source;
 
-    Spinner {
-        visible: !playing && label.is-empty;
-        indeterminate: true;
+    in-out property <bool> playing: false;
+
+    property <int> connected_devices: 0;
+
+    public function playback-started() {
+        playing = true;
     }
 
-    Text {
-        visible: !playing && !label.is-empty;
-        text <=> label;
+    public function playback-stopped() {
+        playing = false;
+    }
+
+    public function playback-stopped-with-error(error: string) {
+        playing = false;
+        error-alert.message = error;
+        error-alert.show();
+    }
+
+    public function device-connected() {
+        connected_devices += 1;
+    }
+
+    public function device-disconnected() {
+        connected_devices = max(connected_devices - 1, 0);
+    }
+
+    HorizontalBox {
+        alignment: space-around;
+        if connected_devices == 0: VerticalBox {
+            alignment: center;
+            Text {
+                font-size: 12pt;
+                text: "Waiting for a connection";
+            }
+            Spinner {
+                indeterminate: true;
+            }
+        }
+        if connected_devices > 0: VerticalBox {
+            alignment: center;
+            Text {
+                font-size: 12pt;
+                text: "Device is connected";
+            }
+        }
+
+        VerticalBox {
+            alignment: center;
+            Rectangle {
+                background: whitesmoke.with-alpha(60%);
+                border-radius: 8px;
+                border-color: white.with-alpha(60%);
+                border-width: 2px;
+                VerticalBox {
+                    Text {
+                        horizontal-alignment: center;
+                        text: "Manual connection information";
+                        font-size: 12pt;
+                    }
+                    HorizontalRule {
+                        color: white.with-alpha(60%);
+                        height: 2px;
+                    }
+                    Text {
+                        horizontal-alignment: center;
+                        text: "IPs";
+                    }
+                    if !playing && label.is-empty: Spinner {
+                        indeterminate: true;
+                    }
+                    if !playing && !label.is-empty: Text {
+                        horizontal-alignment: center;
+                        text <=> label;
+                    }
+                    Text {
+                        horizontal-alignment: center;
+                        text: "Port";
+                    }
+                    Text {
+                        horizontal-alignment: center;
+                        text: "46899 (TCP)";
+                    }
+                    Text {
+                        horizontal-alignment: center;
+                        text: "Automatic discovery is available via mDNS";
+                    }
+                }
+            }
+        }
     }
 
     Rectangle {
@@ -46,5 +194,10 @@ export component MainWindow inherits Window {
             height: parent.height;
             image-fit: contain;
         }
+    }
+
+    error-alert := ErrorAlert {
+        width: min(parent.width * 0.8, 700px);
+        y: parent.height - self.height - 20px;
     }
 }

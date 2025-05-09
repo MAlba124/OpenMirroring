@@ -20,6 +20,7 @@ use std::pin::pin;
 use anyhow::Result;
 use futures::stream::unfold;
 use log::{debug, error, trace, warn};
+use tokio::sync::mpsc::Sender;
 use tokio::{io::AsyncWriteExt, net::TcpStream, sync::broadcast::Receiver};
 use tokio_stream::StreamExt;
 
@@ -31,24 +32,19 @@ pub type SessionId = u64;
 
 pub struct Session {
     stream: TcpStream,
-    event_tx: tokio::sync::mpsc::Sender<Event>,
     id: SessionId,
 }
 
 impl Session {
-    pub fn new(
-        stream: TcpStream,
-        event_tx: tokio::sync::mpsc::Sender<Event>,
-        id: SessionId,
-    ) -> Self {
-        Self {
-            stream,
-            event_tx,
-            id,
-        }
+    pub fn new(stream: TcpStream, id: SessionId) -> Self {
+        Self { stream, id }
     }
 
-    pub async fn run(mut self, updates_rx: Receiver<Vec<u8>>) -> Result<()> {
+    pub async fn run(
+        mut self,
+        updates_rx: Receiver<Vec<u8>>,
+        event_tx: &Sender<Event>,
+    ) -> Result<()> {
         debug!("id={} Session was started", self.id);
 
         let (tcp_stream_rx, mut tcp_stream_tx) = self.stream.split();
@@ -84,23 +80,19 @@ impl Session {
                     match packet {
                         Packet::None => (),
                         Packet::Play(play_message) => {
-                            self.event_tx.send(Event::Play(play_message)).await?
+                            event_tx.send(Event::Play(play_message)).await?
                         }
-                        Packet::Pause => self.event_tx.send(Event::Pause).await?,
-                        Packet::Resume => self.event_tx.send(Event::Resume).await?,
-                        Packet::Stop => self.event_tx.send(Event::Stop).await?,
+                        Packet::Pause => event_tx.send(Event::Pause).await?,
+                        Packet::Resume => event_tx.send(Event::Resume).await?,
+                        Packet::Stop => event_tx.send(Event::Stop).await?,
                         Packet::Seek(seek_message) => {
-                            self.event_tx.send(Event::Seek(seek_message)).await?
+                            event_tx.send(Event::Seek(seek_message)).await?
                         }
                         Packet::SetVolume(set_volume_message) => {
-                            self.event_tx
-                                .send(Event::SetVolume(set_volume_message))
-                                .await?;
+                            event_tx.send(Event::SetVolume(set_volume_message)).await?;
                         }
                         Packet::SetSpeed(set_speed_message) => {
-                            self.event_tx
-                                .send(Event::SetSpeed(set_speed_message))
-                                .await?;
+                            event_tx.send(Event::SetSpeed(set_speed_message)).await?;
                         }
                         Packet::Ping => write_packet(&mut tcp_stream_tx, Packet::Pong).await?,
                         Packet::Pong => trace!("id={} Got pong from sender", self.id),

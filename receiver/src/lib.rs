@@ -37,4 +37,5 @@ pub enum Event {
     Quit,
     PipelineEos,
     PipelineError,
+    SessionFinished,
 }
