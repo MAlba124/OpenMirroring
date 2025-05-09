@@ -8,8 +8,6 @@ tokio = { workspace = true }
 log = { workspace = true }
 env_logger = { workspace = true }
 gst = { workspace = true }
-gst-video = { workspace = true }
-gst-gl = { workspace = true }
 simple-mdns = { workspace = true }
 fcast-lib = { path = "../fcast-lib" }
 common = { path = "../common", features = ["video"] }
