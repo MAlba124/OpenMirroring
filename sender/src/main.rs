@@ -462,7 +462,10 @@ fn main() -> Result<()> {
                         event_tx.send(Event::ConnectedToReceiver).await.unwrap();
                     }
                     session::Event::DisconnectedFromReceiver => {
-                        event_tx.send(Event::DisconnectedFromReceiver).await.unwrap();
+                        event_tx
+                            .send(Event::DisconnectedFromReceiver)
+                            .await
+                            .unwrap();
                     }
                 }
             }

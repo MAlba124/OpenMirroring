@@ -20,8 +20,8 @@ use std::net::SocketAddrV4;
 use std::net::{Ipv4Addr, SocketAddr};
 
 use log::{debug, error, warn};
-use simple_mdns::async_discovery::ServiceDiscovery;
 use simple_mdns::InstanceInformation;
+use simple_mdns::async_discovery::ServiceDiscovery;
 
 // TODO: remove when expire
 pub fn discover(tx: tokio::sync::mpsc::Sender<crate::Event>) -> Result<ServiceDiscovery> {

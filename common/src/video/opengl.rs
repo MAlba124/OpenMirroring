@@ -15,7 +15,7 @@
 // You should have received a copy of the GNU General Public License
 // along with OpenMirroring.  If not, see <https://www.gnu.org/licenses/>.
 
-use anyhow::{bail, Result};
+use anyhow::{Result, bail};
 use std::{
     num::NonZero,
     sync::{Arc, Mutex},

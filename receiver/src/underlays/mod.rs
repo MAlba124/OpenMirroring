@@ -15,7 +15,7 @@
 // You should have received a copy of the GNU General Public License
 // along with OpenMirroring.  If not, see <https://www.gnu.org/licenses/>.
 
-use anyhow::{anyhow, bail, Result};
+use anyhow::{Result, anyhow, bail};
 use glow::HasContext;
 
 pub mod background;
@@ -27,34 +27,36 @@ unsafe fn compile_shader(
     vert_source: &str,
     frag_source: &str,
 ) -> Result<()> {
-    let shader_sources = [
-        (glow::VERTEX_SHADER, vert_source),
-        (glow::FRAGMENT_SHADER, frag_source),
-    ];
+    unsafe {
+        let shader_sources = [
+            (glow::VERTEX_SHADER, vert_source),
+            (glow::FRAGMENT_SHADER, frag_source),
+        ];
 
-    let mut shaders = Vec::with_capacity(shader_sources.len());
+        let mut shaders = Vec::with_capacity(shader_sources.len());
 
-    for (shader_type, shader_source) in shader_sources.iter() {
-        let shader = gl
-            .create_shader(*shader_type)
-            .map_err(|err| anyhow!("{err}"))?;
-        gl.shader_source(shader, shader_source);
-        gl.compile_shader(shader);
-        if !gl.get_shader_compile_status(shader) {
-            bail!("{}", gl.get_shader_info_log(shader));
+        for (shader_type, shader_source) in shader_sources.iter() {
+            let shader = gl
+                .create_shader(*shader_type)
+                .map_err(|err| anyhow!("{err}"))?;
+            gl.shader_source(shader, shader_source);
+            gl.compile_shader(shader);
+            if !gl.get_shader_compile_status(shader) {
+                bail!("{}", gl.get_shader_info_log(shader));
+            }
+            gl.attach_shader(*program, shader);
+            shaders.push(shader);
         }
-        gl.attach_shader(*program, shader);
-        shaders.push(shader);
-    }
 
-    gl.link_program(*program);
-    if !gl.get_program_link_status(*program) {
-        bail!("{}", gl.get_program_info_log(*program));
-    }
+        gl.link_program(*program);
+        if !gl.get_program_link_status(*program) {
+            bail!("{}", gl.get_program_info_log(*program));
+        }
 
-    for shader in shaders {
-        gl.detach_shader(*program, shader);
-        gl.delete_shader(shader);
+        for shader in shaders {
+            gl.detach_shader(*program, shader);
+            gl.delete_shader(shader);
+        }
     }
 
     Ok(())

@@ -17,7 +17,7 @@
 
 use std::{num::NonZero, rc::Rc};
 
-use anyhow::{anyhow, Result};
+use anyhow::{Result, anyhow};
 use glow::HasContext;
 
 use super::{get_attrib_location, get_uniform_location};

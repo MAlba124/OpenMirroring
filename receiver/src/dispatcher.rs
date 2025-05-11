@@ -20,7 +20,7 @@ use log::{debug, info};
 use simple_mdns::async_discovery::ServiceDiscovery;
 use tokio::net::TcpListener;
 
-use crate::{session::SessionId, Event};
+use crate::{Event, session::SessionId};
 
 pub struct Dispatcher {
     listener: TcpListener,

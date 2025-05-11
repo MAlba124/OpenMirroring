@@ -21,8 +21,8 @@ use std::rc::Rc;
 use common::sender::pipeline;
 use common::sender::session::{self, SessionMessage};
 use gst_video::VideoFrameExt;
-use jni::objects::JObject;
 use jni::JavaVM;
+use jni::objects::JObject;
 
 use log::debug;
 use log::error;
@@ -253,7 +253,7 @@ impl Application {
     }
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 fn android_main(app: slint::android::AndroidApp) {
     android_logger::init_once(
         android_logger::Config::default().with_max_level(common::default_log_level()),
@@ -262,7 +262,7 @@ fn android_main(app: slint::android::AndroidApp) {
     debug!("Hello from rust");
 
     #[cfg(debug_assertions)]
-    {
+    unsafe {
         std::env::set_var("GST_DEBUG_NO_COLOR", "true");
         std::env::set_var("GST_DEBUG", "3");
     }
@@ -341,6 +341,9 @@ fn android_main(app: slint::android::AndroidApp) {
             session::Event::ConnectedToReceiver => {
                 tx!().send(Event::ConnectedToReceiver).await.unwrap();
             }
+            session::Event::DisconnectedFromReceiver => {
+                // TODO
+            }
         },
     ));
 
@@ -348,7 +351,7 @@ fn android_main(app: slint::android::AndroidApp) {
 }
 
 #[allow(non_snake_case)]
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn Java_com_github_malba124_openmirroring_android_sender_ScreenCaptureService_nativeCaptureStarted<
     'local,
 >(
@@ -360,7 +363,7 @@ pub extern "C" fn Java_com_github_malba124_openmirroring_android_sender_ScreenCa
 }
 
 #[allow(non_snake_case)]
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn Java_com_github_malba124_openmirroring_android_sender_ScreenCaptureService_nativeCaptureStopped<
     'local,
 >(
@@ -372,7 +375,7 @@ pub extern "C" fn Java_com_github_malba124_openmirroring_android_sender_ScreenCa
 }
 
 #[allow(non_snake_case)]
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn Java_com_github_malba124_openmirroring_android_sender_ScreenCaptureService_nativeProcessFrame<
     'local,
 >(

@@ -15,7 +15,7 @@
 // You should have received a copy of the GNU General Public License
 // along with OpenMirroring.  If not, see <https://www.gnu.org/licenses/>.
 
-use anyhow::{anyhow, Result};
+use anyhow::{Result, anyhow};
 use glow::HasContext;
 
 use super::{get_attrib_location, get_uniform_location};

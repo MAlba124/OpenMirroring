@@ -19,7 +19,7 @@ use fcast_lib::models::{PlaybackState, PlaybackUpdateMessage};
 use futures::StreamExt;
 use gst::prelude::*;
 
-use anyhow::{anyhow, bail, Result};
+use anyhow::{Result, anyhow, bail};
 
 use log::{debug, error};
 use tokio::sync::mpsc::Sender;

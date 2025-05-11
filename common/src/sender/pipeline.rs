@@ -15,7 +15,7 @@
 // You should have received a copy of the GNU General Public License
 // along with OpenMirroring.  If not, see <https://www.gnu.org/licenses/>.
 
-use super::transmission::{self, hls::HlsSink, rtp::RtpSink, TransmissionSink};
+use super::transmission::{self, TransmissionSink, hls::HlsSink, rtp::RtpSink};
 use anyhow::Result;
 use fcast_lib::models::PlayMessage;
 use futures::StreamExt;
@@ -220,7 +220,9 @@ impl Pipeline {
                     }
                     MessageView::StateChanged(state_changed) => {
                         let Some(pipeline) = pipeline_weak.upgrade() else {
-                            error!("Failed to handle state change bus message because pipeline is missing");
+                            error!(
+                                "Failed to handle state change bus message because pipeline is missing"
+                            );
                             return;
                         };
 

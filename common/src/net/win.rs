@@ -2,8 +2,8 @@ use std::net::IpAddr;
 
 use windows::Win32::Foundation::ERROR_BUFFER_OVERFLOW;
 use windows::Win32::Foundation::NO_ERROR;
-use windows::Win32::NetworkManagement::IpHelper::GetAdaptersAddresses;
 use windows::Win32::NetworkManagement::IpHelper::GAA_FLAG_INCLUDE_PREFIX;
+use windows::Win32::NetworkManagement::IpHelper::GetAdaptersAddresses;
 use windows::Win32::NetworkManagement::IpHelper::IP_ADAPTER_ADDRESSES_LH;
 use windows::Win32::Networking::WinSock::AF_INET;
 use windows::Win32::Networking::WinSock::AF_INET6;

@@ -15,18 +15,18 @@
 // You should have received a copy of the GNU General Public License
 // along with OpenMirroring.  If not, see <https://www.gnu.org/licenses/>.
 
-use anyhow::{bail, Result};
+use anyhow::{Result, bail};
 use clap::Parser;
 use common::runtime;
 use common::video::opengl::SlintOpenGLSink;
 use fcast_lib::packet::Packet;
 use log::{debug, error, warn};
+use receiver::Event;
 use receiver::dispatcher::Dispatcher;
 use receiver::pipeline::Pipeline;
 use receiver::session::Session;
 use receiver::underlays::background::BackgroundUnderlay;
 use receiver::underlays::video::VideoUnderlay;
-use receiver::Event;
 use tokio::sync::mpsc::{self, Receiver, Sender};
 use tokio::sync::{broadcast, oneshot};
 
@@ -160,7 +160,7 @@ impl Application {
                         use receiver::pipeline::SetPlaybackUriError;
                         match err {
                             SetPlaybackUriError::PipelineStateChange(state_change_error) => {
-                                return Err(state_change_error.into())
+                                return Err(state_change_error.into());
                             }
                             _ => {
                                 error!("Failed to set playback URI: {err}");
@@ -333,7 +333,6 @@ fn main() -> Result<()> {
                     return;
                 };
 
-                // TODO: use let chains when updated to rust 2024
                 // TODO: don't render the video when the frame is from the old source (i.e. playback was
                 //       stopped, then new source was set and for a brief moment the last displayed frame
                 //       of the old source becomes visible.)

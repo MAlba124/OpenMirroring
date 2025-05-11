@@ -17,7 +17,7 @@
 
 #[cfg(not(target_os = "android"))]
 use crate::net::get_default_ipv4_addr;
-use anyhow::{anyhow, Result};
+use anyhow::{Result, anyhow};
 use fake_file_writer::FakeFileWriter;
 use fcast_lib::models::PlayMessage;
 use gst::{glib, prelude::*};
