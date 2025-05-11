@@ -19,6 +19,7 @@ tokio-stream = { workspace = true }
 glow = "0.16.0"
 url = "2.5.4"
 thiserror = "2.0.12"
+clap = { version = "4.5.38", features = ["derive"] }
 
 [build-dependencies]
 slint-build = { workspace = true }

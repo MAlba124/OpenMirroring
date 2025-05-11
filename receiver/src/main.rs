@@ -16,6 +16,7 @@
 // along with OpenMirroring.  If not, see <https://www.gnu.org/licenses/>.
 
 use anyhow::{bail, Result};
+use clap::Parser;
 use common::runtime;
 use common::video::opengl::SlintOpenGLSink;
 use fcast_lib::packet::Packet;
@@ -251,10 +252,20 @@ impl Application {
     }
 }
 
+#[derive(clap::Parser)]
+#[command(version)]
+struct CliArgs {
+    /// Disable animated background. Reduces resource usage
+    #[arg(short = 'b', long, default_value_t = false)]
+    no_background: bool,
+}
+
 fn main() -> Result<()> {
     env_logger::Builder::from_default_env()
         .filter_module("receiver", common::default_log_level())
         .init();
+
+    let cli_args = CliArgs::parse();
 
     slint::BackendSelector::new()
         .backend_name("winit".into())
@@ -310,7 +321,10 @@ fn main() -> Result<()> {
 
                 let glow_context = std::rc::Rc::new(glow_context);
 
-                background_underlay = Some(BackgroundUnderlay::new(glow_context.clone()).unwrap());
+                if !cli_args.no_background {
+                    background_underlay =
+                        Some(BackgroundUnderlay::new(glow_context.clone()).unwrap());
+                }
                 video_underlay = Some(VideoUnderlay::new(glow_context).unwrap());
             }
             slint::RenderingState::BeforeRendering => {
