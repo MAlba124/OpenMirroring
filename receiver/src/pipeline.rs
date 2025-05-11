@@ -33,6 +33,8 @@ impl Pipeline {
     pub async fn new(appsink: gst::Element, event_tx: Sender<crate::Event>) -> Result<Self> {
         let pipeline = gst::Pipeline::new();
 
+        // TODO: handle `BUFFERING` messages as described in the playbin3 docs:
+        // https://gstreamer.freedesktop.org/documentation/playback/playbin3.html?gi-language=c#Buffering
         let playbin = gst::ElementFactory::make("playbin3").build()?;
 
         pipeline.add(&playbin)?;
@@ -76,9 +78,17 @@ impl Pipeline {
         })
     }
 
+    pub fn is_live(&self) -> bool {
+        self.inner.is_live()
+    }
+
+    pub fn get_duration(&self) -> Option<gst::ClockTime> {
+        self.inner.query_duration()
+    }
+
     pub fn get_playback_state(&self) -> Result<PlaybackUpdateMessage> {
         let position: Option<gst::ClockTime> = self.inner.query_position();
-        let duration: Option<gst::ClockTime> = self.inner.query_duration();
+        let duration = self.get_duration();
 
         let speed = {
             let mut query = gst::query::Segment::new(gst::Format::Time);
@@ -115,6 +125,7 @@ impl Pipeline {
         })
     }
 
+    // TODO: parse the `uri` to make sure it's valid and ensure it's not a file:// because that's a big security concern.
     pub fn set_playback_uri(&self, uri: &str) -> Result<()> {
         self.inner.set_state(gst::State::Ready)?;
         self.playbin.set_property("uri", uri);
@@ -122,6 +133,15 @@ impl Pipeline {
         debug!("Playback URI set to: {uri}");
 
         Ok(())
+    }
+
+    pub fn is_playing(&self) -> Option<bool> {
+        let (_, state, _) = self.inner.state(None);
+        match state {
+            gst::State::Playing => Some(true),
+            gst::State::Paused => Some(false),
+            _ => None,
+        }
     }
 
     pub fn pause(&self) -> Result<()> {

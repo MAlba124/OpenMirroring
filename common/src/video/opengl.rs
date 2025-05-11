@@ -16,7 +16,10 @@
 // along with OpenMirroring.  If not, see <https://www.gnu.org/licenses/>.
 
 use anyhow::{bail, Result};
-use std::sync::{Arc, Mutex};
+use std::{
+    num::NonZero,
+    sync::{Arc, Mutex},
+};
 
 use gst_gl::prelude::*;
 use log::error;
@@ -260,7 +263,8 @@ impl SlintOpenGLSink {
         Ok(())
     }
 
-    pub fn fetch_next_frame(&self) -> Option<slint::Image> {
+    /// -> (texture id, [width, height])
+    pub fn fetch_next_frame_as_texture(&self) -> Option<(NonZero<u32>, [u32; 2])> {
         if let Some((info, buffer)) = self.next_frame.lock().unwrap().take() {
             let sync_meta = buffer.meta::<gst_gl::GLSyncMeta>().unwrap();
             sync_meta.wait(self.gst_gl_context.as_ref().unwrap());
@@ -281,23 +285,25 @@ impl SlintOpenGLSink {
                     .and_then(|id| id.try_into().ok())
                     .map(|texture| (frame, texture))
             })
-            .map(|(frame, texture)| unsafe {
-                slint::BorrowedOpenGLTextureBuilder::new_gl_2d_rgba_texture(
-                    texture,
-                    [frame.width(), frame.height()].into(),
-                )
-                .build()
+            .map(|(frame, texture)| (texture, [frame.width(), frame.height()]))
+    }
+
+    pub fn fetch_next_frame(&self) -> Option<slint::Image> {
+        self.fetch_next_frame_as_texture()
+            .map(|(texture, size)| unsafe {
+                slint::BorrowedOpenGLTextureBuilder::new_gl_2d_rgba_texture(texture, size.into())
+                    .build()
             })
     }
 
-    pub fn deactivate_and_pause(&self) {
+    pub fn deactivate_and_pause(&self) -> Result<()> {
         self.current_frame.lock().unwrap().take();
         self.next_frame.lock().unwrap().take();
 
         if let Some(context) = &self.gst_gl_context {
-            context
-                .activate(false)
-                .expect("could not activate GStreamer GL context");
+            context.activate(false)?
         }
+
+        Ok(())
     }
 }

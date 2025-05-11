@@ -22,6 +22,7 @@ use tokio::net::TcpStream;
 pub mod dispatcher;
 pub mod pipeline;
 pub mod session;
+pub mod underlays;
 
 #[derive(Debug)]
 pub enum Event {
@@ -38,4 +39,6 @@ pub enum Event {
     PipelineEos,
     PipelineError,
     SessionFinished,
+    ResumeOrPause,
+    SeekPercent(f32),
 }

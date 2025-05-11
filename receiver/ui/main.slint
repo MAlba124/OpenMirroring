@@ -15,7 +15,7 @@
 // You should have received a copy of the GNU General Public License
 // along with OpenMirroring.  If not, see <https://www.gnu.org/licenses/>.
 
-import { Spinner, HorizontalBox, Button, Palette, VerticalBox } from "std-widgets.slint";
+import { Spinner, HorizontalBox, Button, Palette, VerticalBox, Slider } from "std-widgets.slint";
 import { HorizontalRule } from "../../ui-common/horizontal-rule.slint";
 
 // TODO: animate in and out transitions
@@ -36,7 +36,7 @@ component ErrorAlert {
     }
 
     states [
-        hover when ta.has-hover : {
+        hover when ta.has-hover: {
             im.colorize: #DEDEDE;
         }
     ]
@@ -55,6 +55,7 @@ component ErrorAlert {
                 wrap: word-wrap;
                 font-weight: 800;
             }
+
             ta := TouchArea {
                 height: 32px;
                 width: 32px;
@@ -74,7 +75,7 @@ component ErrorAlert {
     }
 
     timer := Timer {
-        in-out property <int> counter: 0;
+        property <int> counter: 0;
         interval: 1s;
         running: true;
         triggered => {
@@ -86,28 +87,151 @@ component ErrorAlert {
     }
 }
 
+export enum GuiPlaybackState {
+    Playing,
+    Paused,
+    Loading,
+    Live,
+}
+
+component PlaybackControl {
+    visible: false;
+
+    // TODO: volume changeer
+    // TODO: speed changer
+
+    in property <string> progress-label;
+    in-out property <GuiPlaybackState> pb-state;
+
+    property <bool> is-scrubbing: false;
+
+    callback resume-or-pause;
+    callback seek-to-percent(float);
+
+    public function show() {
+        root.visible = true;
+        tim.counter = 0;
+    }
+
+    public function close() {
+        root.visible = false;
+    }
+
+    public function playback-started() {
+        show();
+    }
+
+    public function playback-stopped() {
+        show();
+    }
+
+    public function update-progress-percent(percent: float) {
+        if !is-scrubbing {
+            scrubber.value = percent;
+        }
+    }
+
+    function scrubber-changed() {
+        // Make the bar not disipear when the user is engaging with the scrubber
+        is-scrubbing = true;
+        show();
+    }
+
+    Rectangle {
+        background: Palette.alternate-background;
+        opacity: 80%;
+        border-radius: 8px;
+
+        HorizontalBox {
+            if pb-state == GuiPlaybackState.Loading: Spinner {
+                indeterminate: true;
+            }
+            // TODO: rect with touch area and icon or something so the button border etc. can be omitted
+            if pb-state == GuiPlaybackState.Playing: Button {
+                icon: @image-url("../../assets/icons/video_pause.svg");
+                colorize-icon: true;
+                clicked => {
+                    resume-or-pause();
+                }
+            }
+            if pb-state == GuiPlaybackState.Paused: Button {
+                icon: @image-url("../../assets/icons/video_play.svg");
+                colorize-icon: true;
+                clicked => {
+                    resume-or-pause();
+                }
+            }
+            if pb-state == GuiPlaybackState.Live: Text {
+                text: "LIVE";
+                font-weight: 800;
+                vertical-alignment: center;
+            }
+            scrubber := Slider {
+                maximum: 100;
+                value: 0;
+                enabled: pb-state != GuiPlaybackState.Loading && pb-state != GuiPlaybackState.Live;
+                changed(_) => {
+                    scrubber-changed();
+                }
+                released(position) => {
+                    is-scrubbing = false;
+                    seek-to-percent(position);
+                }
+            }
+
+            Text {
+                text <=> progress-label;
+                vertical-alignment: center;
+            }
+        }
+    }
+
+    tim := Timer {
+        property <int> counter;
+        interval: 500ms;
+        running: true;
+        triggered => {
+            counter += 1;
+            // Wait 500ms * 3 before hiding the bar
+            if counter >= 3 {
+                parent.close();
+            }
+        }
+    }
+}
+
+// TODO: on screen controls for video playback
 export component MainWindow inherits Window {
     title: "Open Mirroring Receiver";
 
     in property <string> label;
-    in property <image> preview-frame <=> preview.source;
+    in property <string> progress-label;
+    in property <GuiPlaybackState> playback-state;
 
     in-out property <bool> playing: false;
 
     property <int> connected_devices: 0;
 
+    callback resume-or-pause;
+    callback seek-to-percent(float);
+
     public function playback-started() {
         playing = true;
+        playback-control.playback-started();
     }
+
+    // TODO: playback-paused?
 
     public function playback-stopped() {
         playing = false;
+        playback-control.playback-stopped();
     }
 
     public function playback-stopped-with-error(error: string) {
         playing = false;
         error-alert.message = error;
         error-alert.show();
+        playback-control.playback-stopped();
     }
 
     public function device-connected() {
@@ -118,23 +242,35 @@ export component MainWindow inherits Window {
         connected_devices = max(connected_devices - 1, 0);
     }
 
+    public function update-progress-percent(percent: float) {
+        playback-control.update-progress-percent(percent);
+    }
+
     HorizontalBox {
+        visible: !playing;
+
         alignment: space-around;
-        if connected_devices == 0: VerticalBox {
+        VerticalBox {
             alignment: center;
             Text {
+                font-size: 26pt;
+                text: "OpenMirroring";
+                font-weight: 800; // bold
+                horizontal-alignment: center;
+            }
+
+            if connected_devices == 0: Text {
                 font-size: 12pt;
                 text: "Waiting for a connection";
+                horizontal-alignment: center;
             }
-            Spinner {
+            if connected_devices == 0: Spinner {
                 indeterminate: true;
             }
-        }
-        if connected_devices > 0: VerticalBox {
-            alignment: center;
-            Text {
+            if connected_devices > 0: Text {
                 font-size: 12pt;
                 text: "Device is connected";
+                horizontal-alignment: center;
             }
         }
 
@@ -151,14 +287,17 @@ export component MainWindow inherits Window {
                         text: "Manual connection information";
                         font-size: 12pt;
                     }
+
                     HorizontalRule {
                         color: white.with-alpha(60%);
                         height: 2px;
                     }
+
                     Text {
                         horizontal-alignment: center;
                         text: "IPs";
                     }
+
                     if !playing && label.is-empty: Spinner {
                         indeterminate: true;
                     }
@@ -170,10 +309,12 @@ export component MainWindow inherits Window {
                         horizontal-alignment: center;
                         text: "Port";
                     }
+
                     Text {
                         horizontal-alignment: center;
                         text: "46899 (TCP)";
                     }
+
                     Text {
                         horizontal-alignment: center;
                         text: "Automatic discovery is available via mDNS";
@@ -183,16 +324,34 @@ export component MainWindow inherits Window {
         }
     }
 
-    Rectangle {
-        visible: playing;
+    // TODO: subtitles
+
+    // TODO: keypress handling
+    TouchArea {
         width: 100%;
         height: 100%;
-        background: black;
 
-        preview := Image {
-            width: 100%;
-            height: parent.height;
-            image-fit: contain;
+        visible: playing;
+
+        pointer-event(pe) => {
+            if pe.kind == PointerEventKind.move {
+                playback-control.show();
+            }
+        }
+
+        playback-control := PlaybackControl {
+            width: parent.width - 10px * 2;
+            y: parent.height - self.height - 10px;
+            progress-label <=> progress-label;
+            pb-state: playback-state;
+
+            resume-or-pause => {
+                resume-or-pause();
+            }
+
+            seek-to-percent(percent) => {
+                seek-to-percent(percent);
+            }
         }
     }
 

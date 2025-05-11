@@ -440,7 +440,7 @@ fn main() -> Result<()> {
                 }
             }
             slint::RenderingState::RenderingTeardown => {
-                slint_sink.deactivate_and_pause();
+                slint_sink.deactivate_and_pause().unwrap();
             }
             _ => (),
         }

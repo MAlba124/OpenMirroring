@@ -220,7 +220,7 @@ impl Pipeline {
                     }
                     MessageView::StateChanged(state_changed) => {
                         let Some(pipeline) = pipeline_weak.upgrade() else {
-                            error!("Missing pipeline");
+                            error!("Failed to handle state change bus message because pipeline is missing");
                             return;
                         };
 
