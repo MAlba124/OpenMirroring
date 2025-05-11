@@ -27,7 +27,7 @@ use receiver::underlays::background::BackgroundUnderlay;
 use receiver::underlays::video::VideoUnderlay;
 use receiver::Event;
 use tokio::sync::mpsc::{self, Receiver, Sender};
-use tokio::sync::oneshot;
+use tokio::sync::{broadcast, oneshot};
 
 use std::net::Ipv4Addr;
 
@@ -36,11 +36,18 @@ slint::include_modules!();
 struct Application {
     pipeline: Pipeline,
     event_tx: Sender<Event>,
+    ui_weak: slint::Weak<MainWindow>,
+    updates_tx: broadcast::Sender<Vec<u8>>, // TODO: maybe Arc<Vec<u8>> will lead to less allocs?
 }
 
 impl Application {
-    pub async fn new(appsink: gst::Element, event_tx: Sender<Event>) -> Result<Self> {
+    pub async fn new(
+        appsink: gst::Element,
+        event_tx: Sender<Event>,
+        ui_weak: slint::Weak<MainWindow>,
+    ) -> Result<Self> {
         let pipeline = Pipeline::new(appsink, event_tx.clone()).await?;
+        let (updates_tx, _) = broadcast::channel(10);
 
         tokio::spawn({
             let event_tx = event_tx.clone();
@@ -52,16 +59,68 @@ impl Application {
             }
         });
 
-        Ok(Self { pipeline, event_tx })
+        Ok(Self {
+            pipeline,
+            event_tx,
+            ui_weak,
+            updates_tx,
+        })
+    }
+
+    fn notify_updates(&self) -> Result<()> {
+        let update = self.pipeline.get_playback_state()?;
+
+        let progress_str = {
+            let time_secs = update.time % 60.0;
+            let time_mins = (update.time / 60.0) % 60.0;
+            let time_hours = update.time / 60.0 / 60.0;
+
+            let duration_secs = update.duration % 60.0;
+            let duration_mins = (update.duration / 60.0) % 60.0;
+            let duration_hours = update.duration / 60.0 / 60.0;
+
+            format!(
+                "{:02}:{:02}:{:02} / {:02}:{:02}:{:02}",
+                time_hours as u32,
+                time_mins as u32,
+                time_secs as u32,
+                duration_hours as u32,
+                duration_mins as u32,
+                duration_secs as u32,
+            )
+        };
+        let progress_percent = (update.time / update.duration * 100.0) as f32;
+        let playback_state = {
+            let is_live = self.pipeline.is_live();
+            use fcast_lib::models::PlaybackState;
+            match update.state {
+                PlaybackState::Playing | PlaybackState::Paused if is_live => GuiPlaybackState::Live,
+                PlaybackState::Playing => GuiPlaybackState::Playing,
+                PlaybackState::Paused => GuiPlaybackState::Paused,
+                PlaybackState::Idle => GuiPlaybackState::Loading,
+            }
+        };
+
+        self.ui_weak.upgrade_in_event_loop(move |ui| {
+            ui.set_progress_label(progress_str.into());
+            ui.invoke_update_progress_percent(progress_percent);
+            ui.set_playback_state(playback_state);
+        })?;
+
+        if self.updates_tx.receiver_count() > 0 {
+            debug!("Sending update ({update:?})");
+            self.updates_tx.send(Packet::from(update).encode())?;
+        }
+
+        Ok(())
     }
 
     pub async fn run_event_loop(
         self,
         mut event_rx: Receiver<Event>,
-        ui_weak: slint::Weak<MainWindow>,
         fin_tx: oneshot::Sender<()>,
     ) -> Result<()> {
-        let (updates_tx, _) = tokio::sync::broadcast::channel(10);
+        let (updates_tx, _) = broadcast::channel(10);
 
         while let Some(event) = event_rx.recv().await {
             match event {
@@ -82,28 +141,39 @@ impl Application {
                             }
                         }
                     });
-                    ui_weak.upgrade_in_event_loop(|ui| {
+                    self.ui_weak.upgrade_in_event_loop(|ui| {
                         ui.invoke_device_connected();
                     })?;
                 }
                 Event::SessionFinished => {
-                    ui_weak.upgrade_in_event_loop(|ui| {
+                    self.ui_weak.upgrade_in_event_loop(|ui| {
                         ui.invoke_device_disconnected();
                     })?;
                 }
                 Event::Pause => {
                     self.pipeline.pause()?;
-                    self.event_tx.send(Event::SendPlaybackUpdate).await?; // TODO: directly do this
+                    self.notify_updates()?;
                 }
                 Event::Play(play_message) => {
-                    self.pipeline.set_playback_uri(&play_message.url.unwrap())?;
+                    if let Err(err) = self.pipeline.set_playback_uri(&play_message.url.unwrap()) {
+                        use receiver::pipeline::SetPlaybackUriError;
+                        match err {
+                            SetPlaybackUriError::PipelineStateChange(state_change_error) => {
+                                return Err(state_change_error.into())
+                            }
+                            _ => {
+                                error!("Failed to set playback URI: {err}");
+                                continue;
+                            }
+                        }
+                    }
                     if let Err(err) = self.pipeline.play_or_resume() {
                         error!("Failed to play_or_resume pipeline: {err}");
                     } else {
-                        ui_weak.upgrade_in_event_loop(|ui| {
+                        self.ui_weak.upgrade_in_event_loop(|ui| {
                             ui.invoke_playback_started();
                         })?;
-                        self.event_tx.send(Event::SendPlaybackUpdate).await?; // TODO: directly do this
+                        self.notify_updates()?;
                     }
                 }
                 Event::Resume => self.pipeline.play_or_resume()?,
@@ -119,11 +189,11 @@ impl Application {
                     } {
                         error!("Failed to ResumeOrPause: {err}");
                     }
-                    self.event_tx.send(Event::SendPlaybackUpdate).await?; // TODO: directly do this
+                    self.notify_updates()?;
                 }
                 Event::Stop => {
                     self.pipeline.stop()?;
-                    ui_weak.upgrade_in_event_loop(|ui| {
+                    self.ui_weak.upgrade_in_event_loop(|ui| {
                         ui.invoke_playback_stopped();
                     })?;
                 }
@@ -132,7 +202,7 @@ impl Application {
                 }
                 Event::Seek(seek_message) => {
                     self.pipeline.seek(seek_message.time)?;
-                    self.event_tx.send(Event::SendPlaybackUpdate).await?; // TODO: directly do this
+                    self.notify_updates()?;
                 }
                 Event::SeekPercent(percent) => {
                     let Some(duration) = self.pipeline.get_duration() else {
@@ -145,77 +215,31 @@ impl Application {
                     }
                     let seek_to = duration.seconds_f64() * (percent as f64 / 100.0);
                     self.pipeline.seek(seek_to)?;
-                    self.event_tx.send(Event::SendPlaybackUpdate).await?; // TODO: directly do this
+                    self.notify_updates()?;
                 }
                 Event::SetVolume(set_volume_message) => {
                     self.pipeline.set_volume(set_volume_message.volume)
                 }
-                Event::SendPlaybackUpdate => {
-                    let update = self.pipeline.get_playback_state()?;
-
-                    let progress_str = {
-                        let time_secs = update.time % 60.0;
-                        let time_mins = (update.time / 60.0) % 60.0;
-                        let time_hours = update.time / 60.0 / 60.0;
-
-                        let duration_secs = update.duration % 60.0;
-                        let duration_mins = (update.duration / 60.0) % 60.0;
-                        let duration_hours = update.duration / 60.0 / 60.0;
-
-                        format!(
-                            "{:02}:{:02}:{:02} / {:02}:{:02}:{:02}",
-                            time_hours as u32,
-                            time_mins as u32,
-                            time_secs as u32,
-                            duration_hours as u32,
-                            duration_mins as u32,
-                            duration_secs as u32,
-                        )
-                    };
-                    let progress_percent = (update.time / update.duration * 100.0) as f32;
-                    let playback_state = {
-                        let is_live = self.pipeline.is_live();
-                        match update.state {
-                            fcast_lib::models::PlaybackState::Playing
-                            | fcast_lib::models::PlaybackState::Paused
-                                if is_live =>
-                            {
-                                GuiPlaybackState::Live
-                            }
-                            fcast_lib::models::PlaybackState::Playing => GuiPlaybackState::Playing,
-                            fcast_lib::models::PlaybackState::Paused => GuiPlaybackState::Paused,
-                            fcast_lib::models::PlaybackState::Idle => GuiPlaybackState::Loading,
-                        }
-                    };
-
-                    ui_weak.upgrade_in_event_loop(move |ui| {
-                        ui.set_progress_label(progress_str.into());
-                        ui.invoke_update_progress_percent(progress_percent);
-                        // ui.set_progress_percent(progress_percent);
-                        ui.set_playback_state(playback_state);
-                    })?;
-
-                    if updates_tx.receiver_count() > 0 {
-                        debug!("Sending update ({update:?})");
-                        updates_tx.send(Packet::from(update).encode())?;
-                    }
-                }
+                Event::SendPlaybackUpdate => self.notify_updates()?,
                 Event::Quit => break,
                 Event::PipelineEos => {
                     debug!("Pipeline reached EOS");
                     self.pipeline.stop()?;
+                    self.ui_weak.upgrade_in_event_loop(|ui| {
+                        ui.invoke_playback_stopped();
+                    })?;
                 }
                 Event::PipelineError => {
                     self.pipeline.stop()?;
                     // TODO: send error message to sessions
-                    ui_weak.upgrade_in_event_loop(|ui| {
+                    self.ui_weak.upgrade_in_event_loop(|ui| {
                         ui.invoke_playback_stopped_with_error("Error unclear (todo)".into());
                     })?;
                 }
             }
         }
 
-        // TODO: gracefully shutdown the pipeline
+        self.pipeline.stop()?;
 
         debug!("Quitting");
 
@@ -327,10 +351,10 @@ fn main() -> Result<()> {
         let ui_weak = ui.as_weak();
         let event_tx = event_tx.clone();
         async move {
-            Application::new(slint_appsink, event_tx)
+            Application::new(slint_appsink, event_tx, ui_weak)
                 .await
                 .unwrap()
-                .run_event_loop(event_rx, ui_weak, fin_tx)
+                .run_event_loop(event_rx, fin_tx)
                 .await
                 .unwrap();
         }

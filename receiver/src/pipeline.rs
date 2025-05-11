@@ -24,6 +24,16 @@ use anyhow::{anyhow, bail, Result};
 use log::{debug, error};
 use tokio::sync::mpsc::Sender;
 
+#[derive(thiserror::Error, Debug)]
+pub enum SetPlaybackUriError {
+    #[error("unsupported resource scheme")]
+    UnsupportedResourceScheme,
+    #[error("invalid URI")]
+    InvalidUri,
+    #[error("{0}")]
+    PipelineStateChange(gst::StateChangeError),
+}
+
 pub struct Pipeline {
     inner: gst::Pipeline,
     playbin: gst::Element,
@@ -125,9 +135,25 @@ impl Pipeline {
         })
     }
 
-    // TODO: parse the `uri` to make sure it's valid and ensure it's not a file:// because that's a big security concern.
-    pub fn set_playback_uri(&self, uri: &str) -> Result<()> {
-        self.inner.set_state(gst::State::Ready)?;
+    pub fn set_playback_uri(&self, uri: &str) -> std::result::Result<(), SetPlaybackUriError> {
+        // Parse the `uri` to make sure it's valid and ensure it's not a `file://` because that's
+        // potentially a security concern.
+        match url::Url::parse(uri) {
+            Ok(url) => {
+                if url.scheme() == "file" {
+                    error!("Received URI is a `file`");
+                    return Err(SetPlaybackUriError::UnsupportedResourceScheme);
+                }
+            }
+            Err(err) => {
+                error!("Failed to parse provided URI: {err}");
+                return Err(SetPlaybackUriError::InvalidUri);
+            }
+        }
+
+        self.inner
+            .set_state(gst::State::Ready)
+            .map_err(SetPlaybackUriError::PipelineStateChange)?;
         self.playbin.set_property("uri", uri);
 
         debug!("Playback URI set to: {uri}");

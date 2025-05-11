@@ -5156,8 +5156,10 @@ dependencies = [
  "simple-mdns",
  "slint",
  "slint-build",
+ "thiserror 2.0.12",
  "tokio",
  "tokio-stream",
+ "url",
 ]
 
 [[package]]
