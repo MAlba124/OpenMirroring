@@ -32,15 +32,37 @@ export struct ReceiverItem {
     state: ReceiverState,
 }
 
+component FormInput {
+    in property <string> label;
+    in property <length> container-height;
+
+    HorizontalBox {
+        Text {
+            text <=> label;
+            vertical-alignment: center;
+        }
+
+        Rectangle {
+            border-width: 2px;
+            border-radius: 4px;
+            border-color: Palette.border;
+            height <=> container-height;
+            @children
+        }
+    }
+}
+
 export component CastDialog {
     callback closed();
     callback connect(string);
     callback disconnect();
+    callback add-receiver-manually(name: string, addr: string, port: string);
 
     in property <[ReceiverItem]> receivers-model;
     in property <length> border-radius;
-
     in property <length> root-height;
+
+    property <bool> in-manual-edit: false;
 
     height: min(box.preferred-height + receivers-model.length * 45px, root-height);
 
@@ -114,6 +136,68 @@ export component CastDialog {
                 text: "Receivers will be added automatically once they announce themselves on the network";
                 font-italic: true;
                 wrap: word-wrap;
+            }
+        }
+
+        HorizontalRule {
+            height: 2px;
+            color: Palette.border;
+            z: -1;
+        }
+
+        if !in-manual-edit: Button {
+            text: "Add manually";
+            clicked => {
+                in-manual-edit = true;
+            }
+        }
+
+        if in-manual-edit: VerticalBox {
+            FormInput {
+                label: "Name:";
+                container-height: ti-name.preferred-height + 8px;
+                ti-name := TextInput {
+                    horizontal-alignment: center;
+                    vertical-alignment: center;
+                }
+            }
+
+            FormInput {
+                label: "Address:";
+                container-height: ti-addr.preferred-height + 8px;
+                ti-addr := TextInput {
+                    horizontal-alignment: center;
+                    vertical-alignment: center;
+                }
+            }
+
+            FormInput {
+                label: "Port:";
+                container-height: ti-port.preferred-height + 8px;
+                ti-port := TextInput {
+                    horizontal-alignment: center;
+                    vertical-alignment: center;
+                    text: "46899";
+                    input-type: number;
+                }
+            }
+
+            HorizontalBox {
+                Button {
+                    text: "Cancel";
+                    clicked => {
+                        in-manual-edit = false;
+                    }
+                }
+
+                Button {
+                    text: "Add";
+                    enabled: !ti-name.text.is-empty && !ti-addr.text.is-empty && !ti-port.text.is-empty;
+                    clicked => {
+                        add-receiver-manually(ti-name.text, ti-addr.text, ti-port.text);
+                        in-manual-edit = false;
+                    }
+                }
             }
         }
     }

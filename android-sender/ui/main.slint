@@ -21,11 +21,12 @@ import { CastDialog, ReceiverItem } from "../../ui-common/cast-dialog.slint";
 import { ToolTipArea } from "../../ui-common/tool-tip-area.slint";
 
 export component MainWindow inherits Window {
-    callback request-start-capture;
+    callback request-start-capture();
     callback connect-receiver(string);
     callback disconnect-receiver();
     callback start-cast();
     callback stop-cast();
+    callback add-receiver-manually(name: string, addr: string, port: string);
 
     in property <[ReceiverItem]> receivers-model: [];
 
@@ -132,6 +133,10 @@ export component MainWindow inherits Window {
 
         disconnect() => {
             disconnect-receiver();
+        }
+
+        add-receiver-manually(n, a, p) => {
+            add-receiver-manually(n, a, p);
         }
 
         closed => {
