@@ -34,6 +34,7 @@ export component MainWindow inherits Window {
     callback stop-cast();
     callback disconnect-receiver();
     callback change-source();
+    callback add-receiver-manually(name: string, addr: string, port: string);
 
     in property <bool> has-source: false;
     property <bool> preview-enable: true;
@@ -191,6 +192,10 @@ export component MainWindow inherits Window {
 
         disconnect() => {
             disconnect-receiver();
+        }
+
+        add-receiver-manually(n, a, p) => {
+            add-receiver-manually(n, a, p);
         }
 
         closed => {

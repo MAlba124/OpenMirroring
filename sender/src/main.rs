@@ -526,8 +526,29 @@ fn main() -> Result<()> {
     }
 
     {
+        let event_tx = event_tx.clone();
         ui.on_change_source(move || {
             event_tx.blocking_send(Event::ChangeSource).unwrap();
+        });
+    }
+
+    {
+        let event_tx = event_tx.clone();
+        ui.on_add_receiver_manually(move |name, addr, port| {
+            let parsed_addr = match format!("{addr}:{port}").parse::<std::net::SocketAddr>() {
+                Ok(a) => a,
+                Err(err) => {
+                    // TODO: show in UI
+                    error!("Failed to parse manually added receiver socket address: {err}");
+                    return;
+                }
+            };
+            event_tx
+                .blocking_send(Event::ReceiverAvailable(sender::Receiver {
+                    name: name.to_string(),
+                    addresses: vec![parsed_addr],
+                }))
+                .unwrap();
         });
     }
 
