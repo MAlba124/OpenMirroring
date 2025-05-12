@@ -15,20 +15,37 @@
 // You should have received a copy of the GNU General Public License
 // along with OpenMirroring.  If not, see <https://www.gnu.org/licenses/>.
 
-import { Palette, VerticalBox, HorizontalBox, StandardButton, Switch, Button } from "std-widgets.slint";
+import { Palette, VerticalBox, HorizontalBox, StandardButton, Switch, Button, ComboBox } from "std-widgets.slint";
 
 import { HorizontalRule } from "../../ui-common/horizontal-rule.slint";
 import { ToolTipArea } from "../../ui-common/tool-tip-area.slint";
+import { FormInput } from "../../ui-common/form-input.slint";
 
 export component Settings {
-    callback closed;
+    callback closed();
+    callback include-ipv6-addresses(bool);
+
+    in property <length> border-radius;
+    in property <[string]> stream-addresses;
+
+    pure function is-valid-port-number(port: int) -> bool {
+        port >= 1 && port <= 65535
+    }
+
+    public function currently-selected-address() -> { idx: int,port: int} {
+        {
+            idx: stream-address-combo.current-index,
+            port: ti-stream-port.text.to-float()
+        }
+    }
 
     Rectangle {
         background: Palette.background;
-        border-radius: 8px;
+        border-radius <=> border-radius;
     }
 
-    VerticalBox {
+    vb := VerticalBox {
+        width: 100%;
         HorizontalBox {
             alignment: space-between;
             Text {
@@ -37,6 +54,7 @@ export component Settings {
                 text: "Settings";
                 vertical-alignment: center;
             }
+
             ToolTipArea {
                 text: "Close";
                 Button {
@@ -56,17 +74,11 @@ export component Settings {
         }
 
         HorizontalBox {
-            alignment: center;
-            Text {
-                text: "Colors and Theme";
-            }
-        }
-
-        HorizontalBox {
             alignment: space-between;
             Text {
                 text: "Dark Mode";
             }
+
             Switch {
                 horizontal-stretch: 0;
                 checked: Palette.color-scheme == ColorScheme.dark;
@@ -74,6 +86,50 @@ export component Settings {
                     Palette.color-scheme = self.checked ? ColorScheme.dark : ColorScheme.light;
                 }
             }
+        }
+
+        FormInput {
+            label: "Media stream port:";
+            container-height: ti-stream-port.preferred-height + 8px;
+            ti-stream-port := TextInput {
+                horizontal-alignment: center;
+                vertical-alignment: center;
+                input-type: number;
+                text: "3000";
+            }
+        }
+
+        if !is-valid-port-number(ti-stream-port.text.to-float()): Text {
+            horizontal-alignment: center;
+            text: "Port is not in the valid range (1-65535)";
+        }
+
+        VerticalLayout {
+            HorizontalBox {
+                Text {
+                    text: "Media stream address:";
+                    vertical-alignment: center;
+                }
+
+                stream-address-combo := ComboBox {
+                    model: stream-addresses;
+                }
+            }
+
+            // TODO:
+            // HorizontalBox {
+            //     Text {
+            //         text: "Include IPv6 addresses";
+            //     }
+
+            //     Switch {
+            //         horizontal-stretch: 0;
+            //         checked: false;
+            //         enabled: false;
+            //         toggled => {
+            //         }
+            //     }
+            // }
         }
     }
 }

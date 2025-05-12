@@ -21,7 +21,7 @@ use fcast_lib::models::PlayMessage;
 use futures::StreamExt;
 use gst::prelude::*;
 use log::error;
-use std::future::Future;
+use std::{future::Future, net::IpAddr};
 
 #[cfg(not(target_os = "android"))]
 use log::debug;
@@ -308,12 +308,12 @@ impl Pipeline {
     }
 
     #[cfg(not(target_os = "android"))]
-    pub fn add_hls_sink(&mut self) -> Result<()> {
+    pub fn add_hls_sink(&mut self, port: u16) -> Result<()> {
         let tee_pad = self
             .tee
             .request_pad_simple("src_%u")
             .ok_or(anyhow::anyhow!("`request_pad_simple()` failed"))?;
-        let hls = HlsSink::new(&self.inner, tee_pad)?;
+        let hls = HlsSink::new(&self.inner, tee_pad, port)?;
         self.tx_sink = Some(Box::new(hls));
 
         debug!("Added HLS sink");
@@ -337,12 +337,12 @@ impl Pipeline {
     }
 
     #[cfg(not(target_os = "android"))]
-    pub fn add_rtp_sink(&mut self) -> Result<()> {
+    pub fn add_rtp_sink(&mut self, port: u16, receiver_addr: IpAddr) -> Result<()> {
         let tee_pad = self
             .tee
             .request_pad_simple("src_%u")
             .ok_or(anyhow::anyhow!("`request_pad_simple()` failed"))?;
-        let rtp = RtpSink::new(&self.inner, tee_pad)?;
+        let rtp = RtpSink::new(&self.inner, tee_pad, port, receiver_addr)?;
         self.tx_sink = Some(Box::new(rtp));
 
         debug!("Added RTP sink");
@@ -379,9 +379,9 @@ impl Pipeline {
 
     /// Get the message that should be sent to a receiver to consume the stream if a transmission
     /// sink is present
-    pub fn get_play_msg(&self) -> Option<PlayMessage> {
+    pub fn get_play_msg(&self, addr: IpAddr) -> Option<PlayMessage> {
         if let Some(sink) = &self.tx_sink {
-            sink.get_play_msg()
+            sink.get_play_msg(addr)
         } else {
             None
         }

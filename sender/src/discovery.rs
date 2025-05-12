@@ -16,8 +16,7 @@
 // along with OpenMirroring.  If not, see <https://www.gnu.org/licenses/>.
 
 use anyhow::Result;
-use std::net::SocketAddrV4;
-use std::net::{Ipv4Addr, SocketAddr};
+use std::net::SocketAddr;
 
 use log::{debug, error, warn};
 use simple_mdns::InstanceInformation;
@@ -34,7 +33,7 @@ pub fn discover(tx: tokio::sync::mpsc::Sender<crate::Event>) -> Result<ServiceDi
         move |service| {
             let tx = tx.clone();
             async move {
-                let mut addresses = service.get_socket_addresses().collect::<Vec<SocketAddr>>();
+                let addresses = service.get_socket_addresses().collect::<Vec<SocketAddr>>();
 
                 if addresses.is_empty() {
                     // TODO: there is something wrong, this condition often happens when it really shouldn't
@@ -42,10 +41,6 @@ pub fn discover(tx: tokio::sync::mpsc::Sender<crate::Event>) -> Result<ServiceDi
                         "Ignoring receiver ({}) with no addresses",
                         service.unescaped_instance_name()
                     );
-                    // addresses.push(SocketAddr::V4(SocketAddrV4::new(
-                    //     Ipv4Addr::LOCALHOST,
-                    //     46899,
-                    // )));
                     return;
                 }
 

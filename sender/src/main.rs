@@ -25,7 +25,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use tokio::sync::mpsc::{Receiver, Sender};
 use tokio::sync::{self, oneshot};
 
-use std::net::SocketAddr;
+use std::net::{IpAddr, SocketAddr};
 use std::rc::Rc;
 
 use common::sender::pipeline;
@@ -42,6 +42,7 @@ struct Application {
     selected_source: bool,
     receivers: Vec<(ReceiverItem, SocketAddr)>,
     appsink: gst::Element,
+    addresses: Vec<IpAddr>,
     _discovery: ServiceDiscovery,
 }
 
@@ -51,7 +52,7 @@ impl Application {
         event_tx: Sender<Event>,
         session_tx: Sender<SessionMessage>,
         appsink: gst::Element,
-        gotten_gl: tokio::sync::oneshot::Receiver<()>,
+        gotten_gl: oneshot::Receiver<()>,
     ) -> Result<Self> {
         // We need to wait until the preview sink has gotten it's required GL contexts,
         // if not the pipeline would fail to init
@@ -61,6 +62,26 @@ impl Application {
             Self::new_pipeline(event_tx.clone(), appsink.clone()).await?;
 
         let discovery = discover(event_tx.clone())?;
+
+        {
+            let event_tx = event_tx.clone();
+            // Spawn a background task to update the list of available IP addresses on the system
+            // TOOD: there is probably a better way for doing this that doesn't involve constantly polling
+            tokio::spawn(async move {
+                loop {
+                    if event_tx
+                        .send(Event::AvailableAddresses(
+                            common::net::get_all_ip_addresses(),
+                        ))
+                        .await
+                        .is_err()
+                    {
+                        return;
+                    }
+                    tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+                }
+            });
+        }
 
         Ok(Self {
             pipeline,
@@ -72,6 +93,7 @@ impl Application {
             receivers: Vec::new(),
             appsink,
             _discovery: discovery,
+            addresses: Vec::new(),
         })
     }
 
@@ -182,6 +204,24 @@ impl Application {
         Ok(())
     }
 
+    fn update_addresses_in_ui(&mut self) -> Result<()> {
+        let addrs = self
+            .addresses
+            .iter()
+            .map(|a| slint::SharedString::from(a.to_string()))
+            .collect::<Vec<slint::SharedString>>();
+        self.ui_weak.upgrade_in_event_loop(move |ui| {
+            ui.set_addresses_model(
+                Rc::new(slint::VecModel::<slint::SharedString>::from_iter(
+                    addrs.into_iter(),
+                ))
+                .into(),
+            );
+        })?;
+
+        Ok(())
+    }
+
     pub async fn run_event_loop(
         &mut self,
         mut event_rx: Receiver<Event>,
@@ -191,17 +231,47 @@ impl Application {
             match event {
                 Event::SessionTerminated => break,
                 Event::StartCast => {
-                    let Some(play_msg) = self.pipeline.get_play_msg() else {
-                        error!("Could not get stream uri");
-                        continue;
+                    let (addr_tx, addr_rx) = oneshot::channel();
+
+                    self.ui_weak.upgrade_in_event_loop(move |ui| {
+                        let _ = addr_tx.send(ui.invoke_currently_selected_address());
+                    })?;
+
+                    let (_, port) = addr_rx.await.unwrap();
+                    let port = {
+                        if port < 1 || port > u16::MAX as i32 {
+                            error!("Port ({port}) is not in the valid port range");
+                            continue;
+                        }
+                        port as u16
                     };
 
-                    debug!("Sending play message: {play_msg:?}");
+                    for r in &mut self.receivers {
+                        if r.0.state != ReceiverState::Connected {
+                            continue;
+                        }
 
-                    self.session_tx.send(SessionMessage::Play(play_msg)).await?;
+                        if r.0.name.starts_with("OpenMirroring") {
+                            let receiver_addr = {
+                                let mut addr = None;
+                                for r in &self.receivers {
+                                    if r.0.state == ReceiverState::Connected {
+                                        addr = Some(r.1.ip());
+                                        break;
+                                    }
+                                }
+                                addr
+                            };
+                            self.pipeline.add_rtp_sink(port, receiver_addr.unwrap())?;
+                        } else {
+                            self.pipeline.add_hls_sink(port)?;
+                        }
+
+                        break;
+                    }
 
                     self.ui_weak.upgrade_in_event_loop(|ui| {
-                        ui.invoke_cast_started();
+                        ui.invoke_cast_starting();
                     })?;
                 }
                 Event::StopCast => {
@@ -209,6 +279,8 @@ impl Application {
                     self.ui_weak.upgrade_in_event_loop(|ui| {
                         ui.invoke_cast_stopped();
                     })?;
+
+                    self.pipeline.remove_transmission_sink()?;
                 }
                 Event::Sources(sources) => {
                     debug!("Available sources: {sources:?}");
@@ -230,24 +302,6 @@ impl Application {
                 Event::SelectSource(idx) => {
                     self.select_source_tx.send(idx).await?;
                     self.selected_source = true;
-
-                    // If we're connected to a receiver, add the sink for it
-                    for r in &mut self.receivers {
-                        if r.0.state != ReceiverState::Connected {
-                            continue;
-                        }
-
-                        if r.0.name.starts_with("OpenMirroring") {
-                            self.pipeline.add_rtp_sink()?;
-                        } else {
-                            self.pipeline.add_hls_sink()?;
-                        }
-
-                        self.update_receivers_in_ui()?;
-
-                        break;
-                    }
-
                     self.ui_weak.upgrade_in_event_loop(|ui| {
                         ui.set_has_source(true);
                     })?;
@@ -289,12 +343,6 @@ impl Application {
                     for r in &mut self.receivers {
                         if r.0.state == ReceiverState::Connecting {
                             r.0.state = ReceiverState::Connected;
-
-                            if r.0.name.starts_with("OpenMirroring") {
-                                self.pipeline.add_rtp_sink()?;
-                            } else {
-                                self.pipeline.add_hls_sink()?;
-                            }
                             break;
                         }
                     }
@@ -329,6 +377,34 @@ impl Application {
                 }
                 Event::PipelineIsPlaying => {
                     self.pipeline.playing().await?;
+
+                    let (addr_tx, addr_rx) = oneshot::channel();
+
+                    self.ui_weak.upgrade_in_event_loop(move |ui| {
+                        let _ = addr_tx.send(ui.invoke_currently_selected_address());
+                    })?;
+
+                    let (addr_idx, _) = addr_rx.await.unwrap();
+                    let addr = {
+                        if addr_idx < 0 || addr_idx as usize >= self.addresses.len() {
+                            error!("Address ({addr_idx}) is out of bounds in the addresses list");
+                            continue;
+                        }
+                        self.addresses[addr_idx as usize]
+                    };
+
+                    let Some(play_msg) = self.pipeline.get_play_msg(addr) else {
+                        error!("Could not get stream uri");
+                        continue;
+                    };
+
+                    debug!("Sending play message: {play_msg:?}");
+
+                    self.session_tx.send(SessionMessage::Play(play_msg)).await?;
+
+                    self.ui_weak.upgrade_in_event_loop(|ui| {
+                        ui.invoke_cast_started();
+                    })?;
                 }
                 Event::DisconnectedFromReceiver => {
                     debug!("Disconnected from receiver");
@@ -339,6 +415,25 @@ impl Application {
                     self.ui_weak.upgrade_in_event_loop(|ui| {
                         ui.invoke_receiver_disconnected();
                     })?;
+                }
+                Event::AvailableAddresses(mut addrs) => {
+                    // Push localhost to the end, then v6 and v4 at the start
+                    addrs.sort_by(|a, b| {
+                        if a.is_loopback() || b.is_loopback() {
+                            std::cmp::Ordering::Less
+                        } else if a.is_ipv4() && b.is_ipv6() {
+                            std::cmp::Ordering::Greater
+                        } else {
+                            a.cmp(b)
+                        }
+                    });
+
+                    let same = addrs == self.addresses;
+                    self.addresses = addrs;
+                    if !same {
+                        debug!("Available addresses: {:?}", self.addresses);
+                        self.update_addresses_in_ui()?;
+                    }
                 }
             }
         }
@@ -407,7 +502,7 @@ fn main() -> Result<()> {
     let ui = MainWindow::new()?;
     slint::set_xdg_app_id("com.github.malba124.OpenMirroring.sender")?;
 
-    let (gotten_gl_tx, gotten_gl_rx) = tokio::sync::oneshot::channel();
+    let (gotten_gl_tx, gotten_gl_rx) = oneshot::channel();
 
     ui.window().set_rendering_notifier({
         let ui_weak = ui.as_weak();

@@ -1,5 +1,4 @@
-use crate::net::get_default_ipv4_addr;
-use std::str::FromStr;
+use std::{net::IpAddr, str::FromStr};
 
 use anyhow::Result;
 use gio::glib;
@@ -14,6 +13,7 @@ pub struct RtpSink {
     queue: gst::Element,
     convert: gst::Element,
     scale: gst::Element,
+    rate: gst::Element,
     capsfilter: gst::Element,
     enc: gst::Element,
     enc_caps: gst::Element,
@@ -21,11 +21,17 @@ pub struct RtpSink {
     queue2: gst::Element,
     rtpbin: gst::Element,
     sink: gst::Element,
-    host: String,
+    port: u16,
+    receiver_addr: IpAddr,
 }
 
 impl RtpSink {
-    pub fn new(pipeline: &gst::Pipeline, src_pad: gst::Pad) -> Result<Self> {
+    pub fn new(
+        pipeline: &gst::Pipeline,
+        src_pad: gst::Pad,
+        port: u16,
+        receiver_addr: IpAddr,
+    ) -> Result<Self> {
         let queue = gst::ElementFactory::make("queue")
             .name("sink_queue")
             .property("silent", true)
@@ -37,46 +43,48 @@ impl RtpSink {
         let scale = gst::ElementFactory::make("videoscale")
             .name("sink_scale")
             .build()?;
+        // TODO: is this necessary?
+        let rate = gst::ElementFactory::make("videorate").build()?;
         let capsfilter = gst::ElementFactory::make("capsfilter")
             .name("sink_capsfilter")
             .property(
                 "caps",
-                gst::Caps::from_str("video/x-raw,width=(int)[16,8192,2],height=(int)[16,8192,2]")?,
+                // gst::Caps::from_str("video/x-raw,width=(int)[16,8192,2],height=(int)[16,8192,2]")?,
+                gst::Caps::from_str(
+                    "video/x-raw,width=(int)[16,8192,2],height=(int)[16,8192,2],framerate=25/1",
+                )?,
             )
             .build()?;
 
-        // TODO: dynamically select the fastest/best(?) codec, HW or SW
-        // TODO: these settings give awful quality, fix settings
+        // TODO: issues with high startup time and "decreasing pts"
         let enc = gst::ElementFactory::make("x264enc")
             .property("bframes", 0u32)
-            .property("bitrate", 1024 * 6u32)
-            .property("key-int-max", 1u32)
+            .property("bitrate", 1000u32 * 4)
+            .property("key-int-max", 25u32)
+            .property("sliced-threads", true)
             .property_from_str("tune", "zerolatency")
-            .property_from_str("speed-preset", "superfast")
+            .property_from_str("speed-preset", "ultrafast")
             .build()?;
         let enc_caps = gst::ElementFactory::make("capsfilter")
             .property(
                 "caps",
                 gst::Caps::builder("video/x-h264")
-                    .field("profile", "main")
+                    .field("profile", "baseline")
                     .build(),
             )
             .build()?;
         let pay = gst::ElementFactory::make("rtph264pay")
-            // TODO: do these even do anything?
-            .property("config-interval", -1i32)
-            .property_from_str("aggregate-mode", "zero-latency")
+            .property("pt", 96u32)
             .build()?;
-
         let queue2 = gst::ElementFactory::make("queue")
             .name("sink_queue2")
             .property("silent", true)
             .build()?;
         let rtpbin = gst::ElementFactory::make("rtpbin").build()?;
-        let host = format!("{}", get_default_ipv4_addr());
+
         let sink = gst::ElementFactory::make("udpsink")
-            .property("host", &host)
-            .property("port", 5004i32)
+            .property("host", receiver_addr.to_string())
+            .property("port", port as i32)
             .property("sync", true)
             .build()?;
 
@@ -84,6 +92,7 @@ impl RtpSink {
             &queue,
             &convert,
             &scale,
+            &rate,
             &capsfilter,
             &enc,
             &enc_caps,
@@ -96,6 +105,7 @@ impl RtpSink {
             &queue,
             &convert,
             &scale,
+            &rate,
             &capsfilter,
             &enc,
             &enc_caps,
@@ -106,6 +116,7 @@ impl RtpSink {
         queue.sync_state_with_parent()?;
         convert.sync_state_with_parent()?;
         scale.sync_state_with_parent()?;
+        rate.sync_state_with_parent()?;
         capsfilter.sync_state_with_parent()?;
         enc.sync_state_with_parent()?;
         enc_caps.sync_state_with_parent()?;
@@ -154,6 +165,7 @@ impl RtpSink {
             src_pad,
             queue,
             convert,
+            rate,
             enc,
             pay,
             queue2,
@@ -162,36 +174,37 @@ impl RtpSink {
             scale,
             enc_caps,
             capsfilter,
-            host,
+            port,
+            receiver_addr,
         })
     }
 }
 
 #[async_trait::async_trait]
 impl TransmissionSink for RtpSink {
-    fn get_play_msg(&self) -> Option<PlayMessage> {
+    fn get_play_msg(&self, _addr: IpAddr) -> Option<PlayMessage> {
         Some(PlayMessage {
             container: FCAST_GST_WEBRTC_MIME_TYPE.to_owned(),
             #[cfg(not(target_os = "android"))]
             url: Some(format!(
-                "rtp://{}:5004?\
+                "rtp://{}:{}?\
                     media=video\
                     &clock-rate=90000\
                     &encoding-name=H264\
                     &payload=96\
                     &rtp-profile=1",
-                self.host
+                self.receiver_addr, self.port,
             )),
             #[cfg(target_os = "android")]
-            url: Some(
-                "rtp://127.0.0.1:5004\
+            url: Some(format!(
+                "rtp://127.0.0.1:{}\
                     ?media=video\
                     &clock-rate=90000\
                     &encoding-name=H264\
                     &payload=96\
-                    &rtp-profile=1"
-                    .to_owned(),
-            ),
+                    &rtp-profile=1",
+                self.port,
+            )),
             content: None,
             time: Some(0.0),
             speed: Some(1.0),
@@ -212,10 +225,10 @@ impl TransmissionSink for RtpSink {
                 gst::PadProbeReturn::Ok
             })
             .unwrap();
-        // .ok_or(anyhow::anyhow!("Failed to add pad probe to src_pad"))?;
+        // .ok_or(anyhow::anyhow!("Failed to add pad probe to src_pad"))?; // TODO:
 
         let queue_sink_pad = self.queue.static_pad("sink").unwrap();
-        // .ok_or(anyhow::anyhow!("Failed to get static sink pad from queue"))?;
+        // .ok_or(anyhow::anyhow!("Failed to get static sink pad from queue"))?; // TODO
         self.src_pad.unlink(&queue_sink_pad)?;
         self.src_pad.remove_probe(block);
 
@@ -223,6 +236,7 @@ impl TransmissionSink for RtpSink {
             &self.queue,
             &self.convert,
             &self.scale,
+            &self.rate,
             &self.capsfilter,
             &self.enc,
             &self.enc_caps,

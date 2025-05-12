@@ -15,20 +15,16 @@
 // You should have received a copy of the GNU General Public License
 // along with OpenMirroring.  If not, see <https://www.gnu.org/licenses/>.
 
-#[cfg(not(target_os = "android"))]
-use crate::net::get_default_ipv4_addr;
 use anyhow::{Result, anyhow};
 use fake_file_writer::FakeFileWriter;
 use fcast_lib::models::PlayMessage;
 use gst::{glib, prelude::*};
 use log::{debug, error, trace};
 use m3u8_rs::{MasterPlaylist, VariantStream};
+use std::net::IpAddr;
 use std::str::FromStr;
-use std::{
-    collections::HashMap,
-    path::PathBuf,
-    sync::{Arc, Mutex},
-};
+use std::{collections::HashMap, path::PathBuf};
+use tokio::sync::oneshot;
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
     sync::mpsc::{Receiver, Sender},
@@ -44,11 +40,14 @@ const HLS_MIME_TYPE: &str = "application/vnd.apple.mpegurl";
 
 async fn serve_dir(
     base: PathBuf,
-    server_port: Arc<Mutex<Option<u16>>>,
+    server_port: u16,
     mut file_rx: Receiver<fake_file_writer::ChannelElement>,
+    mut fin: oneshot::Receiver<()>,
 ) {
     #[cfg(not(target_os = "android"))]
-    let listener = tokio::net::TcpListener::bind("0.0.0.0:0").await.unwrap();
+    let listener = tokio::net::TcpListener::bind(format!("0.0.0.0:{server_port}"))
+        .await
+        .unwrap();
     #[cfg(target_os = "android")]
     let listener = tokio::net::TcpListener::bind("0.0.0.0:30069")
         .await
@@ -56,10 +55,10 @@ async fn serve_dir(
 
     debug!("HTTP server listening on {:?}", listener.local_addr());
 
-    {
-        let mut server_port = server_port.lock().unwrap();
-        *server_port = Some(listener.local_addr().unwrap().port());
-    }
+    // {
+    //     let mut server_port = server_port.lock().unwrap();
+    //     *server_port = Some(listener.local_addr().unwrap().port());
+    // }
 
     let mut files: HashMap<String, Vec<u8>> = HashMap::new();
 
@@ -68,6 +67,9 @@ async fn serve_dir(
 
     loop {
         tokio::select! {
+            _ = &mut fin => {
+                break;
+            }
             v = listener.accept() => {
                 let (mut stream, _) = v.unwrap();
 
@@ -171,6 +173,8 @@ async fn serve_dir(
             }
         }
     }
+
+    debug!("Quitting http server");
 }
 
 fn get_codec_name(sink: &gst::Element) -> Result<String> {
@@ -190,17 +194,22 @@ pub struct HlsSink {
     convert: gst::Element,
     scale: gst::Element,
     capsfilter: gst::Element,
-    pub server_port: Arc<Mutex<Option<u16>>>,
+    pub server_port: u16,
     main_path: PathBuf,
     enc: gst::Element,
     enc_caps: gst::Element,
     sink: gst::Element,
     write_playlist: bool,
     file_tx: Sender<fake_file_writer::ChannelElement>,
+    server_fin_tx: Option<oneshot::Sender<()>>,
 }
 
 impl HlsSink {
-    pub fn new(pipeline: &gst::Pipeline, src_pad: gst::Pad) -> Result<Self, glib::BoolError> {
+    pub fn new(
+        pipeline: &gst::Pipeline,
+        src_pad: gst::Pad,
+        port: u16,
+    ) -> Result<Self, glib::BoolError> {
         let queue = gst::ElementFactory::make("queue")
             .name("sink_queue")
             .property("silent", true)
@@ -222,7 +231,7 @@ impl HlsSink {
 
         let enc = gst::ElementFactory::make("x264enc")
             .property("bframes", 0u32)
-            .property("bitrate", 2_048_000 / 1000u32 * 2u32)
+            .property("bitrate", 1024 * 4u32)
             .property("key-int-max", i32::MAX as u32)
             .property_from_str("tune", "zerolatency")
             .property_from_str("speed-preset", "superfast")
@@ -241,11 +250,13 @@ impl HlsSink {
 
         let (file_tx, file_rx) = tokio::sync::mpsc::channel::<fake_file_writer::ChannelElement>(10);
 
-        let server_port = Arc::new(Mutex::new(None));
+        let (server_fin_tx, server_fin_rx) = oneshot::channel::<()>();
+        let server_port = port;
         crate::runtime().spawn(serve_dir(
             base_path.clone(),
-            Arc::clone(&server_port),
+            server_port,
             file_rx,
+            server_fin_rx,
         ));
 
         let mut manifest_path = base_path.clone();
@@ -370,6 +381,7 @@ impl HlsSink {
             sink,
             write_playlist: true,
             file_tx,
+            server_fin_tx: Some(server_fin_tx),
         })
     }
 
@@ -412,19 +424,20 @@ impl HlsSink {
 
 #[async_trait::async_trait]
 impl TransmissionSink for HlsSink {
-    fn get_play_msg(&self) -> Option<PlayMessage> {
-        let server_port = self.server_port.lock().unwrap();
-
-        (*server_port).as_ref().map(|server_port| PlayMessage {
+    fn get_play_msg(&self, addr: IpAddr) -> Option<PlayMessage> {
+        Some(PlayMessage {
             container: HLS_MIME_TYPE.to_owned(),
             #[cfg(not(target_os = "android"))]
             url: Some(format!(
-                "http://{}:{server_port}/manifest.m3u8",
-                get_default_ipv4_addr(),
+                "http://{}:{}/manifest.m3u8", // TODO: correct addr format?
+                addr, self.server_port,
             )),
             // TODO: use real address when not emulating
             #[cfg(target_os = "android")]
-            url: Some(format!("http://127.0.0.1:{server_port}/manifest.m3u8")),
+            url: Some(format!(
+                "http://127.0.0.1:{}/manifest.m3u8",
+                self.server_port
+            )),
             content: None,
             time: Some(0.0),
             speed: Some(1.0),
@@ -436,7 +449,11 @@ impl TransmissionSink for HlsSink {
         self.write_manifest_file().await
     }
 
-    fn shutdown(&mut self) {}
+    fn shutdown(&mut self) {
+        if let Some(fin_tx) = self.server_fin_tx.take() {
+            let _ = fin_tx.send(());
+        }
+    }
 
     fn unlink(&mut self, pipeline: &gst::Pipeline) -> Result<(), glib::error::BoolError> {
         let block = self
