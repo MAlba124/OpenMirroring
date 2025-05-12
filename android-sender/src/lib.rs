@@ -321,6 +321,23 @@ fn android_main(app: slint::android::AndroidApp) {
         tx!().send_blocking(Event::StopCast).unwrap();
     });
 
+    ui.on_add_receiver_manually(move |name, addr, port| {
+        let parsed_addr = match format!("{addr}:{port}").parse::<std::net::SocketAddr>() {
+            Ok(a) => a,
+            Err(err) => {
+                // TODO: show in UI
+                error!("Failed to parse manually added receiver socket address: {err}");
+                return;
+            }
+        };
+        tx!()
+            .send_blocking(Event::ReceiverAvailable {
+                name: name.to_string(),
+                addr: parsed_addr,
+            })
+            .unwrap();
+    });
+
     let ui_weak = ui.as_weak();
 
     let (session_tx, session_rx) = tokio::sync::mpsc::channel(10);
