@@ -1,0 +1,22 @@
+import { Palette, HorizontalBox } from "std-widgets.slint";
+
+export component FormInput {
+    in property <string> label;
+    in property <length> container-height;
+
+    HorizontalBox {
+        Text {
+            text <=> label;
+            vertical-alignment: center;
+        }
+
+        Rectangle {
+            border-width: 2px;
+            border-radius: 4px;
+            border-color: Palette.border;
+            height <=> container-height;
+            @children
+        }
+    }
+}
+

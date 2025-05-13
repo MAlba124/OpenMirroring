@@ -15,7 +15,7 @@
 // You should have received a copy of the GNU General Public License
 // along with OpenMirroring.  If not, see <https://www.gnu.org/licenses/>.
 
-use std::net::SocketAddr;
+use std::net::{IpAddr, SocketAddr};
 
 pub mod discovery;
 
@@ -43,4 +43,5 @@ pub enum Event {
     PipelineIsPlaying,
     SessionTerminated,
     DisconnectedFromReceiver,
+    AvailableAddresses(Vec<IpAddr>),
 }

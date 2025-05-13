@@ -19,6 +19,7 @@ import { Palette, VerticalBox, HorizontalBox, ListView, Spinner, Button } from "
 
 import { HorizontalRule } from "horizontal-rule.slint";
 import { ToolTipArea } from "tool-tip-area.slint";
+import { FormInput } from "form-input.slint";
 
 export enum ReceiverState {
     Connectable,
@@ -30,26 +31,6 @@ export enum ReceiverState {
 export struct ReceiverItem {
     name: string,
     state: ReceiverState,
-}
-
-component FormInput {
-    in property <string> label;
-    in property <length> container-height;
-
-    HorizontalBox {
-        Text {
-            text <=> label;
-            vertical-alignment: center;
-        }
-
-        Rectangle {
-            border-width: 2px;
-            border-radius: 4px;
-            border-color: Palette.border;
-            height <=> container-height;
-            @children
-        }
-    }
 }
 
 export component CastDialog {

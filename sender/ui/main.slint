@@ -41,10 +41,12 @@ export component MainWindow inherits Window {
     in property <image> preview-frame <=> preview-image.source;
     in property <[string]> sources-model: [];
     in property <[ReceiverItem]> receivers-model: [];
+    in property <[string]> addresses-model: [];
 
     property <bool> receiver-is-connected: false;
     property <bool> receiver-is-connecting: false;
     property <bool> casting: false;
+    property <bool> starting: false;
 
     public function receiver-connected() {
         receiver-is-connected = true;
@@ -54,12 +56,21 @@ export component MainWindow inherits Window {
         receiver-is-connected = false;
     }
 
+    public function cast-starting() {
+        starting = true;
+    }
+
     public function cast-started() {
+        starting = false;
         casting = true;
     }
 
     public function cast-stopped() {
         casting = false;
+    }
+
+    public function currently-selected-address() -> { idx: int, port: int } {
+        settings.currently-selected-address()
     }
 
     // Maybe have vertical layout when the root width is, say 800 px, horizontal otherwise
@@ -105,7 +116,7 @@ export component MainWindow inherits Window {
                     }
                 }
 
-                if has-source && !casting : ToolTipArea {
+                if has-source && !casting && !starting: ToolTipArea {
                     text: "Start casting";
                     Button {
                         enabled: receiver-is-connected;
@@ -114,6 +125,13 @@ export component MainWindow inherits Window {
                         clicked => {
                             start-cast();
                         }
+                    }
+                }
+
+                if has-source && starting: ToolTipArea {
+                    text: "Casting is starting...";
+                    Spinner {
+                        indeterminate: true;
                     }
                 }
 
@@ -171,6 +189,9 @@ export component MainWindow inherits Window {
 
     settings := Settings {
         visible: false;
+        width: root.width >= 500px ? 500px : root.width;
+        border-radius: root.width >= 500px ? 8px: 0px;
+        stream-addresses <=> addresses-model;
 
         closed => {
             self.visible = false;
