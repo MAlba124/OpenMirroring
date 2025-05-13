@@ -74,6 +74,7 @@ impl RtpSink {
             )
             .build()?;
         let pay = gst::ElementFactory::make("rtph264pay")
+            .property("config-interval", -1i32)
             .property("pt", 96u32)
             .build()?;
         let queue2 = gst::ElementFactory::make("queue")
@@ -193,7 +194,7 @@ impl TransmissionSink for RtpSink {
                     &encoding-name=H264\
                     &payload=96\
                     &rtp-profile=1",
-                self.receiver_addr, self.port,
+                super::addr_to_url_string(self.receiver_addr), self.port,
             )),
             #[cfg(target_os = "android")]
             url: Some(format!(
@@ -224,11 +225,11 @@ impl TransmissionSink for RtpSink {
             .add_probe(gst::PadProbeType::BLOCK_DOWNSTREAM, |_, _| {
                 gst::PadProbeReturn::Ok
             })
-            .unwrap();
-        // .ok_or(anyhow::anyhow!("Failed to add pad probe to src_pad"))?; // TODO:
+            .ok_or(glib::bool_error!("Failed to add pad probe to src_pad"))?;
 
-        let queue_sink_pad = self.queue.static_pad("sink").unwrap();
-        // .ok_or(anyhow::anyhow!("Failed to get static sink pad from queue"))?; // TODO
+        let queue_sink_pad = self.queue.static_pad("sink").ok_or(glib::bool_error!(
+            "Failed to get static sink pad from queue"
+        ))?;
         self.src_pad.unlink(&queue_sink_pad)?;
         self.src_pad.remove_probe(block);
 

@@ -38,27 +38,18 @@ mod url_utils;
 
 const HLS_MIME_TYPE: &str = "application/vnd.apple.mpegurl";
 
+// TODO: handler errors
 async fn serve_dir(
     base: PathBuf,
     server_port: u16,
     mut file_rx: Receiver<fake_file_writer::ChannelElement>,
     mut fin: oneshot::Receiver<()>,
 ) {
-    #[cfg(not(target_os = "android"))]
-    let listener = tokio::net::TcpListener::bind(format!("0.0.0.0:{server_port}"))
+    let listener = tokio::net::TcpListener::bind(format!(":::{server_port}"))
         .await
         .unwrap();
-    #[cfg(target_os = "android")]
-    let listener = tokio::net::TcpListener::bind("0.0.0.0:30069")
-        .await
-        .unwrap(); // adb forward tcp:30069 tcp:30069
 
     debug!("HTTP server listening on {:?}", listener.local_addr());
-
-    // {
-    //     let mut server_port = server_port.lock().unwrap();
-    //     *server_port = Some(listener.local_addr().unwrap().port());
-    // }
 
     let mut files: HashMap<String, Vec<u8>> = HashMap::new();
 
@@ -427,16 +418,9 @@ impl TransmissionSink for HlsSink {
     fn get_play_msg(&self, addr: IpAddr) -> Option<PlayMessage> {
         Some(PlayMessage {
             container: HLS_MIME_TYPE.to_owned(),
-            #[cfg(not(target_os = "android"))]
             url: Some(format!(
-                "http://{}:{}/manifest.m3u8", // TODO: correct addr format?
-                addr, self.server_port,
-            )),
-            // TODO: use real address when not emulating
-            #[cfg(target_os = "android")]
-            url: Some(format!(
-                "http://127.0.0.1:{}/manifest.m3u8",
-                self.server_port
+                "http://{}:{}/manifest.m3u8", // TODO: correct addr string formatting?
+                super::addr_to_url_string(addr), self.server_port,
             )),
             content: None,
             time: Some(0.0),

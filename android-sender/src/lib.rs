@@ -15,7 +15,7 @@
 // You should have received a copy of the GNU General Public License
 // along with OpenMirroring.  If not, see <https://www.gnu.org/licenses/>.
 
-use std::net::SocketAddr;
+use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::rc::Rc;
 
 use common::sender::pipeline;
@@ -145,8 +145,9 @@ impl Application {
         })
         .await?;
 
-        // NOTE: untested because I can't get emu to work
-        pipeline.add_rtp_sink()?;
+        // TODO: fix these when running on hardware
+        pipeline.add_rtp_sink(5004, IpAddr::V4(Ipv4Addr::new(10, 0, 2, 2)))?;
+        pipeline.start()?;
 
         while let Ok(event) = rx!().recv().await {
             match event {
@@ -225,7 +226,9 @@ impl Application {
                     })?;
                 }
                 Event::StartCast => {
-                    let Some(play_msg) = pipeline.get_play_msg() else {
+                    let Some(play_msg) =
+                        pipeline.get_play_msg(std::net::IpAddr::V4(Ipv4Addr::LOCALHOST))
+                    else {
                         error!("Pipeline could not provide play message");
                         // TODO: tell UI
                         continue;

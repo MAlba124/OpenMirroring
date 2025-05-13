@@ -20,11 +20,9 @@ use anyhow::Result;
 use fcast_lib::models::PlayMessage;
 use futures::StreamExt;
 use gst::prelude::*;
+use log::debug;
 use log::error;
 use std::{future::Future, net::IpAddr};
-
-#[cfg(not(target_os = "android"))]
-use log::debug;
 
 pub use transmission::init;
 
@@ -293,6 +291,17 @@ impl Pipeline {
         }
     }
 
+    #[cfg(target_os = "android")]
+    pub fn start(&self) -> Result<()> {
+        use anyhow::bail;
+
+        if let Err(err) = self.inner.set_state(gst::State::Playing) {
+            bail!("{err}")
+        } else {
+            Ok(())
+        }
+    }
+
     #[cfg(not(target_os = "android"))]
     pub fn shutdown(&mut self) -> Result<()> {
         self.inner.set_state(gst::State::Null)?;
@@ -327,7 +336,7 @@ impl Pipeline {
             .appsrc
             .static_pad("src")
             .ok_or(anyhow::anyhow!("appsrc is missing src pad"))?;
-        self.tx_sink = Some(Box::new(HlsSink::new(&self.inner, appsrc_pad)?));
+        self.tx_sink = Some(Box::new(HlsSink::new(&self.inner, appsrc_pad, 5004)?));
 
         self.inner.set_state(gst::State::Playing)?; // NOTE: beware this is here
 
@@ -351,17 +360,15 @@ impl Pipeline {
     }
 
     #[cfg(target_os = "android")]
-    pub fn add_rtp_sink(&mut self) -> Result<()> {
+    pub fn add_rtp_sink(&mut self, port: u16, receiver_addr: IpAddr) -> Result<()> {
         let appsrc_pad = self
             .appsrc
             .static_pad("src")
             .ok_or(anyhow::anyhow!("appsrc is missing src pad"))?;
-        let rtp = RtpSink::new(&self.inner, appsrc_pad)?;
+        let rtp = RtpSink::new(&self.inner, appsrc_pad, port, receiver_addr)?;
         self.tx_sink = Some(Box::new(rtp));
 
-        log::debug!("Added RTP sink");
-
-        self.inner.set_state(gst::State::Playing)?; // NOTE: beware this is here
+        debug!("Added RTP sink");
 
         Ok(())
     }

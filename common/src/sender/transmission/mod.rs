@@ -23,6 +23,13 @@ use gst::glib;
 pub mod hls;
 pub mod rtp;
 
+fn addr_to_url_string(addr: IpAddr) -> String {
+    match addr {
+        IpAddr::V4(ipv4_addr) => ipv4_addr.to_string(),
+        IpAddr::V6(ipv6_addr) => format!("[{ipv6_addr}]"),
+    }
+}
+
 pub fn init() -> Result<(), gst::glib::BoolError> {
     Ok(())
 }
