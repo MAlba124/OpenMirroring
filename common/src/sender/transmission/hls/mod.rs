@@ -45,7 +45,7 @@ async fn serve_dir(
     mut file_rx: Receiver<fake_file_writer::ChannelElement>,
     mut fin: oneshot::Receiver<()>,
 ) {
-    let listener = tokio::net::TcpListener::bind(format!(":::{server_port}"))
+    let listener = tokio::net::TcpListener::bind(format!("[::]:{server_port}"))
         .await
         .unwrap();
 
@@ -420,7 +420,8 @@ impl TransmissionSink for HlsSink {
             container: HLS_MIME_TYPE.to_owned(),
             url: Some(format!(
                 "http://{}:{}/manifest.m3u8", // TODO: correct addr string formatting?
-                super::addr_to_url_string(addr), self.server_port,
+                super::addr_to_url_string(addr),
+                self.server_port,
             )),
             content: None,
             time: Some(0.0),

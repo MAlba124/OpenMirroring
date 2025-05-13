@@ -194,7 +194,8 @@ impl TransmissionSink for RtpSink {
                     &encoding-name=H264\
                     &payload=96\
                     &rtp-profile=1",
-                super::addr_to_url_string(self.receiver_addr), self.port,
+                super::addr_to_url_string(self.receiver_addr),
+                self.port,
             )),
             #[cfg(target_os = "android")]
             url: Some(format!(
