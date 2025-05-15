@@ -19,8 +19,6 @@ use anyhow::Result;
 use common::sender::session::{self, SessionMessage};
 use common::video::opengl::SlintOpenGLSink;
 use log::{debug, error, trace};
-use sender::discovery::discover;
-use simple_mdns::async_discovery::ServiceDiscovery;
 use std::sync::atomic::{AtomicBool, Ordering};
 use tokio::sync::mpsc::{Receiver, Sender};
 use tokio::sync::{self, oneshot};
@@ -29,9 +27,33 @@ use std::net::{IpAddr, SocketAddr};
 use std::rc::Rc;
 
 use common::sender::pipeline;
-use sender::Event;
 
 slint::include_modules!();
+
+pub type ProducerId = String;
+
+#[derive(Debug)]
+pub enum Event {
+    StartCast,
+    StopCast,
+    Sources(Vec<String>),
+    SelectSource(usize),
+    Packet(fcast_lib::packet::Packet),
+    ReceiverAvailable {
+        name: String,
+        addresses: Vec<SocketAddr>,
+    },
+    SelectReceiver(String),
+    ConnectedToReceiver,
+    DisconnectReceiver,
+    ChangeSource,
+    PipelineFinished,
+    PipelineIsPlaying,
+    SessionTerminated,
+    DisconnectedFromReceiver,
+    AvailableAddresses(Vec<IpAddr>),
+    ReceiverUnavailable(String),
+}
 
 struct Application {
     pipeline: pipeline::Pipeline,
@@ -43,7 +65,7 @@ struct Application {
     receivers: Vec<(ReceiverItem, SocketAddr)>,
     appsink: gst::Element,
     addresses: Vec<IpAddr>,
-    _discovery: ServiceDiscovery,
+    mdns: common::sender::discovery::ServiceDaemon,
 }
 
 impl Application {
@@ -56,12 +78,44 @@ impl Application {
     ) -> Result<Self> {
         // We need to wait until the preview sink has gotten it's required GL contexts,
         // if not the pipeline would fail to init
+        // TODO: shouldn't be done here
         gotten_gl.await?;
 
         let (select_source_tx, pipeline) =
             Self::new_pipeline(event_tx.clone(), appsink.clone()).await?;
 
-        let discovery = discover(event_tx.clone())?;
+        let mdns = {
+            let event_tx = event_tx.clone();
+            common::sender::discovery::discover(move |event| {
+                let event_tx = event_tx.clone();
+                async move {
+                    use common::sender::discovery::ServiceEvent;
+                    match event {
+                        ServiceEvent::ServiceResolved(service_info) => {
+                            let port = service_info.get_port();
+                            let addrs = service_info
+                                .get_addresses()
+                                .into_iter()
+                                .map(|a| SocketAddr::new(*a, port))
+                                .collect::<Vec<SocketAddr>>();
+                            event_tx
+                                .send(Event::ReceiverAvailable {
+                                    name: service_info.get_fullname().to_owned(),
+                                    addresses: addrs,
+                                })
+                                .await
+                                .unwrap();
+                        }
+                        ServiceEvent::ServiceRemoved(_, fullname) => event_tx
+                            .send(Event::ReceiverUnavailable(fullname))
+                            .await
+                            .unwrap(),
+                        _ => (),
+                    }
+                }
+            })
+            .await?
+        };
 
         {
             let event_tx = event_tx.clone();
@@ -92,8 +146,8 @@ impl Application {
             selected_source: false,
             receivers: Vec::new(),
             appsink,
-            _discovery: discovery,
             addresses: Vec::new(),
+            mdns,
         })
     }
 
@@ -309,20 +363,37 @@ impl Application {
                 Event::Packet(packet) => {
                     trace!("Unhandled packet: {packet:?}");
                 }
-                Event::ReceiverAvailable(receiver) => {
-                    if let Some(idx) = self.receivers_contains(&receiver.name) {
-                        self.receivers[idx].1 = receiver.addresses[0];
+                Event::ReceiverAvailable {
+                    mut name,
+                    addresses,
+                } => {
+                    if let Some(stripped) = name.strip_suffix("._fcast._tcp.local.") {
+                        name = stripped.to_owned();
+                    }
+                    debug!("Receiver available: {}", name);
+                    if let Some(idx) = self.receivers_contains(&name) {
+                        self.receivers[idx].1 = addresses[0];
                     } else {
                         self.receivers.push((
                             ReceiverItem {
-                                name: receiver.name.into(),
+                                name: name.into(),
                                 state: self.receivers_general_state(),
                             },
-                            receiver.addresses[0],
+                            addresses[0],
                         ));
                     }
 
                     self.update_receivers_in_ui()?;
+                }
+                Event::ReceiverUnavailable(mut name) => {
+                    if let Some(stripped) = name.strip_suffix("._fcast._tcp.local.") {
+                        name = stripped.to_owned();
+                    }
+                    if let Some(idx) = self.receivers_contains(&name) {
+                        debug!("Receiver unavailable: {name}");
+                        self.receivers.remove(idx);
+                        self.update_receivers_in_ui()?;
+                    }
                 }
                 Event::SelectReceiver(receiver) => {
                     if let Some(idx) = self.receivers_contains(&receiver) {
@@ -378,6 +449,7 @@ impl Application {
                 Event::PipelineIsPlaying => {
                     self.pipeline.playing().await?;
 
+                    // TODO: Should not always try to play!
                     let (addr_tx, addr_rx) = oneshot::channel();
 
                     self.ui_weak.upgrade_in_event_loop(move |ui| {
@@ -447,6 +519,8 @@ impl Application {
 
         self.pipeline.shutdown()?;
 
+        self.mdns.shutdown()?;
+
         fin_tx.send(()).unwrap();
 
         Ok(())
@@ -480,6 +554,7 @@ fn main() -> Result<()> {
         .filter_module("sender", common::default_log_level())
         .filter_module("scap", common::default_log_level())
         .filter_module("common", common::default_log_level())
+        .filter_module("mdns_sd", common::default_log_level())
         .init();
 
     slint::BackendSelector::new()
@@ -639,10 +714,10 @@ fn main() -> Result<()> {
                 }
             };
             event_tx
-                .blocking_send(Event::ReceiverAvailable(sender::Receiver {
+                .blocking_send(Event::ReceiverAvailable {
                     name: name.to_string(),
                     addresses: vec![parsed_addr],
-                }))
+                })
                 .unwrap();
         });
     }

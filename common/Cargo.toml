@@ -20,6 +20,7 @@ gst = { workspace = true, optional = true, features = [ "v1_24" ] }
 gst-app = { workspace = true, optional = true, features = [ "v1_24" ] }
 fcast-lib = { path = "../fcast-lib", optional = true }
 tokio-stream = { workspace = true, optional = true }
+mdns-sd = { workspace = true, optional = true }
 
 [target.'cfg(target_os = "android")'.dependencies]
 crossbeam-channel = { version = "0.5.15", optional = true }
@@ -41,7 +42,7 @@ glutin_glx_sys = "0.6.1"
 video = ["gst", "gst-app", "gst-video", "gst-gl"]
 sender = ["gst", "gst-video", "gio", "m3u8-rs", "gst-pbutils",
         "http", "async-trait", "crossbeam-channel", "gst-app", "futures",
-        "fcast-lib", "tokio-stream"]
+        "fcast-lib", "tokio-stream", "mdns-sd"]
 
 [dev-dependencies]
 quickcheck = "1"

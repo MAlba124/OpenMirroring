@@ -11,7 +11,8 @@ gst = { workspace = true }
 common = { path = "../common", features = ["video", "sender"] }
 fcast-lib = { path = "../fcast-lib" }
 scap-gstreamer = { path = "../scap-gstreamer" }
-simple-mdns = { workspace = true }
+# mdns-sd = { workspace = true }
+# simple-mdns = { workspace = true }
 slint = { workspace = true }
 anyhow = { workspace = true }
 
