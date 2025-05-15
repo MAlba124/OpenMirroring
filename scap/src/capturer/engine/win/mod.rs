@@ -121,7 +121,7 @@ pub fn create_capturer(
     let target = options
         .target
         .clone()
-        .unwrap_or_else(|| Target::Display(targets::get_main_display()));
+        .unwrap_or_else(|| Target::Display(targets::get_main_display().unwrap()));
 
     let color_format = ColorFormat::Bgra8;
 

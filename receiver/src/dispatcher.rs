@@ -17,7 +17,6 @@
 
 use anyhow::Result;
 use log::{debug, info};
-use simple_mdns::async_discovery::ServiceDiscovery;
 use tokio::net::TcpListener;
 
 use crate::{Event, session::SessionId};
@@ -25,42 +24,17 @@ use crate::{Event, session::SessionId};
 pub struct Dispatcher {
     listener: TcpListener,
     event_tx: tokio::sync::mpsc::Sender<Event>,
-    discovery: ServiceDiscovery,
 }
 
 impl Dispatcher {
     pub async fn new(event_tx: tokio::sync::mpsc::Sender<Event>) -> Result<Self> {
         let listener = TcpListener::bind("0.0.0.0:46899").await?;
 
-        let instance_info = {
-            let mut i = simple_mdns::InstanceInformation::new(format!(
-                "OpenMirroring-{}",
-                gethostname::gethostname().to_string_lossy()
-            ));
-
-            for addr in common::net::get_all_ip_addresses()
-                .into_iter()
-                .filter(|a| a.is_ipv4() && !a.is_loopback())
-            {
-                i = i.with_ip_address(addr).with_port(46899);
-                log::debug!("Added {addr:?} as service");
-            }
-
-            i.with_port(46899)
-        };
-
-        let discovery =
-            ServiceDiscovery::new(instance_info, "_fcast._tcp.local", 60, async |_| {}).unwrap();
-
-        Ok(Self {
-            listener,
-            event_tx,
-            discovery,
-        })
+        Ok(Self { listener, event_tx })
     }
 
     // TODO: Websocket listener
-    pub async fn run(mut self, mut fin_rx: tokio::sync::oneshot::Receiver<()>) -> Result<()> {
+    pub async fn run(self, mut fin_rx: tokio::sync::oneshot::Receiver<()>) -> Result<()> {
         info!("Listening on {:?}", self.listener.local_addr());
 
         let mut id: SessionId = 0;
@@ -79,8 +53,6 @@ impl Dispatcher {
         }
 
         debug!("Quitting");
-
-        self.discovery.remove_service_from_discovery().await;
 
         self.event_tx.send(Event::Quit).await?;
 

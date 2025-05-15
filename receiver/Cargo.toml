@@ -8,7 +8,6 @@ tokio = { workspace = true }
 log = { workspace = true }
 env_logger = { workspace = true }
 gst = { workspace = true }
-simple-mdns = { workspace = true }
 fcast-lib = { path = "../fcast-lib" }
 common = { path = "../common", features = ["video"] }
 gethostname = "1.0.1"
@@ -20,6 +19,7 @@ glow = "0.16.0"
 url = "2.5.4"
 thiserror = "2.0.12"
 clap = { version = "4.5.38", features = ["derive"] }
+mdns-sd = { workspace = true }
 
 [build-dependencies]
 slint-build = { workspace = true }

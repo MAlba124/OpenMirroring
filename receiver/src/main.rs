@@ -30,7 +30,9 @@ use receiver::underlays::video::VideoUnderlay;
 use tokio::sync::mpsc::{self, Receiver, Sender};
 use tokio::sync::{broadcast, oneshot};
 
-use std::net::Ipv4Addr;
+use std::net::{IpAddr, Ipv4Addr};
+
+const FCAST_TCP_PORT: u16 = 46899;
 
 slint::include_modules!();
 
@@ -39,6 +41,7 @@ struct Application {
     event_tx: Sender<Event>,
     ui_weak: slint::Weak<MainWindow>,
     updates_tx: broadcast::Sender<Vec<u8>>, // TODO: maybe Arc<Vec<u8>> will lead to less allocs?
+    mdns: mdns_sd::ServiceDaemon,
 }
 
 impl Application {
@@ -50,6 +53,7 @@ impl Application {
         let pipeline = Pipeline::new(appsink, event_tx.clone()).await?;
         let (updates_tx, _) = broadcast::channel(10);
 
+        // TODO: can be inlined in the main event loop as some kind of timer...
         tokio::spawn({
             let event_tx = event_tx.clone();
             async move {
@@ -60,11 +64,44 @@ impl Application {
             }
         });
 
+        // TODO: IPv6?
+        let mdns = {
+            let daemon = mdns_sd::ServiceDaemon::new()?;
+
+            let ips = common::net::get_all_ip_addresses()
+                .into_iter()
+                .filter(|a| a.is_ipv4() && !a.is_loopback())
+                .collect::<Vec<IpAddr>>();
+
+            if ips.is_empty() {
+                bail!("No addresses available to use for mDNS discovery");
+            }
+
+            let name = format!(
+                "OpenMirroring-{}",
+                gethostname::gethostname().to_string_lossy()
+            );
+
+            let service = mdns_sd::ServiceInfo::new(
+                "_fcast._tcp.local.",
+                &name,
+                &format!("{name}.local."),
+                ips.as_slice(),
+                FCAST_TCP_PORT,
+                None::<std::collections::HashMap<String, String>>,
+            )?;
+
+            daemon.register(service)?;
+
+            daemon
+        };
+
         Ok(Self {
             pipeline,
             event_tx,
             ui_weak,
             updates_tx,
+            mdns,
         })
     }
 
@@ -116,6 +153,7 @@ impl Application {
         Ok(())
     }
 
+    // TODO: handle dispatch events inline
     pub async fn run_event_loop(
         self,
         mut event_rx: Receiver<Event>,
@@ -247,6 +285,8 @@ impl Application {
         if fin_tx.send(()).is_err() {
             bail!("Failed to send fin");
         }
+
+        self.mdns.shutdown()?;
 
         Ok(())
     }

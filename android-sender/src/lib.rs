@@ -30,8 +30,6 @@ use log::error;
 use anyhow::Result;
 use log::trace;
 
-mod discovery;
-
 lazy_static::lazy_static! {
     pub static ref EVENT_CHAN: (async_channel::Sender<Event>, async_channel::Receiver<Event>) =
         async_channel::unbounded();
@@ -61,6 +59,7 @@ pub enum Event {
     CaptureStarted,
     CaptureStopped,
     ReceiverAvailable { name: String, addr: SocketAddr },
+    ReceiverUnavailable(String),
     Packet(fcast_lib::packet::Packet),
     ConnectedToReceiver,
     SessionTerminated,
@@ -75,18 +74,49 @@ struct Application {
     ui_weak: slint::Weak<MainWindow>,
     session_tx: tokio::sync::mpsc::Sender<SessionMessage>,
     receivers: Vec<(ReceiverItem, SocketAddr)>,
+    mdns: common::sender::discovery::ServiceDaemon,
 }
 
 impl Application {
-    pub fn new(
+    pub async fn new(
         ui_weak: slint::Weak<MainWindow>,
         session_tx: tokio::sync::mpsc::Sender<SessionMessage>,
-    ) -> Self {
-        Self {
+    ) -> Result<Self> {
+        let mdns = {
+            common::sender::discovery::discover(move |event| async move {
+                use common::sender::discovery::ServiceEvent;
+                match event {
+                    ServiceEvent::ServiceResolved(service_info) => {
+                        let port = service_info.get_port();
+                        let addrs = service_info
+                            .get_addresses()
+                            .into_iter()
+                            .map(|a| SocketAddr::new(*a, port))
+                            .collect::<Vec<SocketAddr>>();
+                        tx!()
+                            .send(Event::ReceiverAvailable {
+                                name: service_info.get_fullname().to_owned(),
+                                addr: addrs[0],
+                            })
+                            .await
+                            .unwrap();
+                    }
+                    ServiceEvent::ServiceRemoved(_, fullname) => tx!()
+                        .send(Event::ReceiverUnavailable(fullname))
+                        .await
+                        .unwrap(),
+                    _ => (),
+                }
+            })
+            .await?
+        };
+
+        Ok(Self {
             ui_weak,
             session_tx,
             receivers: Vec::new(),
-        }
+            mdns,
+        })
     }
 
     fn receivers_contains(&self, x: &str) -> Option<usize> {
@@ -145,6 +175,18 @@ impl Application {
         })
         .await?;
 
+        // NOTE: used for testing in an emulator
+        tx!()
+            .send(crate::Event::ReceiverAvailable {
+                name: "OpenMirroring-test".to_owned(),
+                addr: std::net::SocketAddr::V4(std::net::SocketAddrV4::new(
+                    std::net::Ipv4Addr::new(10, 0, 2, 2),
+                    46899,
+                )),
+            })
+            .await
+            .unwrap();
+
         // TODO: fix these when running on hardware
         pipeline.add_rtp_sink(5004, IpAddr::V4(Ipv4Addr::new(10, 0, 2, 2)))?;
         pipeline.start()?;
@@ -161,7 +203,10 @@ impl Application {
                         handle.invoke_screen_capture_stopped();
                     })?;
                 }
-                Event::ReceiverAvailable { name, addr } => {
+                Event::ReceiverAvailable { mut name, addr } => {
+                    if let Some(stripped) = name.strip_suffix("._fcast._tcp.local.") {
+                        name = stripped.to_owned();
+                    }
                     if let Some(idx) = self.receivers_contains(&name) {
                         self.receivers[idx].1 = addr;
                     } else {
@@ -175,6 +220,16 @@ impl Application {
                     }
 
                     self.update_receivers_in_ui()?;
+                }
+                Event::ReceiverUnavailable(mut name) => {
+                    if let Some(stripped) = name.strip_suffix("._fcast._tcp.local.") {
+                        name = stripped.to_owned();
+                    }
+                    if let Some(idx) = self.receivers_contains(&name) {
+                        debug!("Receiver unavailable: {name}");
+                        self.receivers.remove(idx);
+                        self.update_receivers_in_ui()?;
+                    }
                 }
                 Event::Packet(packet) => trace!("{packet:?}"),
                 Event::ConnectedToReceiver => {
@@ -252,6 +307,8 @@ impl Application {
 
         debug!("Quitting");
 
+        self.mdns.shutdown()?;
+
         Ok(())
     }
 }
@@ -272,8 +329,6 @@ fn android_main(app: slint::android::AndroidApp) {
 
     gst::init().unwrap();
     common::sender::pipeline::init().unwrap();
-
-    // let payloaders = gst::ElementFactory::factories_with_type(gst::ElementFactoryType::PAYLOADER, gst::Rank::MARGINAL,); for p in payloaders {debug!("{p:?}");}
 
     debug!("GStreamer version: {:?}", gst::version());
 
@@ -345,9 +400,12 @@ fn android_main(app: slint::android::AndroidApp) {
 
     let (session_tx, session_rx) = tokio::sync::mpsc::channel(10);
 
-    common::runtime().spawn(Application::new(ui_weak, session_tx).run_event_loop());
-
-    common::runtime().spawn(discovery::discover());
+    common::runtime().spawn(async move {
+        Application::new(ui_weak, session_tx)
+            .await
+            .unwrap()
+            .run_event_loop()
+    });
 
     common::runtime().spawn(session::session(
         session_rx,
