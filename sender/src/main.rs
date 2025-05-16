@@ -26,7 +26,7 @@ use tokio::sync::{self, oneshot};
 use std::net::{IpAddr, SocketAddr};
 use std::rc::Rc;
 
-use common::sender::pipeline;
+use common::sender::{discovery, pipeline};
 
 slint::include_modules!();
 
@@ -65,7 +65,7 @@ struct Application {
     receivers: Vec<(ReceiverItem, SocketAddr)>,
     appsink: gst::Element,
     addresses: Vec<IpAddr>,
-    mdns: common::sender::discovery::ServiceDaemon,
+    mdns: discovery::ServiceDaemon,
 }
 
 impl Application {
@@ -74,19 +74,13 @@ impl Application {
         event_tx: Sender<Event>,
         session_tx: Sender<SessionMessage>,
         appsink: gst::Element,
-        gotten_gl: oneshot::Receiver<()>,
     ) -> Result<Self> {
-        // We need to wait until the preview sink has gotten it's required GL contexts,
-        // if not the pipeline would fail to init
-        // TODO: shouldn't be done here
-        gotten_gl.await?;
-
         let (select_source_tx, pipeline) =
             Self::new_pipeline(event_tx.clone(), appsink.clone()).await?;
 
         let mdns = {
             let event_tx = event_tx.clone();
-            common::sender::discovery::discover(move |event| {
+            discovery::discover(move |event| {
                 let event_tx = event_tx.clone();
                 async move {
                     use common::sender::discovery::ServiceEvent;
@@ -277,7 +271,7 @@ impl Application {
     }
 
     pub async fn run_event_loop(
-        &mut self,
+        mut self,
         mut event_rx: Receiver<Event>,
         fin_tx: oneshot::Sender<()>,
     ) -> Result<()> {
@@ -647,11 +641,16 @@ fn main() -> Result<()> {
         let event_tx = event_tx.clone();
         let session_tx = session_tx.clone();
         async move {
-            let mut app =
-                Application::new(ui_weak, event_tx, session_tx, slint_appsink, gotten_gl_rx)
-                    .await
-                    .unwrap();
-            app.run_event_loop(event_rx, fin_tx).await.unwrap();
+            // We need to wait until the preview sink has gotten it's required GL contexts,
+            // if not, creating a pipeline would fail
+            gotten_gl_rx.await.unwrap();
+
+            Application::new(ui_weak, event_tx, session_tx, slint_appsink)
+                .await
+                .unwrap()
+                .run_event_loop(event_rx, fin_tx)
+                .await
+                .unwrap();
         }
     });
 
