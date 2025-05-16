@@ -28,10 +28,10 @@ OMReceiver is also an FCast receiver.
 
 #### Mobile
 
-![Android demo](./assets/android_poc.png)
+![Android demo](./assets/android_poc_2.png)
 
-`android-sender/` contains a proof of concept sender implementation for Android. It's barely usable with
-extremely high latency as one can see from the clock in the top left corner in the screenshot above.
+`android-sender/` contains a proof of concept sender implementation for Android. It's currently only
+tested in an emulator.
 
 ### Installing
 
