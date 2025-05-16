@@ -446,7 +446,6 @@ impl Application {
                 Event::PipelineIsPlaying => {
                     self.pipeline.playing().await?;
 
-                    // TODO: Should not always try to play!
                     if should_play {
                         let (addr_tx, addr_rx) = oneshot::channel();
 
