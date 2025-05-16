@@ -38,16 +38,13 @@ mod url_utils;
 
 const HLS_MIME_TYPE: &str = "application/vnd.apple.mpegurl";
 
-// TODO: handler errors
 async fn serve_dir(
     base: PathBuf,
     server_port: u16,
     mut file_rx: Receiver<fake_file_writer::ChannelElement>,
     mut fin: oneshot::Receiver<()>,
-) {
-    let listener = tokio::net::TcpListener::bind(format!("[::]:{server_port}"))
-        .await
-        .unwrap();
+) -> Result<()> {
+    let listener = tokio::net::TcpListener::bind(format!("[::]:{server_port}")).await?;
 
     debug!("HTTP server listening on {:?}", listener.local_addr());
 
@@ -62,21 +59,21 @@ async fn serve_dir(
                 break;
             }
             v = listener.accept() => {
-                let (mut stream, _) = v.unwrap();
+                let (mut stream, _) = v?;
 
                 request_buf.clear();
                 response_buf.clear();
 
                 let mut buf = [0; 4096];
                 loop {
-                    let bytes_read = stream.read(&mut buf).await.unwrap();
+                    let bytes_read = stream.read(&mut buf).await?;
                     request_buf.extend_from_slice(&buf);
                     if bytes_read < buf.len() {
                         break;
                     }
                 }
 
-                let request = http::Request::parse(&request_buf).unwrap();
+                let request = http::Request::parse(&request_buf)?;
 
                 if request.start_line.method != http::RequestMethod::Get {
                     let response = http::Response {
@@ -88,7 +85,7 @@ async fn serve_dir(
                         body: None,
                     };
                     response.serialize_into(&mut response_buf);
-                    stream.write_all(&response_buf).await.unwrap();
+                    stream.write_all(&response_buf).await?;
                     continue;
                 }
 
@@ -108,7 +105,7 @@ async fn serve_dir(
                         body: None,
                     };
                     response.serialize_into(&mut response_buf);
-                    stream.write_all(&response_buf).await.unwrap();
+                    stream.write_all(&response_buf).await?;
                     continue;
                 };
 
@@ -131,7 +128,7 @@ async fn serve_dir(
                             body: Some(file_contents),
                         };
                         response.serialize_into(&mut response_buf);
-                        stream.write_all(&response_buf).await.unwrap();
+                        stream.write_all(&response_buf).await?;
                     }
                     None => {
                         error!("File not found: {}", base_path.display());
@@ -144,7 +141,7 @@ async fn serve_dir(
                             body: None,
                         };
                         response.serialize_into(&mut response_buf);
-                        stream.write_all(&response_buf).await.unwrap();
+                        stream.write_all(&response_buf).await?;
                         continue;
                     }
                 }
@@ -166,6 +163,8 @@ async fn serve_dir(
     }
 
     debug!("Quitting http server");
+
+    Ok(())
 }
 
 fn get_codec_name(sink: &gst::Element) -> Result<String> {
@@ -243,12 +242,14 @@ impl HlsSink {
 
         let (server_fin_tx, server_fin_rx) = oneshot::channel::<()>();
         let server_port = port;
-        crate::runtime().spawn(serve_dir(
-            base_path.clone(),
-            server_port,
-            file_rx,
-            server_fin_rx,
-        ));
+        crate::runtime().spawn({
+            let base_path = base_path.clone();
+            async move {
+                if let Err(err) = serve_dir(base_path, server_port, file_rx, server_fin_rx).await {
+                    error!("Error occured serving directory: {err}");
+                }
+            }
+        });
 
         let mut manifest_path = base_path.clone();
         manifest_path.push("manifest.m3u8");
