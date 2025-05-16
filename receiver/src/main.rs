@@ -31,6 +31,7 @@ use tokio::sync::mpsc::{self, Receiver, Sender};
 use tokio::sync::{broadcast, oneshot};
 
 use std::net::{IpAddr, Ipv4Addr};
+use std::sync::Arc;
 
 const FCAST_TCP_PORT: u16 = 46899;
 
@@ -40,7 +41,7 @@ struct Application {
     pipeline: Pipeline,
     event_tx: Sender<Event>,
     ui_weak: slint::Weak<MainWindow>,
-    updates_tx: broadcast::Sender<Vec<u8>>, // TODO: maybe Arc<Vec<u8>> will lead to less allocs?
+    updates_tx: broadcast::Sender<Arc<Vec<u8>>>,
     mdns: mdns_sd::ServiceDaemon,
 }
 
@@ -137,7 +138,8 @@ impl Application {
 
         if self.updates_tx.receiver_count() > 0 {
             debug!("Sending update ({update:?})");
-            self.updates_tx.send(Packet::from(update).encode())?;
+            self.updates_tx
+                .send(Arc::new(Packet::from(update).encode()))?;
         }
 
         Ok(())

@@ -15,6 +15,8 @@
 // You should have received a copy of the GNU General Public License
 // along with OpenMirroring.  If not, see <https://www.gnu.org/licenses/>.
 
+use std::sync::Arc;
+
 use anyhow::Result;
 use futures::stream::unfold;
 use log::{debug, error, trace, warn};
@@ -40,7 +42,7 @@ impl Session {
 
     pub async fn run(
         mut self,
-        updates_rx: Receiver<Vec<u8>>,
+        updates_rx: Receiver<Arc<Vec<u8>>>,
         event_tx: &Sender<Event>,
     ) -> Result<()> {
         debug!("id={} Session was started", self.id);
@@ -57,13 +59,16 @@ impl Session {
             }
         });
 
-        let updates_stream = unfold(updates_rx, |mut updates_rx: Receiver<Vec<u8>>| async move {
-            updates_rx
-                .recv()
-                .await
-                .ok()
-                .map(|update| (update, updates_rx))
-        });
+        let updates_stream = unfold(
+            updates_rx,
+            |mut updates_rx: Receiver<Arc<Vec<u8>>>| async move {
+                updates_rx
+                    .recv()
+                    .await
+                    .ok()
+                    .map(|update| (update, updates_rx))
+            },
+        );
 
         tokio::pin!(packets_stream);
         tokio::pin!(updates_stream);
