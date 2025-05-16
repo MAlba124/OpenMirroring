@@ -22,11 +22,11 @@ use common::video::opengl::SlintOpenGLSink;
 use fcast_lib::packet::Packet;
 use log::{debug, error, warn};
 use receiver::Event;
-use receiver::dispatcher::Dispatcher;
 use receiver::pipeline::Pipeline;
-use receiver::session::Session;
+use receiver::session::{Session, SessionId};
 use receiver::underlays::background::BackgroundUnderlay;
 use receiver::underlays::video::VideoUnderlay;
+use tokio::net::TcpListener;
 use tokio::sync::mpsc::{self, Receiver, Sender};
 use tokio::sync::{broadcast, oneshot};
 
@@ -146,27 +146,6 @@ impl Application {
     /// Returns `true` if the event loop should exit
     async fn handle_event(&self, event: Event) -> Result<bool> {
         match event {
-            Event::CreateSessionRequest { stream, id } => {
-                debug!("Got CreateSessionRequest id={id}");
-                tokio::spawn({
-                    let event_tx = self.event_tx.clone();
-                    let updates_rx = self.updates_tx.subscribe();
-                    async move {
-                        if let Err(err) =
-                            Session::new(stream, id).run(updates_rx, &event_tx).await
-                        {
-                            error!("Session exited with error: {err}");
-                        }
-
-                        if let Err(err) = event_tx.send(Event::SessionFinished).await {
-                            error!("Failed to send SessionFinished: {err}");
-                        }
-                    }
-                });
-                self.ui_weak.upgrade_in_event_loop(|ui| {
-                    ui.invoke_device_connected();
-                })?;
-            }
             Event::SessionFinished => {
                 self.ui_weak.upgrade_in_event_loop(|ui| {
                     ui.invoke_device_disconnected();
@@ -263,12 +242,15 @@ impl Application {
         Ok(false)
     }
 
-    // TODO: handle dispatch events inline
     pub async fn run_event_loop(
         self,
         mut event_rx: Receiver<Event>,
         fin_tx: oneshot::Sender<()>,
     ) -> Result<()> {
+        let dispatch_listener = TcpListener::bind("0.0.0.0:46899").await?;
+
+        let mut session_id: SessionId = 0;
+
         loop {
             tokio::select! {
                 event = event_rx.recv() => {
@@ -282,6 +264,34 @@ impl Application {
                 }
                 _ = tokio::time::sleep(std::time::Duration::from_millis(1000)) => {
                     self.notify_updates()?;
+                }
+                session = dispatch_listener.accept() => {
+                    let (stream, _) = session?;
+
+                    debug!("New connection id={session_id}");
+
+                    tokio::spawn({
+                        let id = session_id;
+                        let event_tx = self.event_tx.clone();
+                        let updates_rx = self.updates_tx.subscribe();
+                        async move {
+                            if let Err(err) =
+                                Session::new(stream, id).run(updates_rx, &event_tx).await
+                            {
+                                error!("Session exited with error: {err}");
+                            }
+
+                            if let Err(err) = event_tx.send(Event::SessionFinished).await {
+                                error!("Failed to send SessionFinished: {err}");
+                            }
+                        }
+                    });
+
+                    self.ui_weak.upgrade_in_event_loop(|ui| {
+                        ui.invoke_device_connected();
+                    })?;
+
+                    session_id += 1;
                 }
             }
         }
@@ -421,19 +431,6 @@ fn main() -> Result<()> {
         }
     });
 
-    let (disp_fin_tx, disp_fin_rx) = tokio::sync::oneshot::channel();
-    {
-        let event_tx = event_tx.clone();
-        runtime().spawn(async move {
-            Dispatcher::new(event_tx)
-                .await
-                .unwrap()
-                .run(disp_fin_rx)
-                .await
-                .unwrap();
-        });
-    }
-
     {
         let event_tx = event_tx.clone();
         ui.on_resume_or_pause(move || {
@@ -455,7 +452,7 @@ fn main() -> Result<()> {
     runtime().block_on(async move {
         debug!("Shutting down...");
 
-        disp_fin_tx.send(()).unwrap();
+        event_tx.send(Event::Quit).await.unwrap();
         fin_rx.await.unwrap();
     });
 

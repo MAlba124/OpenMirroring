@@ -16,17 +16,13 @@
 // along with OpenMirroring.  If not, see <https://www.gnu.org/licenses/>.
 
 use fcast_lib::models::{PlayMessage, SeekMessage, SetSpeedMessage, SetVolumeMessage};
-use session::SessionId;
-use tokio::net::TcpStream;
 
-pub mod dispatcher;
 pub mod pipeline;
 pub mod session;
 pub mod underlays;
 
 #[derive(Debug)]
 pub enum Event {
-    CreateSessionRequest { stream: TcpStream, id: SessionId },
     Pause,
     Play(PlayMessage),
     Resume,
