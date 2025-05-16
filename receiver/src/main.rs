@@ -53,17 +53,6 @@ impl Application {
         let pipeline = Pipeline::new(appsink, event_tx.clone()).await?;
         let (updates_tx, _) = broadcast::channel(10);
 
-        // TODO: can be inlined in the main event loop as some kind of timer...
-        tokio::spawn({
-            let event_tx = event_tx.clone();
-            async move {
-                loop {
-                    tokio::time::sleep(std::time::Duration::from_millis(1000)).await;
-                    event_tx.send(Event::SendPlaybackUpdate).await.unwrap();
-                }
-            }
-        });
-
         // TODO: IPv6?
         let mdns = {
             let daemon = mdns_sd::ServiceDaemon::new()?;
@@ -105,6 +94,7 @@ impl Application {
         })
     }
 
+    // TODO: errors should not be handled as fatal
     fn notify_updates(&self) -> Result<()> {
         let update = self.pipeline.get_playback_state()?;
 
@@ -153,127 +143,145 @@ impl Application {
         Ok(())
     }
 
+    /// Returns `true` if the event loop should exit
+    async fn handle_event(&self, event: Event) -> Result<bool> {
+        match event {
+            Event::CreateSessionRequest { stream, id } => {
+                debug!("Got CreateSessionRequest id={id}");
+                tokio::spawn({
+                    let event_tx = self.event_tx.clone();
+                    let updates_rx = self.updates_tx.subscribe();
+                    async move {
+                        if let Err(err) =
+                            Session::new(stream, id).run(updates_rx, &event_tx).await
+                        {
+                            error!("Session exited with error: {err}");
+                        }
+
+                        if let Err(err) = event_tx.send(Event::SessionFinished).await {
+                            error!("Failed to send SessionFinished: {err}");
+                        }
+                    }
+                });
+                self.ui_weak.upgrade_in_event_loop(|ui| {
+                    ui.invoke_device_connected();
+                })?;
+            }
+            Event::SessionFinished => {
+                self.ui_weak.upgrade_in_event_loop(|ui| {
+                    ui.invoke_device_disconnected();
+                })?;
+            }
+            Event::Pause => {
+                self.pipeline.pause()?;
+                self.notify_updates()?;
+            }
+            Event::Play(play_message) => {
+                if let Err(err) = self.pipeline.set_playback_uri(&play_message.url.unwrap()) {
+                    use receiver::pipeline::SetPlaybackUriError;
+                    match err {
+                        SetPlaybackUriError::PipelineStateChange(state_change_error) => {
+                            return Err(state_change_error.into());
+                        }
+                        _ => {
+                            error!("Failed to set playback URI: {err}");
+                            return Ok(false);
+                        }
+                    }
+                }
+                if let Err(err) = self.pipeline.play_or_resume() {
+                    error!("Failed to play_or_resume pipeline: {err}");
+                } else {
+                    self.ui_weak.upgrade_in_event_loop(|ui| {
+                        ui.invoke_playback_started();
+                    })?;
+                    self.notify_updates()?;
+                }
+            }
+            Event::Resume => self.pipeline.play_or_resume()?,
+            Event::ResumeOrPause => {
+                let Some(playing) = self.pipeline.is_playing() else {
+                    warn!("Pipeline is not in a state that can be resumed or paused");
+                    return Ok(false);
+                };
+                if let Err(err) = if playing {
+                    self.pipeline.pause()
+                } else {
+                    self.pipeline.play_or_resume()
+                } {
+                    error!("Failed to ResumeOrPause: {err}");
+                }
+                self.notify_updates()?;
+            }
+            Event::Stop => {
+                self.pipeline.stop()?;
+                self.ui_weak.upgrade_in_event_loop(|ui| {
+                    ui.invoke_playback_stopped();
+                })?;
+            }
+            Event::SetSpeed(set_speed_message) => {
+                self.pipeline.set_speed(set_speed_message.speed)?
+            }
+            Event::Seek(seek_message) => {
+                self.pipeline.seek(seek_message.time)?;
+                self.notify_updates()?;
+            }
+            Event::SeekPercent(percent) => {
+                let Some(duration) = self.pipeline.get_duration() else {
+                    error!("Failed to get playback duration");
+                    return Ok(false);
+                };
+                if duration.is_zero() {
+                    error!("Cannot seek when the duration is zero");
+                    return Ok(false);
+                }
+                let seek_to = duration.seconds_f64() * (percent as f64 / 100.0);
+                self.pipeline.seek(seek_to)?;
+                self.notify_updates()?;
+            }
+            Event::SetVolume(set_volume_message) => {
+                self.pipeline.set_volume(set_volume_message.volume)
+            }
+            Event::SendPlaybackUpdate => self.notify_updates()?,
+            Event::Quit => return Ok(true),
+            Event::PipelineEos => {
+                debug!("Pipeline reached EOS");
+                self.pipeline.stop()?;
+                self.ui_weak.upgrade_in_event_loop(|ui| {
+                    ui.invoke_playback_stopped();
+                })?;
+            }
+            Event::PipelineError => {
+                self.pipeline.stop()?;
+                // TODO: send error message to sessions
+                self.ui_weak.upgrade_in_event_loop(|ui| {
+                    ui.invoke_playback_stopped_with_error("Error unclear (todo)".into());
+                })?;
+            }
+        }
+
+        Ok(false)
+    }
+
     // TODO: handle dispatch events inline
     pub async fn run_event_loop(
         self,
         mut event_rx: Receiver<Event>,
         fin_tx: oneshot::Sender<()>,
     ) -> Result<()> {
-        let (updates_tx, _) = broadcast::channel(10);
-
-        while let Some(event) = event_rx.recv().await {
-            match event {
-                Event::CreateSessionRequest { stream, id } => {
-                    debug!("Got CreateSessionRequest id={id}");
-                    tokio::spawn({
-                        let event_tx = self.event_tx.clone();
-                        let updates_rx = updates_tx.subscribe();
-                        async move {
-                            if let Err(err) =
-                                Session::new(stream, id).run(updates_rx, &event_tx).await
-                            {
-                                error!("Session exited with error: {err}");
-                            }
-
-                            if let Err(err) = event_tx.send(Event::SessionFinished).await {
-                                error!("Failed to send SessionFinished: {err}");
-                            }
+        loop {
+            tokio::select! {
+                event = event_rx.recv() => {
+                    if let Some(event) = event {
+                        if self.handle_event(event).await? {
+                            break;
                         }
-                    });
-                    self.ui_weak.upgrade_in_event_loop(|ui| {
-                        ui.invoke_device_connected();
-                    })?;
-                }
-                Event::SessionFinished => {
-                    self.ui_weak.upgrade_in_event_loop(|ui| {
-                        ui.invoke_device_disconnected();
-                    })?;
-                }
-                Event::Pause => {
-                    self.pipeline.pause()?;
-                    self.notify_updates()?;
-                }
-                Event::Play(play_message) => {
-                    if let Err(err) = self.pipeline.set_playback_uri(&play_message.url.unwrap()) {
-                        use receiver::pipeline::SetPlaybackUriError;
-                        match err {
-                            SetPlaybackUriError::PipelineStateChange(state_change_error) => {
-                                return Err(state_change_error.into());
-                            }
-                            _ => {
-                                error!("Failed to set playback URI: {err}");
-                                continue;
-                            }
-                        }
-                    }
-                    if let Err(err) = self.pipeline.play_or_resume() {
-                        error!("Failed to play_or_resume pipeline: {err}");
                     } else {
-                        self.ui_weak.upgrade_in_event_loop(|ui| {
-                            ui.invoke_playback_started();
-                        })?;
-                        self.notify_updates()?;
+                        break;
                     }
                 }
-                Event::Resume => self.pipeline.play_or_resume()?,
-                Event::ResumeOrPause => {
-                    let Some(playing) = self.pipeline.is_playing() else {
-                        warn!("Pipeline is not in a state that can be resumed or paused");
-                        continue;
-                    };
-                    if let Err(err) = if playing {
-                        self.pipeline.pause()
-                    } else {
-                        self.pipeline.play_or_resume()
-                    } {
-                        error!("Failed to ResumeOrPause: {err}");
-                    }
+                _ = tokio::time::sleep(std::time::Duration::from_millis(1000)) => {
                     self.notify_updates()?;
-                }
-                Event::Stop => {
-                    self.pipeline.stop()?;
-                    self.ui_weak.upgrade_in_event_loop(|ui| {
-                        ui.invoke_playback_stopped();
-                    })?;
-                }
-                Event::SetSpeed(set_speed_message) => {
-                    self.pipeline.set_speed(set_speed_message.speed)?
-                }
-                Event::Seek(seek_message) => {
-                    self.pipeline.seek(seek_message.time)?;
-                    self.notify_updates()?;
-                }
-                Event::SeekPercent(percent) => {
-                    let Some(duration) = self.pipeline.get_duration() else {
-                        error!("Failed to get playback duration");
-                        continue;
-                    };
-                    if duration.is_zero() {
-                        error!("Cannot seek when the duration is zero");
-                        continue;
-                    }
-                    let seek_to = duration.seconds_f64() * (percent as f64 / 100.0);
-                    self.pipeline.seek(seek_to)?;
-                    self.notify_updates()?;
-                }
-                Event::SetVolume(set_volume_message) => {
-                    self.pipeline.set_volume(set_volume_message.volume)
-                }
-                Event::SendPlaybackUpdate => self.notify_updates()?,
-                Event::Quit => break,
-                Event::PipelineEos => {
-                    debug!("Pipeline reached EOS");
-                    self.pipeline.stop()?;
-                    self.ui_weak.upgrade_in_event_loop(|ui| {
-                        ui.invoke_playback_stopped();
-                    })?;
-                }
-                Event::PipelineError => {
-                    self.pipeline.stop()?;
-                    // TODO: send error message to sessions
-                    self.ui_weak.upgrade_in_event_loop(|ui| {
-                        ui.invoke_playback_stopped_with_error("Error unclear (todo)".into());
-                    })?;
                 }
             }
         }
