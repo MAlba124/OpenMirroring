@@ -275,6 +275,7 @@ impl Application {
         mut event_rx: Receiver<Event>,
         fin_tx: oneshot::Sender<()>,
     ) -> Result<()> {
+        let mut should_play = false;
         while let Some(event) = event_rx.recv().await {
             match event {
                 Event::SessionTerminated => break,
@@ -321,6 +322,8 @@ impl Application {
                     self.ui_weak.upgrade_in_event_loop(|ui| {
                         ui.invoke_cast_starting();
                     })?;
+
+                    should_play = true;
                 }
                 Event::StopCast => {
                     self.session_tx.send(SessionMessage::Stop).await?;
@@ -444,33 +447,38 @@ impl Application {
                     self.pipeline.playing().await?;
 
                     // TODO: Should not always try to play!
-                    let (addr_tx, addr_rx) = oneshot::channel();
+                    if should_play {
+                        let (addr_tx, addr_rx) = oneshot::channel();
 
-                    self.ui_weak.upgrade_in_event_loop(move |ui| {
-                        let _ = addr_tx.send(ui.invoke_currently_selected_address());
-                    })?;
+                        self.ui_weak.upgrade_in_event_loop(move |ui| {
+                            let _ = addr_tx.send(ui.invoke_currently_selected_address());
+                        })?;
 
-                    let (addr_idx, _) = addr_rx.await.unwrap();
-                    let addr = {
-                        if addr_idx < 0 || addr_idx as usize >= self.addresses.len() {
-                            error!("Address ({addr_idx}) is out of bounds in the addresses list");
+                        let (addr_idx, _) = addr_rx.await.unwrap();
+                        let addr = {
+                            if addr_idx < 0 || addr_idx as usize >= self.addresses.len() {
+                                error!(
+                                    "Address ({addr_idx}) is out of bounds in the addresses list"
+                                );
+                                continue;
+                            }
+                            self.addresses[addr_idx as usize]
+                        };
+
+                        let Some(play_msg) = self.pipeline.get_play_msg(addr) else {
+                            error!("Could not get stream uri");
                             continue;
-                        }
-                        self.addresses[addr_idx as usize]
-                    };
+                        };
 
-                    let Some(play_msg) = self.pipeline.get_play_msg(addr) else {
-                        error!("Could not get stream uri");
-                        continue;
-                    };
+                        debug!("Sending play message: {play_msg:?}");
 
-                    debug!("Sending play message: {play_msg:?}");
+                        self.session_tx.send(SessionMessage::Play(play_msg)).await?;
 
-                    self.session_tx.send(SessionMessage::Play(play_msg)).await?;
-
-                    self.ui_weak.upgrade_in_event_loop(|ui| {
-                        ui.invoke_cast_started();
-                    })?;
+                        self.ui_weak.upgrade_in_event_loop(|ui| {
+                            ui.invoke_cast_started();
+                        })?;
+                        should_play = false;
+                    }
                 }
                 Event::DisconnectedFromReceiver => {
                     debug!("Disconnected from receiver");
