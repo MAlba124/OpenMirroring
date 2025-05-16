@@ -96,8 +96,6 @@ impl Pipeline {
         self.inner.query_duration()
     }
 
-    // TODO: quering the pipeline when e.g. a bad source (not found, etc.) is "playing" currently
-    //       blocks forever. Using timeouts is the way to move forward
     pub fn get_playback_state(&self) -> Result<PlaybackUpdateMessage> {
         let position: Option<gst::ClockTime> = self.inner.query_position();
         let duration = self.get_duration();
@@ -115,10 +113,24 @@ impl Pipeline {
             }
         };
 
-        let state = match self.inner.state(gst::ClockTime::NONE).1 {
-            gst::State::Paused => PlaybackState::Paused,
-            gst::State::Playing => PlaybackState::Playing,
-            _ => PlaybackState::Idle,
+        let state = {
+            let state = self.inner.state(gst::ClockTime::from_mseconds(250));
+            match state.0 {
+                Ok(s) => {
+                    if s != gst::StateChangeSuccess::Success {
+                        bail!("timeout");
+                    }
+                }
+                Err(err) => {
+                    bail!("{err}");
+                }
+            }
+
+            match state.1 {
+                gst::State::Paused => PlaybackState::Paused,
+                gst::State::Playing => PlaybackState::Playing,
+                _ => PlaybackState::Idle,
+            }
         };
 
         fn current_time_millis() -> u64 {

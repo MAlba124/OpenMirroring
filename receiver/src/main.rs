@@ -95,9 +95,14 @@ impl Application {
         })
     }
 
-    // TODO: errors should not be handled as fatal
     fn notify_updates(&self) -> Result<()> {
-        let update = self.pipeline.get_playback_state()?;
+        let update = match self.pipeline.get_playback_state() {
+            Ok(s) => s,
+            Err(err) => {
+                error!("Failed to get playback state: {err}");
+                return Ok(());
+            }
+        };
 
         let progress_str = {
             let time_secs = update.time % 60.0;
