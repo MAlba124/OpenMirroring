@@ -405,6 +405,8 @@ fn android_main(app: slint::android::AndroidApp) {
             .await
             .unwrap()
             .run_event_loop()
+            .await
+            .unwrap()
     });
 
     common::runtime().spawn(session::session(
