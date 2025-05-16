@@ -51,8 +51,6 @@ impl SlintOpenGLSink {
                     .features([gst_gl::CAPS_FEATURE_MEMORY_GL_MEMORY])
                     .format(gst_video::VideoFormat::Rgba)
                     .field("texture-target", "2D")
-                    // TODO: having this makes the android sender not compatible, is it okay?
-                    // .field("pixel-aspect-ratio", gst::Fraction::new(1, 1))
                     .width_range(1..i32::MAX)
                     .height_range(1..i32::MAX)
                     .build(),

@@ -419,7 +419,7 @@ impl TransmissionSink for HlsSink {
         Some(PlayMessage {
             container: HLS_MIME_TYPE.to_owned(),
             url: Some(format!(
-                "http://{}:{}/manifest.m3u8", // TODO: correct addr string formatting?
+                "http://{}:{}/manifest.m3u8",
                 super::addr_to_url_string(addr),
                 self.server_port,
             )),
