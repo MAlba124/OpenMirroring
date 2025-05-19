@@ -35,7 +35,7 @@ pub enum PlaybackState {
     Paused = 2,
 }
 
-#[derive(Deserialize, Serialize, Debug, Clone)]
+#[derive(Deserialize, Serialize, Debug, Clone, PartialEq)]
 pub struct PlayMessage {
     pub container: String,
     pub url: Option<String>,
@@ -45,12 +45,12 @@ pub struct PlayMessage {
     pub headers: Option<HashMap<String, String>>,
 }
 
-#[derive(Deserialize, Serialize, Debug, Clone)]
+#[derive(Deserialize, Serialize, Debug, Clone, PartialEq)]
 pub struct SeekMessage {
     pub time: f64,
 }
 
-#[derive(Deserialize, Serialize, Debug, Clone)]
+#[derive(Deserialize, Serialize, Debug, Clone, PartialEq)]
 pub struct PlaybackUpdateMessage {
     #[serde(rename = "generationTime")]
     pub generation: u64,
@@ -60,29 +60,29 @@ pub struct PlaybackUpdateMessage {
     pub speed: f64,
 }
 
-#[derive(Deserialize, Serialize, Debug, Clone)]
+#[derive(Deserialize, Serialize, Debug, Clone, PartialEq)]
 pub struct VolumeUpdateMessage {
     #[serde(rename = "generationTime")]
     pub generation: u64,
     pub volume: f64,
 }
 
-#[derive(Deserialize, Serialize, Debug, Clone)]
+#[derive(Deserialize, Serialize, Debug, Clone, PartialEq)]
 pub struct SetVolumeMessage {
     pub volume: f64,
 }
 
-#[derive(Deserialize, Serialize, Debug, Clone)]
+#[derive(Deserialize, Serialize, Debug, Clone, PartialEq)]
 pub struct SetSpeedMessage {
     pub speed: f64,
 }
 
-#[derive(Deserialize, Serialize, Debug, Clone)]
+#[derive(Deserialize, Serialize, Debug, Clone, PartialEq)]
 pub struct PlaybackErrorMessage {
     pub message: String,
 }
 
-#[derive(Deserialize, Serialize, Debug, Clone)]
+#[derive(Deserialize, Serialize, Debug, Clone, PartialEq)]
 pub struct VersionMessage {
     pub version: u64,
 }

@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = [ "fcast-lib", "common", "receiver", "sender", "scap", "scap-gstreamer", "http", "android-sender"]
+members = [ "fcast-lib", "common", "receiver", "sender", "scap", "scap-gstreamer", "http", "android-sender", "testkit"]
 
 [workspace.dependencies]
 gst-video = { package = "gstreamer-video", version = "0.23.5" }
@@ -19,6 +19,7 @@ anyhow = "1.0.98"
 futures = "0.3"
 tokio-stream = "0.1.17"
 mdns-sd = "0.13.9"
+crossbeam-channel = "0.5.15"
 
 [profile.release]
 lto = true

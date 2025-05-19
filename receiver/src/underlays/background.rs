@@ -105,7 +105,6 @@ impl BackgroundUnderlay {
             let elapsed = self.start_time.elapsed().as_secs_f32() / 1.5;
             gl.uniform_1_f32(Some(&self.effect_time_location), elapsed);
 
-            // TODO: room for optimization?
             gl.uniform_1_f32(Some(&self.width_location), width);
             gl.uniform_1_f32(Some(&self.height_location), height);
 

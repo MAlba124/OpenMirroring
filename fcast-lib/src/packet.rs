@@ -3,7 +3,7 @@ use crate::models::{
     SetSpeedMessage, SetVolumeMessage, VersionMessage, VolumeUpdateMessage,
 };
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum Packet {
     None,
     Play(PlayMessage),

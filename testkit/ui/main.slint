@@ -1,0 +1,365 @@
+import { ListView, VerticalBox, HorizontalBox, TabWidget, Button, ComboBox, LineEdit } from "std-widgets.slint";
+import { CastDialog, ReceiverItem } from "../../ui-common/cast-dialog.slint";
+
+export enum MessageDirection {
+    In,
+    Out,
+    Info,
+}
+
+export struct Message {
+    direction: MessageDirection,
+    time: string,
+    text: string,
+}
+
+component LabeledLineEdit {
+    in property <string> label;
+    in property <string> placeholder-text;
+
+    in-out property <string> text;
+
+    HorizontalBox {
+        Text {
+            text <=> label;
+            vertical-alignment: center;
+        }
+
+        LineEdit {
+            text <=> text;
+            placeholder-text <=> placeholder-text;
+        }
+    }
+}
+
+// TODO: make it look more like wireshark
+export component MainWindow inherits Window {
+    title: "FCast Test Kit";
+
+    preferred-width: 800px;
+    preferred-height: 500px;
+
+    callback connect-receiver(string);
+    callback disconnect-receiver();
+    callback add-receiver-manually(name: string, addr: string, port: string);
+
+    callback send-none();
+    callback send-pause();
+    callback send-resume();
+    callback send-stop();
+    callback send-ping();
+    callback send-pong();
+    callback send-play(container: string, url: string, content: string, time: string, speed: string);
+    callback send-seek(time: string);
+    callback send-playback-update(time: string, duration: string, state: string, speed: string);
+    callback send-volume-update(volume: string);
+    callback send-set-volume(volume: string);
+    callback send-playback-error(message: string);
+    callback send-set-speed(speed: string);
+    callback send-version(version: string);
+
+    in property <[Message]> messages;
+    in property <[ReceiverItem]> receivers-model;
+
+    property <string> play-container;
+    property <string> play-url;
+    property <string> play-content;
+    property <string> play-time;
+    property <string> play-speed;
+    property <string> seek-time;
+    property <string> pb-update-time;
+    property <string> pb-update-duration;
+    property <string> pb-update-state;
+    property <string> pb-update-speed;
+    property <string> volume-update-volume;
+    property <string> set-volume-volume;
+    property <string> pb-error-message;
+    property <string> set-speed-speed;
+    property <string> version-version;
+
+    pure function color_from_message_direction(dir: MessageDirection) -> color {
+        dir == MessageDirection.In ? #ADDFFF : dir == MessageDirection.Out ? #FFFCE0 : #FFFFFF;
+    }
+
+    // TODO: resizable panels
+    VerticalLayout {
+        width: 100%;
+        height: 100%;
+        hl := HorizontalLayout {
+            VerticalBox {
+                width: 40%;
+                Button {
+                    icon: @image-url("../../assets/icons/cast.svg");
+                    colorize-icon: true;
+                    clicked => {
+                        cast-dialog.visible = true;
+                        shadow.visible = true;
+                    }
+                }
+            }
+
+            VerticalLayout {
+                width: 60%;
+                HorizontalBox {
+                    operation-cb := ComboBox {
+                        model: [
+                            "None",
+                            "Play",
+                            "Pause",
+                            "Resume",
+                            "Stop",
+                            "Seek",
+                            "PlaybackUpdate",
+                            "VolumeUpdate",
+                            "SetVolume",
+                            "PlaybackError",
+                            "SetSpeed",
+                            "Version",
+                            "Ping",
+                            "Pong",
+                        ];
+                    }
+
+                    Button {
+                        icon: @image-url("../../assets/icons/play.svg");
+                        colorize-icon: true;
+                        clicked => {
+                            if operation-cb.current-value == "None" {
+                                send-none();
+                            }
+                            if operation-cb.current-value == "Play" {
+                                send-play(play-container, play-url, play-content, play-time, play-speed);
+                            }
+                            if operation-cb.current-value == "Pause" {
+                                send-pause();
+                            }
+                            if operation-cb.current-value == "Resume" {
+                                send-resume();
+                            }
+                            if operation-cb.current-value == "Stop" {
+                                send-stop();
+                            }
+                            if operation-cb.current-value == "Seek" {
+                                send-seek(seek-time);
+                            }
+                            if operation-cb.current-value == "PlaybackUpdate" {
+                                send-playback-update(pb-update-time, pb-update-duration, pb-update-state, pb-update-speed);
+                            }
+                            if operation-cb.current-value == "VolumeUpdate" {
+                                send-volume-update(volume-update-volume);
+                            }
+                            if operation-cb.current-value == "SetVolume" {
+                                send-set-volume(set-volume-volume);
+                            }
+                            if operation-cb.current-value == "PlaybackError" {
+                                send-playback-error(pb-error-message);
+                            }
+                            if operation-cb.current-value == "SetSpeed" {
+                                send-set-speed(set-speed-speed);
+                            }
+                            if operation-cb.current-value == "Version" {
+                                send-version(version-version);
+                            }
+                            if operation-cb.current-value == "Ping" {
+                                send-ping();
+                            }
+                            if operation-cb.current-value == "Pong" {
+                                send-pong();
+                            }
+                        }
+                    }
+                }
+
+                if operation-cb.current-value == "Play": VerticalBox {
+                    // TODO: presets?
+                    LabeledLineEdit {
+                        label: "Container:";
+                        placeholder-text: "e.g. video/mp4";
+                        text <=> play-container;
+                    }
+
+                    LabeledLineEdit {
+                        label: "Url:";
+                        text <=> play-url;
+                    }
+
+                    LabeledLineEdit {
+                        label: "Content:";
+                        text <=> play-content;
+                    }
+
+                    LabeledLineEdit {
+                        label: "Time:";
+                        text <=> play-time;
+                    }
+
+                    HorizontalBox {
+                        Text {
+                            text: "Speed:";
+                            vertical-alignment: center;
+                        }
+
+                        ComboBox {
+                            current-index: 3; // Default to 1x
+                            current-value <=> play-speed;
+                            model: [
+                                "0.25",
+                                "0.5",
+                                "0.75",
+                                "1",
+                                "1.5",
+                                "1.75",
+                                "2",
+                            ];
+                        }
+                    }
+                    // TODO: headers
+                }
+                if operation-cb.current-value == "Seek": VerticalBox {
+                    LabeledLineEdit {
+                        label: "Time:";
+                        text <=> seek-time;
+                    }
+                }
+                if operation-cb.current-value == "PlaybackUpdate": VerticalBox {
+                    LabeledLineEdit {
+                        label: "Time:";
+                        text <=> pb-update-time;
+                    }
+
+                    LabeledLineEdit {
+                        label: "Duration:";
+                        text <=> pb-update-duration;
+                    }
+
+                    HorizontalBox {
+                        Text {
+                            text: "State:";
+                            vertical-alignment: center;
+                        }
+
+                        ComboBox {
+                            model: [
+                                "Idle",
+                                "Playing",
+                                "Paused",
+                            ];
+                            current-value <=> pb-update-state;
+                        }
+                    }
+
+                    LabeledLineEdit {
+                        label: "Speed:";
+                        text <=> pb-update-speed;
+                    }
+                }
+                if operation-cb.current-value == "VolumeUpdate": VerticalBox {
+                    LabeledLineEdit {
+                        label: "Volume:";
+                        text <=> volume-update-volume;
+                    }
+                }
+                if operation-cb.current-value == "SetVolume": VerticalBox {
+                    LabeledLineEdit {
+                        label: "Volume:";
+                        text <=> set-volume-volume;
+                    }
+                }
+                if operation-cb.current-value == "PlaybackError": VerticalBox {
+                    LabeledLineEdit {
+                        label: "Message:";
+                        text <=> pb-error-message;
+                    }
+                }
+                if operation-cb.current-value == "SetSpeed": VerticalBox {
+                    LabeledLineEdit {
+                        label: "Speed:";
+                        text <=> set-speed-speed;
+                    }
+                }
+                if operation-cb.current-value == "Version": VerticalBox {
+                    LabeledLineEdit {
+                        label: "Version:";
+                        text <=> version-version;
+                    }
+                }
+            }
+        }
+
+        VerticalBox {
+            alignment: space-between;
+            ListView {
+                height: 100%;
+                for m in messages: Rectangle {
+                    border-width: 1px;
+                    border-color: whitesmoke;
+                    background: color_from_message_direction(m.direction);
+                    HorizontalBox {
+                        if m.direction == MessageDirection.In: Image {
+                            source: @image-url("../../assets/icons/arrow_left.svg");
+                            height: 15px;
+                            width: 15px;
+                        }
+                        if m.direction == MessageDirection.Out: Image {
+                            source: @image-url("../../assets/icons/arrow_right.svg");
+                            height: 15px;
+                            width: 15px;
+                        }
+                        if m.direction == MessageDirection.Info: Image {
+                            source: @image-url("../../assets/icons/info.svg");
+                            height: 15px;
+                            width: 9px;
+                        }
+                        Text {
+                            vertical-alignment: center;
+                            text: m.time;
+                        }
+
+                        Text {
+                            vertical-alignment: center;
+                            text: m.text;
+                            wrap: word-wrap;
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    shadow := Rectangle {
+        visible: false;
+        width: 100%;
+        height: 100%;
+        background: #000000A0;
+
+        TouchArea {
+            // Consume all interactions so that no elements behind the settings menu can be accessed
+        }
+    }
+
+    cast-dialog := CastDialog {
+        visible: false;
+
+        receivers-model <=> receivers-model;
+        width: root.width >= 500px ? 500px : root.width;
+        root-height <=> root.height;
+        border-radius: root.width >= 500px ? 8px : 0px;
+
+        connect(receiver) => {
+            connect-receiver(receiver);
+        }
+
+        disconnect() => {
+            disconnect-receiver();
+        }
+
+        add-receiver-manually(n, a, p) => {
+            add-receiver-manually(n, a, p);
+        }
+
+        closed => {
+            self.visible = false;
+            shadow.visible = false;
+        }
+    }
+}
