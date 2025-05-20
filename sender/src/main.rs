@@ -19,7 +19,9 @@ use anyhow::Result;
 use common::sender::session::{self, SessionMessage};
 use common::video::opengl::SlintOpenGLSink;
 use log::{debug, error, trace};
+use std::sync::{atomic, Arc};
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::time::Duration;
 use tokio::sync::mpsc::{Receiver, Sender};
 use tokio::sync::{self, oneshot};
 
@@ -578,7 +580,7 @@ fn main() -> Result<()> {
     let ui = MainWindow::new()?;
     slint::set_xdg_app_id("com.github.malba124.OpenMirroring.sender")?;
 
-    let (gotten_gl_tx, gotten_gl_rx) = oneshot::channel();
+    let gotten_gl = Arc::new(AtomicBool::new(false));
 
     ui.window().set_rendering_notifier({
         let ui_weak = ui.as_weak();
@@ -587,7 +589,7 @@ fn main() -> Result<()> {
             ui.set_preview_frame(new_frame);
         };
 
-        let mut gotten_gl_tx = Some(gotten_gl_tx);
+        let gotten_gl = Arc::clone(&gotten_gl);
 
         move |state, graphics_api| match state {
             slint::RenderingState::RenderingSetup => {
@@ -601,9 +603,7 @@ fn main() -> Result<()> {
                             .ok();
                     })
                     .unwrap();
-                if let Some(tx) = gotten_gl_tx.take() {
-                    assert!(tx.send(()).is_ok());
-                }
+                gotten_gl.store(true, atomic::Ordering::Release);
             }
             slint::RenderingState::BeforeRendering => {
                 if let Some(next_frame) = slint_sink.fetch_next_frame() {
@@ -650,7 +650,9 @@ fn main() -> Result<()> {
         async move {
             // We need to wait until the preview sink has gotten it's required GL contexts,
             // if not, creating a pipeline would fail
-            gotten_gl_rx.await.unwrap();
+            while !gotten_gl.load(atomic::Ordering::Acquire) {
+                std::thread::sleep(Duration::from_millis(50));
+            }
 
             Application::new(ui_weak, event_tx, session_tx, slint_appsink)
                 .await
