@@ -97,19 +97,11 @@ impl RtpSink {
         pipeline.add_many(elems)?;
         gst::Element::link_many(elems)?;
 
-        // TODO: reusable blocks
-        let src_pad_block = src_pad
-            .add_probe(gst::PadProbeType::BLOCK_DOWNSTREAM, |_, _| {
-                gst::PadProbeReturn::Ok
-            })
-            .ok_or(anyhow::anyhow!("Failed to add pad probe to src_pad"))?;
-
+        let src_pad_block = super::block_downstream(&src_pad)?;
         let queue_sink_pad = queue
             .static_pad("sink")
             .ok_or(anyhow::anyhow!("Failed to get static sink pad from queue"))?;
         src_pad.link(&queue_sink_pad)?;
-
-        // TODO: how long does it have to be blocked?
         src_pad.remove_probe(src_pad_block);
 
         for elem in elems {
@@ -173,13 +165,7 @@ impl TransmissionSink for RtpSink {
     fn shutdown(&mut self) {}
 
     fn unlink(&mut self, pipeline: &gst::Pipeline) -> Result<(), glib::error::BoolError> {
-        let block = self
-            .src_pad
-            .add_probe(gst::PadProbeType::BLOCK_DOWNSTREAM, |_, _| {
-                gst::PadProbeReturn::Ok
-            })
-            .ok_or(glib::bool_error!("Failed to add pad probe to src_pad"))?;
-
+        let block = super::block_downstream(&self.src_pad)?;
         let queue_sink_pad = self.queue.static_pad("sink").ok_or(glib::bool_error!(
             "Failed to get static sink pad from queue"
         ))?;

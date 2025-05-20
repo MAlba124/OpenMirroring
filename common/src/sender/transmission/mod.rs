@@ -23,6 +23,14 @@ use gst::glib;
 pub mod hls;
 pub mod rtp;
 
+fn block_downstream(pad: &gst::Pad) -> Result<gst::PadProbeId, glib::error::BoolError> {
+    use gst::prelude::*;
+    pad.add_probe(gst::PadProbeType::BLOCK_DOWNSTREAM, |_, _| {
+        gst::PadProbeReturn::Ok
+    })
+    .ok_or(glib::bool_error!("Failed to add BLOCK_DOWNSTREAM pad probe"))
+}
+
 fn addr_to_url_string(addr: IpAddr) -> String {
     match addr {
         IpAddr::V4(ipv4_addr) => ipv4_addr.to_string(),

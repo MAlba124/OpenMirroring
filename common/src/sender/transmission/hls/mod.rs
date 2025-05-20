@@ -442,12 +442,7 @@ impl TransmissionSink for HlsSink {
     }
 
     fn unlink(&mut self, pipeline: &gst::Pipeline) -> Result<(), glib::error::BoolError> {
-        let block = self
-            .src_pad
-            .add_probe(gst::PadProbeType::BLOCK_DOWNSTREAM, |_, _| {
-                gst::PadProbeReturn::Ok
-            })
-            .unwrap();
+        let block = super::block_downstream(&self.src_pad)?;
         self.src_pad.unlink(&self.queue_pad)?;
         self.src_pad.remove_probe(block);
 
