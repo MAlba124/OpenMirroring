@@ -19,7 +19,7 @@ import { Palette, VerticalBox, HorizontalBox, ListView, Spinner, Button } from "
 
 import { HorizontalRule } from "horizontal-rule.slint";
 import { ToolTipArea } from "tool-tip-area.slint";
-import { FormInput } from "form-input.slint";
+import { LabeledLineEdit } from "input.slint";
 
 export enum ReceiverState {
     Connectable,
@@ -134,34 +134,18 @@ export component CastDialog {
         }
 
         if in-manual-edit: VerticalBox {
-            FormInput {
+            ti-name := LabeledLineEdit {
                 label: "Name:";
-                container-height: ti-name.preferred-height + 8px;
-                ti-name := TextInput {
-                    horizontal-alignment: center;
-                    vertical-alignment: center;
-                }
             }
 
-            FormInput {
+            ti-addr := LabeledLineEdit {
                 label: "Address:";
-                container-height: ti-addr.preferred-height + 8px;
-                ti-addr := TextInput {
-                    horizontal-alignment: center;
-                    vertical-alignment: center;
-                }
             }
 
-            FormInput {
+            ti-port := LabeledLineEdit {
                 label: "Port:";
-                container-height: ti-port.preferred-height + 8px;
-                // TODO: reusable with checking!
-                ti-port := TextInput {
-                    horizontal-alignment: center;
-                    vertical-alignment: center;
-                    text: "46899";
-                    input-type: number;
-                }
+                input-type: number;
+                text: "46899";
             }
 
             HorizontalBox {

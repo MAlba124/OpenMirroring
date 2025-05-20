@@ -19,7 +19,7 @@ import { Palette, VerticalBox, HorizontalBox, StandardButton, Switch, Button, Co
 
 import { HorizontalRule } from "../../ui-common/horizontal-rule.slint";
 import { ToolTipArea } from "../../ui-common/tool-tip-area.slint";
-import { FormInput } from "../../ui-common/form-input.slint";
+import { LabeledLineEdit } from "../../ui-common/input.slint";
 
 export component Settings {
     callback closed();
@@ -88,15 +88,10 @@ export component Settings {
             }
         }
 
-        FormInput {
+        ti-stream-port := LabeledLineEdit {
             label: "Media stream port:";
-            container-height: ti-stream-port.preferred-height + 8px;
-            ti-stream-port := TextInput {
-                horizontal-alignment: center;
-                vertical-alignment: center;
-                input-type: number;
-                text: "3000";
-            }
+            input-type: number;
+            text: "3000";
         }
 
         if !is-valid-port-number(ti-stream-port.text.to-float()): Text {

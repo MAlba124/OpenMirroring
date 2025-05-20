@@ -1,0 +1,23 @@
+import { HorizontalBox, LineEdit } from "std-widgets.slint";
+
+export component LabeledLineEdit {
+    in property <string> label;
+    in property <string> placeholder-text;
+    in property <InputType> input-type: InputType.text;
+
+    in-out property <string> text;
+
+    HorizontalBox {
+        Text {
+            text <=> label;
+            vertical-alignment: center;
+        }
+
+        LineEdit {
+            text <=> text;
+            placeholder-text <=> placeholder-text;
+            input-type <=> input-type;
+        }
+    }
+}
+

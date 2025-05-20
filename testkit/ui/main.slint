@@ -1,5 +1,6 @@
 import { ListView, VerticalBox, HorizontalBox, TabWidget, Button, ComboBox, LineEdit } from "std-widgets.slint";
 import { CastDialog, ReceiverItem } from "../../ui-common/cast-dialog.slint";
+import { LabeledLineEdit } from "../../ui-common/input.slint";
 
 export enum MessageDirection {
     In,
@@ -11,25 +12,6 @@ export struct Message {
     direction: MessageDirection,
     time: string,
     text: string,
-}
-
-component LabeledLineEdit {
-    in property <string> label;
-    in property <string> placeholder-text;
-
-    in-out property <string> text;
-
-    HorizontalBox {
-        Text {
-            text <=> label;
-            vertical-alignment: center;
-        }
-
-        LineEdit {
-            text <=> text;
-            placeholder-text <=> placeholder-text;
-        }
-    }
 }
 
 // TODO: make it look more like wireshark
