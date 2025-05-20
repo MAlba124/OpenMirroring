@@ -28,7 +28,9 @@ fn block_downstream(pad: &gst::Pad) -> Result<gst::PadProbeId, glib::error::Bool
     pad.add_probe(gst::PadProbeType::BLOCK_DOWNSTREAM, |_, _| {
         gst::PadProbeReturn::Ok
     })
-    .ok_or(glib::bool_error!("Failed to add BLOCK_DOWNSTREAM pad probe"))
+    .ok_or(glib::bool_error!(
+        "Failed to add BLOCK_DOWNSTREAM pad probe"
+    ))
 }
 
 fn addr_to_url_string(addr: IpAddr) -> String {
