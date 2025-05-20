@@ -2,7 +2,7 @@ use std::{net::IpAddr, str::FromStr};
 
 use anyhow::Result;
 use gio::glib;
-use gst::prelude::{ElementExt, ElementExtManual, GstBinExtManual, PadExt, PadExtManual};
+use gst::prelude::{ElementExt, GstBinExtManual, PadExt, PadExtManual};
 
 use super::{PlayMessage, TransmissionSink};
 
@@ -13,13 +13,11 @@ pub struct RtpSink {
     queue: gst::Element,
     convert: gst::Element,
     scale: gst::Element,
-    rate: gst::Element,
     capsfilter: gst::Element,
     enc: gst::Element,
     enc_caps: gst::Element,
     pay: gst::Element,
     queue2: gst::Element,
-    rtpbin: gst::Element,
     sink: gst::Element,
     port: u16,
     receiver_addr: IpAddr,
@@ -35,6 +33,8 @@ impl RtpSink {
         let queue = gst::ElementFactory::make("queue")
             .name("sink_queue")
             .property("silent", true)
+            .property("max-size-buffers", 1u32)
+            .property_from_str("leaky", "downstream")
             .build()?;
         let convert = gst::ElementFactory::make("videoconvert")
             .name("sink_convert")
@@ -43,27 +43,20 @@ impl RtpSink {
         let scale = gst::ElementFactory::make("videoscale")
             .name("sink_scale")
             .build()?;
-        // TODO: is this necessary?
-        let rate = gst::ElementFactory::make("videorate").build()?;
         let capsfilter = gst::ElementFactory::make("capsfilter")
             .name("sink_capsfilter")
             .property(
                 "caps",
-                // gst::Caps::from_str("video/x-raw,width=(int)[16,8192,2],height=(int)[16,8192,2]")?,
-                gst::Caps::from_str(
-                    "video/x-raw,width=(int)[16,8192,2],height=(int)[16,8192,2],framerate=25/1",
-                )?,
+                gst::Caps::from_str("video/x-raw,width=(int)[16,8192,2],height=(int)[16,8192,2]")?,
             )
             .build()?;
 
         // TODO: issues with high startup time and "decreasing pts"
         let enc = gst::ElementFactory::make("x264enc")
-            .property("bframes", 0u32)
-            .property("bitrate", 1000u32 * 4)
-            .property("key-int-max", 25u32)
-            .property("sliced-threads", true)
             .property_from_str("tune", "zerolatency")
             .property_from_str("speed-preset", "ultrafast")
+            .property("key-int-max", 125u32)
+            .property("b-adapt", false)
             .build()?;
         let enc_caps = gst::ElementFactory::make("capsfilter")
             .property(
@@ -80,8 +73,8 @@ impl RtpSink {
         let queue2 = gst::ElementFactory::make("queue")
             .name("sink_queue2")
             .property("silent", true)
+            .property_from_str("leaky", "downstream")
             .build()?;
-        let rtpbin = gst::ElementFactory::make("rtpbin").build()?;
 
         let sink = gst::ElementFactory::make("udpsink")
             .property("host", receiver_addr.to_string())
@@ -89,88 +82,47 @@ impl RtpSink {
             .property("sync", true)
             .build()?;
 
-        pipeline.add_many([
+        let elems = [
             &queue,
             &convert,
             &scale,
-            &rate,
             &capsfilter,
             &enc,
             &enc_caps,
             &queue2,
             &pay,
-            &rtpbin,
             &sink,
-        ])?;
-        gst::Element::link_many([
-            &queue,
-            &convert,
-            &scale,
-            &rate,
-            &capsfilter,
-            &enc,
-            &enc_caps,
-            &pay,
-            &queue2,
-        ])?;
+        ];
 
-        queue.sync_state_with_parent()?;
-        convert.sync_state_with_parent()?;
-        scale.sync_state_with_parent()?;
-        rate.sync_state_with_parent()?;
-        capsfilter.sync_state_with_parent()?;
-        enc.sync_state_with_parent()?;
-        enc_caps.sync_state_with_parent()?;
-        pay.sync_state_with_parent()?;
-        queue2.sync_state_with_parent()?;
+        pipeline.add_many(elems)?;
+        gst::Element::link_many(elems)?;
 
-        {
-            // TODO: reusable blocks
-            let src_pad_block = src_pad
-                .add_probe(gst::PadProbeType::BLOCK_DOWNSTREAM, |_, _| {
-                    gst::PadProbeReturn::Ok
-                })
-                .ok_or(anyhow::anyhow!("Failed to add pad probe to src_pad"))?;
+        // TODO: reusable blocks
+        let src_pad_block = src_pad
+            .add_probe(gst::PadProbeType::BLOCK_DOWNSTREAM, |_, _| {
+                gst::PadProbeReturn::Ok
+            })
+            .ok_or(anyhow::anyhow!("Failed to add pad probe to src_pad"))?;
 
-            let queue_sink_pad = queue
-                .static_pad("sink")
-                .ok_or(anyhow::anyhow!("Failed to get static sink pad from queue"))?;
-            src_pad.link(&queue_sink_pad)?;
-
-            // TODO: how long does it have to be blocked?
-            src_pad.remove_probe(src_pad_block);
-        }
-
-        let queue2_src_pad = queue2
-            .static_pad("src")
-            .ok_or(anyhow::anyhow!("Failed to get static src pad from queue2"))?;
-        let sink_pad = rtpbin
-            .request_pad_simple("send_rtp_sink_0")
-            .ok_or(anyhow::anyhow!(
-                "Failed to get send_rtp_sink_0 pad from rtpbin"
-            ))?;
-        queue2_src_pad.link(&sink_pad)?;
-
-        let rtp_src_pad = rtpbin.static_pad("send_rtp_src_0").ok_or(anyhow::anyhow!(
-            "Failed to get static send_rtp_src_0 pad from rtpbin"
-        ))?;
-        let sink_pad = sink
+        let queue_sink_pad = queue
             .static_pad("sink")
-            .ok_or(anyhow::anyhow!("Failed to get static sink pad from sink"))?;
-        rtp_src_pad.link(&sink_pad)?;
+            .ok_or(anyhow::anyhow!("Failed to get static sink pad from queue"))?;
+        src_pad.link(&queue_sink_pad)?;
 
-        rtpbin.sync_state_with_parent()?;
-        sink.sync_state_with_parent()?;
+        // TODO: how long does it have to be blocked?
+        src_pad.remove_probe(src_pad_block);
+
+        for elem in elems {
+            elem.sync_state_with_parent()?;
+        }
 
         Ok(Self {
             src_pad,
             queue,
             convert,
-            rate,
             enc,
             pay,
             queue2,
-            rtpbin,
             sink,
             scale,
             enc_caps,
@@ -238,13 +190,11 @@ impl TransmissionSink for RtpSink {
             &self.queue,
             &self.convert,
             &self.scale,
-            &self.rate,
             &self.capsfilter,
             &self.enc,
             &self.enc_caps,
             &self.queue2,
             &self.pay,
-            &self.rtpbin,
             &self.sink,
         ];
 
