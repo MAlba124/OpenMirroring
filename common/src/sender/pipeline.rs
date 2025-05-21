@@ -218,7 +218,7 @@ impl Pipeline {
                     }
                     MessageView::StateChanged(state_changed) => {
                         let Some(pipeline) = pipeline_weak.upgrade() else {
-                            error!(
+                            debug!(
                                 "Failed to handle state change bus message because pipeline is missing"
                             );
                             return;
@@ -286,7 +286,7 @@ impl Pipeline {
 
     pub async fn playing(&mut self) -> Result<()> {
         match &mut self.tx_sink {
-            Some(sink) => sink.playing().await,
+            Some(sink) => sink.playing(),
             None => Ok(()),
         }
     }

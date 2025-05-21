@@ -407,7 +407,6 @@ impl HlsSink {
     }
 }
 
-#[async_trait::async_trait]
 impl TransmissionSink for HlsSink {
     fn get_play_msg(&self, addr: IpAddr) -> Option<PlayMessage> {
         Some(PlayMessage {
@@ -424,7 +423,7 @@ impl TransmissionSink for HlsSink {
         })
     }
 
-    async fn playing(&mut self) -> Result<()> {
+    fn playing(&mut self) -> Result<()> {
         self.write_manifest_file()?;
         Ok(())
     }

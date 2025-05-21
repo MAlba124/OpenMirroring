@@ -18,16 +18,12 @@ gst-app = { workspace = true, optional = true, features = [ "v1_24" ] }
 gio = { version = "0.20.9", optional = true }
 m3u8-rs = { version = "6.0.0", optional = true }
 futures = { workspace = true, optional = true }
-async-trait = { version = "0.1.88", optional = true }
 tokio-stream = { workspace = true, optional = true }
 mdns-sd = { workspace = true, optional = true }
 
 http = { path = "../http", optional = true }
 fcast-lib = { path = "../fcast-lib", optional = true }
 crossbeam-channel = { version = "0.5.15", optional = true }
-
-# [target.'cfg(target_os = "android")'.dependencies]
-# crossbeam-channel = { version = "0.5.15", optional = true }
 
 [target.'cfg(target_os = "windows")'.dependencies]
 windows = { version = "0.60.0", features = ["Win32_Networking_WinSock", "Win32_NetworkManagement_Ndis", "Win32_NetworkManagement_IpHelper"] }
@@ -45,7 +41,7 @@ glutin_glx_sys = { version = "0.6.1", optional = true }
 [features]
 video = ["gst", "gst-app", "gst-video", "gst-gl"]
 sender = ["gst", "gst-video", "gio", "m3u8-rs", "gst-pbutils",
-        "http", "async-trait", "crossbeam-channel", "gst-app", "futures",
+        "http", "crossbeam-channel", "gst-app", "futures",
         "fcast-lib", "tokio-stream", "mdns-sd", "gst-gl-egl", "gst-gl-x11",
         "glutin_egl_sys", "glutin_glx_sys",]
 
