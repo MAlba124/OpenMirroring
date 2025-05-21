@@ -21,14 +21,13 @@ use fcast_lib::models::PlayMessage;
 use gst::{glib, prelude::*};
 use log::{debug, error, trace};
 use m3u8_rs::{MasterPlaylist, VariantStream};
+use std::io::{Read, Write};
 use std::net::IpAddr;
 use std::str::FromStr;
+use std::sync::Arc;
+use std::sync::atomic::AtomicBool;
+use std::time::Duration;
 use std::{collections::HashMap, path::PathBuf};
-use tokio::sync::oneshot;
-use tokio::{
-    io::{AsyncReadExt, AsyncWriteExt},
-    sync::mpsc::{Receiver, Sender},
-};
 use url_utils::decode_path;
 
 use super::TransmissionSink;
@@ -38,35 +37,36 @@ mod url_utils;
 
 const HLS_MIME_TYPE: &str = "application/vnd.apple.mpegurl";
 
-async fn serve_dir(
+fn serve_dir(
     base: PathBuf,
     server_port: u16,
-    mut file_rx: Receiver<fake_file_writer::ChannelElement>,
-    mut fin: oneshot::Receiver<()>,
+    file_rx: crossbeam_channel::Receiver<fake_file_writer::ChannelElement>,
+    fin: Arc<AtomicBool>,
 ) -> Result<()> {
-    let listener = tokio::net::TcpListener::bind(format!("[::]:{server_port}")).await?;
+    let listener = std::net::TcpListener::bind(format!("[::]:{server_port}"))?;
+    listener.set_nonblocking(true)?;
 
     debug!("HTTP server listening on {:?}", listener.local_addr());
 
     let mut files: HashMap<String, Vec<u8>> = HashMap::new();
 
-    let mut request_buf = Vec::new();
-    let mut response_buf = Vec::new();
+    let mut request_buf = Vec::<u8>::new();
+    let mut response_buf = Vec::<u8>::new();
 
     loop {
-        tokio::select! {
-            _ = &mut fin => {
-                break;
-            }
-            v = listener.accept() => {
-                let (mut stream, _) = v?;
+        if fin.load(std::sync::atomic::Ordering::Acquire) {
+            break;
+        }
 
+        match listener.accept() {
+            Ok((mut stream, _)) => {
                 request_buf.clear();
                 response_buf.clear();
+                listener.set_nonblocking(false)?;
 
                 let mut buf = [0; 4096];
                 loop {
-                    let bytes_read = stream.read(&mut buf).await?;
+                    let bytes_read = stream.read(&mut buf)?;
                     request_buf.extend_from_slice(&buf);
                     if bytes_read < buf.len() {
                         break;
@@ -85,16 +85,11 @@ async fn serve_dir(
                         body: None,
                     };
                     response.serialize_into(&mut response_buf);
-                    stream.write_all(&response_buf).await?;
+                    stream.write_all(&response_buf)?;
                     continue;
                 }
 
-                let Ok(uri) = decode_path(
-                    request
-                        .start_line
-                        .target
-                        .trim_start_matches("/")
-                ) else {
+                let Ok(uri) = decode_path(request.start_line.target.trim_start_matches("/")) else {
                     error!("Failed to decode path {}", request.start_line.target);
                     let response = http::Response {
                         start_line: http::ResponseStartLine {
@@ -105,7 +100,7 @@ async fn serve_dir(
                         body: None,
                     };
                     response.serialize_into(&mut response_buf);
-                    stream.write_all(&response_buf).await?;
+                    stream.write_all(&response_buf)?;
                     continue;
                 };
 
@@ -123,12 +118,15 @@ async fn serve_dir(
                             },
                             headers: vec![
                                 http::Header::new("Content-Type", "application/octet-stream"),
-                                http::Header::new("Content-Length", file_contents.len().to_string()),
+                                http::Header::new(
+                                    "Content-Length",
+                                    file_contents.len().to_string(),
+                                ),
                             ],
                             body: Some(file_contents),
                         };
                         response.serialize_into(&mut response_buf);
-                        stream.write_all(&response_buf).await?;
+                        stream.write_all(&response_buf)?;
                     }
                     None => {
                         error!("File not found: {}", base_path.display());
@@ -141,25 +139,30 @@ async fn serve_dir(
                             body: None,
                         };
                         response.serialize_into(&mut response_buf);
-                        stream.write_all(&response_buf).await?;
-                        continue;
+                        stream.write_all(&response_buf)?;
                     }
                 }
+
+                listener.set_nonblocking(true)?;
             }
-            v = file_rx.recv() => {
-                let Some(v) = v else {
-                    continue;
-                };
-                match v.request {
-                    fake_file_writer::Request::Delete => {
-                        files.remove(&v.location.replace('\\', "/"));
-                    }
-                    fake_file_writer::Request::Add(vec) => {
-                        files.insert(v.location.replace('\\', "/"), vec);
-                    }
-                }
-            }
+            Err(err) if err.kind() != std::io::ErrorKind::WouldBlock => return Err(err.into()),
+            _ => (),
         }
+
+        match file_rx.try_recv() {
+            Ok(v) => match v.request {
+                fake_file_writer::Request::Delete => {
+                    files.remove(&v.location.replace('\\', "/"));
+                }
+                fake_file_writer::Request::Add(vec) => {
+                    files.insert(v.location.replace('\\', "/"), vec);
+                }
+            },
+            Err(err) if err.is_disconnected() => return Err(err.into()),
+            _ => (),
+        }
+
+        std::thread::sleep(Duration::from_millis(25));
     }
 
     debug!("Quitting http server");
@@ -190,8 +193,8 @@ pub struct HlsSink {
     enc_caps: gst::Element,
     sink: gst::Element,
     write_playlist: bool,
-    file_tx: Sender<fake_file_writer::ChannelElement>,
-    server_fin_tx: Option<oneshot::Sender<()>>,
+    file_tx: crossbeam_channel::Sender<fake_file_writer::ChannelElement>,
+    server_fin: Arc<AtomicBool>,
 }
 
 impl HlsSink {
@@ -238,14 +241,15 @@ impl HlsSink {
 
         let base_path = PathBuf::from("/");
 
-        let (file_tx, file_rx) = tokio::sync::mpsc::channel::<fake_file_writer::ChannelElement>(10);
+        let (file_tx, file_rx) = crossbeam_channel::bounded::<fake_file_writer::ChannelElement>(10);
 
-        let (server_fin_tx, server_fin_rx) = oneshot::channel::<()>();
+        let server_fin = Arc::new(AtomicBool::new(false));
         let server_port = port;
-        crate::runtime().spawn({
+        std::thread::spawn({
+            let server_fin = Arc::clone(&server_fin);
             let base_path = base_path.clone();
-            async move {
-                if let Err(err) = serve_dir(base_path, server_port, file_rx, server_fin_rx).await {
+            move || {
+                if let Err(err) = serve_dir(base_path, server_port, file_rx, server_fin) {
                     error!("Error occured serving directory: {err}");
                 }
             }
@@ -306,7 +310,7 @@ impl HlsSink {
             glib::closure!(move |sink: &gst::Element, location: &str| {
                 trace!("{}, removing segment {location}", sink.name());
                 file_tx_clone
-                    .blocking_send(fake_file_writer::ChannelElement {
+                    .send(fake_file_writer::ChannelElement {
                         location: location.to_string(),
                         request: fake_file_writer::Request::Delete,
                     })
@@ -325,7 +329,7 @@ impl HlsSink {
             }),
         );
 
-        pipeline.add_many([
+        let elems = [
             &queue,
             &convert,
             &scale,
@@ -333,24 +337,15 @@ impl HlsSink {
             &enc,
             &enc_caps,
             &sink,
-        ])?;
-        gst::Element::link_many([
-            &queue,
-            &convert,
-            &scale,
-            &capsfilter,
-            &enc,
-            &enc_caps,
-            &sink,
-        ])?;
+        ];
 
-        queue.sync_state_with_parent()?;
-        convert.sync_state_with_parent()?;
-        scale.sync_state_with_parent()?;
-        capsfilter.sync_state_with_parent()?;
-        enc.sync_state_with_parent()?;
-        enc_caps.sync_state_with_parent()?;
-        sink.sync_state_with_parent()?;
+        pipeline.add_many(elems)?;
+
+        gst::Element::link_many(elems)?;
+
+        for elem in elems {
+            elem.sync_state_with_parent()?;
+        }
 
         let queue_pad = queue
             .static_pad("sink")
@@ -373,11 +368,11 @@ impl HlsSink {
             sink,
             write_playlist: true,
             file_tx,
-            server_fin_tx: Some(server_fin_tx),
+            server_fin,
         })
     }
 
-    pub async fn write_manifest_file(&mut self) -> Result<()> {
+    pub fn write_manifest_file(&mut self) -> Result<()> {
         if !self.write_playlist {
             return Ok(());
         }
@@ -401,12 +396,10 @@ impl HlsSink {
         let mut buf = Vec::new();
         playlist.write_to(&mut buf)?;
 
-        self.file_tx
-            .send(fake_file_writer::ChannelElement {
-                location: self.main_path.to_string_lossy().to_string(),
-                request: fake_file_writer::Request::Add(buf),
-            })
-            .await?;
+        self.file_tx.send(fake_file_writer::ChannelElement {
+            location: self.main_path.to_string_lossy().to_string(),
+            request: fake_file_writer::Request::Add(buf),
+        })?;
 
         self.write_playlist = false;
 
@@ -432,13 +425,13 @@ impl TransmissionSink for HlsSink {
     }
 
     async fn playing(&mut self) -> Result<()> {
-        self.write_manifest_file().await
+        self.write_manifest_file()?;
+        Ok(())
     }
 
     fn shutdown(&mut self) {
-        if let Some(fin_tx) = self.server_fin_tx.take() {
-            let _ = fin_tx.send(());
-        }
+        self.server_fin
+            .store(true, std::sync::atomic::Ordering::Release);
     }
 
     fn unlink(&mut self, pipeline: &gst::Pipeline) -> Result<(), glib::error::BoolError> {

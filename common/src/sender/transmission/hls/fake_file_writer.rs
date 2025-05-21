@@ -15,7 +15,7 @@
 // You should have received a copy of the GNU General Public License
 // along with OpenMirroring.  If not, see <https://www.gnu.org/licenses/>.
 
-use tokio::sync::mpsc::Sender;
+use crossbeam_channel::Sender;
 
 use gst::{glib, subclass::prelude::ObjectSubclassIsExt};
 
@@ -67,26 +67,11 @@ mod imp {
                 Some(tx) => {
                     let location = self.location.borrow().clone();
                     let data = self.data.borrow().clone();
-                    match tokio::runtime::Handle::try_current() {
-                        Ok(rt_handle) => {
-                            rt_handle.spawn(async move {
-                                tx.send(ChannelElement {
-                                    location,
-                                    request: Request::Add(data),
-                                })
-                                .await
-                                .unwrap();
-                            });
-                        }
-                        Err(_) => {
-                            tx.blocking_send(ChannelElement {
-                                location,
-                                request: Request::Add(data),
-                            })
-                            .map_err(|err| {
-                                glib::Error::new(glib::FileError::Failed, &err.to_string())
-                            })?;
-                        }
+                    if let Err(err) = tx.send(ChannelElement {
+                        location,
+                        request: Request::Add(data),
+                    }) {
+                        log::debug!("Failed to send fake file: {err}");
                     }
                     Ok(())
                 }
