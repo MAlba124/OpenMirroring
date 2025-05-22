@@ -228,6 +228,7 @@ impl Application {
             Event::SetVolume(set_volume_message) => {
                 self.pipeline.set_volume(set_volume_message.volume)
             }
+            // TODO: send only when it's playing?
             Event::SendPlaybackUpdate => self.notify_updates()?,
             Event::Quit => return Ok(true),
             Event::PipelineEos => {

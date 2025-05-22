@@ -9,7 +9,8 @@ use tokio::{
     net::tcp::{ReadHalf, WriteHalf},
 };
 
-const HEADER_BUFFER_SIZE: usize = 5;
+pub const HEADER_BUFFER_SIZE: usize = 5;
+pub const MAX_BODY_SIZE: u32 = 32000 - 1;
 
 /// Attempt to read and decode FCast packet from `stream`.
 pub async fn read_packet(stream: &mut ReadHalf<'_>) -> Result<Packet> {

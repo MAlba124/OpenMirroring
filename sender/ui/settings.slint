@@ -32,9 +32,9 @@ export component Settings {
         port >= 1 && port <= 65535
     }
 
-    public function currently-selected-address() -> { idx: int,port: int} {
+    public function currently-selected-address() -> { addr-idx: int, port: int} {
         {
-            idx: stream-address-combo.current-index,
+            addr-idx: stream-address-combo.current-index,
             port: ti-stream-port.text.to-float()
         }
     }
