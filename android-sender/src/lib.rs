@@ -249,7 +249,7 @@ impl Application {
                     self.update_receivers_in_ui()?;
                 }
                 Event::SessionTerminated => break,
-                Event::PipelineIsPlaying => pipeline.playing().await?,
+                Event::PipelineIsPlaying => pipeline.playing()?,
                 Event::SelectReceiver(receiver) => {
                     if let Some(idx) = self.receivers_contains(&receiver) {
                         self.receivers[idx].0.state = ReceiverState::Connecting;
