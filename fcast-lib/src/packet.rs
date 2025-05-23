@@ -67,6 +67,7 @@ impl From<PlayMessage> for Packet {
 }
 
 impl Packet {
+    // TODO: wtf does this exist
     pub const fn pong() -> Self {
         Self::Pong
     }

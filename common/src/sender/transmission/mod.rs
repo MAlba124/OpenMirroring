@@ -44,13 +44,12 @@ pub fn init() -> Result<(), gst::glib::BoolError> {
     Ok(())
 }
 
-#[async_trait::async_trait]
 pub trait TransmissionSink: Send {
     /// Get the message that should be sent to a receiver to consume the stream
     fn get_play_msg(&self, addr: IpAddr) -> Option<PlayMessage>;
 
     /// Called when the pipeline enters the playing state
-    async fn playing(&mut self) -> anyhow::Result<()>;
+    fn playing(&mut self) -> anyhow::Result<()>;
 
     /// Perform any necessary shutdown procedures
     fn shutdown(&mut self);

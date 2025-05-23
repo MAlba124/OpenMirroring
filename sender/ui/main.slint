@@ -30,7 +30,7 @@ export component MainWindow inherits Window {
 
     callback select-source(int);
     callback connect-receiver(string);
-    callback start-cast();
+    callback start-cast({addr-idx: int, port: int});
     callback stop-cast();
     callback disconnect-receiver();
     callback change-source();
@@ -67,10 +67,6 @@ export component MainWindow inherits Window {
 
     public function cast-stopped() {
         casting = false;
-    }
-
-    public function currently-selected-address() -> { idx: int, port: int } {
-        settings.currently-selected-address()
     }
 
     // Maybe have vertical layout when the root width is, say 800 px, horizontal otherwise
@@ -123,7 +119,7 @@ export component MainWindow inherits Window {
                         icon: @image-url("../../assets/icons/play.svg");
                         colorize-icon: true;
                         clicked => {
-                            start-cast();
+                            start-cast(settings.currently-selected-address());
                         }
                     }
                 }

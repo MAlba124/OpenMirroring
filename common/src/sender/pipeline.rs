@@ -167,20 +167,15 @@ impl Pipeline {
     }
 
     #[cfg(not(target_os = "android"))]
-    pub async fn new<E, Fut, S>(
-        preview_appsink: gst::Element,
-        mut on_event: E,
-        on_sources: S,
-    ) -> Result<Self>
+    pub fn new<E, S>(preview_appsink: gst::Element, mut on_event: E, on_sources: S) -> Result<Self>
     where
-        E: FnMut(Event) -> Fut + Send + Clone + 'static,
-        Fut: Future<Output = ()> + Send + 'static,
+        E: FnMut(Event) + Send + Clone + 'static,
         S: Fn(&[gst::glib::Value]) -> Option<gst::glib::Value> + Send + Sync + 'static,
     {
-        let tee = gst::ElementFactory::make("tee").build()?;
         let scapsrc = gst::ElementFactory::make("scapsrc")
             .property("perform-internal-preroll", true)
             .build()?;
+        let tee = gst::ElementFactory::make("tee").build()?;
         let preview_queue = gst::ElementFactory::make("queue")
             .name("preview_queue")
             .property("max-size-time", 0u64)
@@ -193,48 +188,6 @@ impl Pipeline {
         let pipeline = gst::Pipeline::new();
 
         let tx_sink = None::<Box<dyn TransmissionSink>>;
-
-        let bus = pipeline
-            .bus()
-            .ok_or(anyhow::anyhow!("Pipeline is missing bus"))?;
-
-        let pipeline_weak = pipeline.downgrade();
-        tokio::spawn(async move {
-            let mut messages = bus.stream();
-
-            while let Some(msg) = messages.next().await {
-                use gst::MessageView;
-
-                match msg.view() {
-                    MessageView::Eos(..) => (on_event)(Event::Eos).await,
-                    MessageView::Error(err) => {
-                        error!(
-                            "Error from {:?}: {} ({:?})",
-                            err.src().map(|s| s.path_string()),
-                            err.error(),
-                            err.debug()
-                        );
-                        (on_event)(Event::Error).await;
-                    }
-                    MessageView::StateChanged(state_changed) => {
-                        let Some(pipeline) = pipeline_weak.upgrade() else {
-                            error!(
-                                "Failed to handle state change bus message because pipeline is missing"
-                            );
-                            return;
-                        };
-
-                        if state_changed.src() == Some(pipeline.upcast_ref())
-                            && state_changed.old() == gst::State::Paused
-                            && state_changed.current() == gst::State::Playing
-                        {
-                            (on_event)(Event::PipelineIsPlaying).await;
-                        }
-                    }
-                    _ => (),
-                }
-            }
-        });
 
         // https://gitlab.freedesktop.org/gstreamer/gstreamer/-/issues/3993
         scapsrc.static_pad("src").unwrap().add_probe(
@@ -266,12 +219,58 @@ impl Pipeline {
         // Start the pipeline in background thread because `scapsrc` initialization will block until
         // the user selects the input source.
         let _ = std::thread::spawn({
-            let pipeline = pipeline.clone();
+            let bus = pipeline
+                .bus()
+                .ok_or(anyhow::anyhow!("Pipeline without bus"))?;
+            // We keep weak pipeline ref because the thread does not receive a finish signal,
+            // therefore when we can't upgrade the ref, we know to quit
+            let pipeline_weak = pipeline.downgrade();
             move || {
-                debug!("Starting pipeline");
-                if let Err(err) = pipeline.set_state(gst::State::Playing) {
-                    error!("Failed to start pipeline: {err}");
+                {
+                    let Some(pipeline) = pipeline_weak.upgrade() else {
+                        debug!("Failed to upgrade pipeline before starting");
+                        return;
+                    };
+                    debug!("Starting pipeline");
+                    if let Err(err) = pipeline.set_state(gst::State::Playing) {
+                        error!("Failed to start pipeline: {err}");
+                    }
                 }
+
+                // TODO: can have a poll_bus() function so the thread can die?
+                for msg in bus.iter_timed(gst::ClockTime::NONE) {
+                    use gst::MessageView;
+                    match msg.view() {
+                        MessageView::Eos(..) => (on_event)(Event::Eos),
+                        MessageView::Error(err) => {
+                            error!(
+                                "Error from {:?}: {} ({:?})",
+                                err.src().map(|s| s.path_string()),
+                                err.error(),
+                                err.debug()
+                            );
+                            (on_event)(Event::Error);
+                        }
+                        MessageView::StateChanged(state_changed) => {
+                            let Some(pipeline) = pipeline_weak.upgrade() else {
+                                debug!(
+                                    "Failed to handle state change bus message because pipeline is missing"
+                                );
+                                return;
+                            };
+
+                            if state_changed.src() == Some(pipeline.upcast_ref())
+                                && state_changed.old() == gst::State::Paused
+                                && state_changed.current() == gst::State::Playing
+                            {
+                                (on_event)(Event::PipelineIsPlaying);
+                            }
+                        }
+                        _ => (),
+                    }
+                }
+
+                debug!("Bus watcher quit");
             }
         });
 
@@ -284,9 +283,9 @@ impl Pipeline {
         })
     }
 
-    pub async fn playing(&mut self) -> Result<()> {
+    pub fn playing(&mut self) -> Result<()> {
         match &mut self.tx_sink {
-            Some(sink) => sink.playing().await,
+            Some(sink) => sink.playing(),
             None => Ok(()),
         }
     }

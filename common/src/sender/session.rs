@@ -17,8 +17,9 @@
 
 use std::future::Future;
 use std::net::SocketAddr;
+use std::thread::JoinHandle;
 
-use anyhow::Result;
+use anyhow::{Result, bail};
 use fcast_lib::models::PlayMessage;
 use fcast_lib::{packet::Packet, read_packet, write_packet};
 use log::{debug, error, warn};
@@ -157,4 +158,96 @@ where
     debug!("Session terminated");
 
     on_event(Event::SessionTerminated).await;
+}
+
+pub enum SessionEvent {
+    Packet(fcast_lib::packet::Packet),
+    Connected,
+}
+
+#[derive(Default)]
+pub struct Session {
+    connect_jh: Option<JoinHandle<std::io::Result<std::net::TcpStream>>>,
+    stream: Option<std::net::TcpStream>,
+}
+
+impl Session {
+    pub fn connect(&mut self, addr: SocketAddr) {
+        self.connect_jh = Some(std::thread::spawn(move || {
+            std::net::TcpStream::connect(addr)
+        }));
+    }
+
+    pub fn disconnect(&mut self) -> Result<()> {
+        if let Some(jh) = self.connect_jh.take() {
+            if jh.is_finished() {
+                let _ = jh.join();
+            }
+        }
+
+        if let Some(stream) = self.stream.take() {
+            stream.shutdown(std::net::Shutdown::Both)?;
+        }
+
+        Ok(())
+    }
+
+    pub fn poll_event(&mut self) -> Result<Option<SessionEvent>> {
+        if let Some(jh) = self.connect_jh.as_mut() {
+            if jh.is_finished() {
+                let jh = self.connect_jh.take().unwrap();
+                let stream = jh.join().unwrap()?;
+                stream.set_nonblocking(true)?;
+                self.stream = Some(stream);
+                return Ok(Some(SessionEvent::Connected));
+            }
+        }
+
+        if let Some(stream) = self.stream.as_mut() {
+            use std::io::Read;
+            let mut header_buf = [0u8; fcast_lib::HEADER_BUFFER_SIZE];
+            if let Err(err) = stream.read_exact(&mut header_buf) {
+                if err.kind() != std::io::ErrorKind::WouldBlock {
+                    return Err(err.into());
+                }
+                return Ok(None);
+            }
+
+            let header = fcast_lib::models::Header::decode(header_buf);
+
+            let mut body_string = String::new();
+
+            if header.size > 0 {
+                if header.size > fcast_lib::MAX_BODY_SIZE {
+                    bail!(
+                        "Body size ({}) exceeds MAX_BODY_SIZE ({})",
+                        header.size,
+                        fcast_lib::MAX_BODY_SIZE
+                    );
+                }
+                let mut body_buf = vec![0; header.size as usize];
+                stream.set_nonblocking(false)?;
+                if let Err(err) = stream.read_exact(&mut body_buf) {
+                    stream.set_nonblocking(true)?;
+                    return Err(err.into());
+                }
+                stream.set_nonblocking(true)?;
+                body_string = String::from_utf8(body_buf)?;
+            }
+
+            let packet = fcast_lib::packet::Packet::decode(header, &body_string)?;
+            return Ok(Some(SessionEvent::Packet(packet)));
+        }
+
+        Ok(None)
+    }
+
+    pub fn send_packet(&mut self, packet: fcast_lib::packet::Packet) -> Result<()> {
+        if let Some(stream) = self.stream.as_mut() {
+            use std::io::Write;
+            stream.write_all(&packet.encode())?;
+        }
+
+        Ok(())
+    }
 }

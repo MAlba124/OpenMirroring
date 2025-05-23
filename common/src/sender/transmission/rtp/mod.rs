@@ -125,7 +125,6 @@ impl RtpSink {
     }
 }
 
-#[async_trait::async_trait]
 impl TransmissionSink for RtpSink {
     fn get_play_msg(&self, _addr: IpAddr) -> Option<PlayMessage> {
         Some(PlayMessage {
@@ -158,7 +157,7 @@ impl TransmissionSink for RtpSink {
         })
     }
 
-    async fn playing(&mut self) -> Result<()> {
+    fn playing(&mut self) -> Result<()> {
         Ok(())
     }
 
