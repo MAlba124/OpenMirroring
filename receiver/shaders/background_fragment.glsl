@@ -1,10 +1,18 @@
-// ----------------------------------------------------------------------------------------
-//	"Toon Cloud" by Antoine Clappier - March 2015
+// Sunset over the ocean. (https://www.shadertoy.com/view/wcjSzd)
+// Minimalistic three color 2D shader
+// inspired by this wonderful GIF: https://i.gifer.com/4Cb2.gif
 //
-//	Licensed under:
-//  A Creative Commons Attribution-NonCommercial-ShareAlike 4.0 International License.
-//	http://creativecommons.org/licenses/by-nc-sa/4.0/
-// ----------------------------------------------------------------------------------------
+// Features automatic anti aliasing by using smooth gradients
+// removing the need for multi sampling.
+//
+// Revision 1:
+//  - Add qnoise as approximation to value noise
+//  - Inline remap() macro
+//
+// Copyright (c) srvstr 2025
+// Licensed under MIT
+
+// This is a placeholder
 
 #version 100
 precision mediump float;
@@ -13,75 +21,63 @@ uniform float effect_time;
 uniform float win_width;
 uniform float win_height;
 
-#define TAU 6.28318530718
+/* Simple cosine based approximation of perlin noise.
+ * Gives a more organic appearance.
+ */
+float cnoise(in vec2 uv) {
+    // Rotation matrix with values corresponding to sin(1.7) and cos(1.7).
+    const mat2 r = mat2(-0.1288, -0.9917, 0.9917, -0.1288);
 
-const vec3 BackColor	= vec3(0.0, 0.4, 0.58);
-const vec3 CloudColor	= vec3(0.18,0.70,0.87);
+    vec2 s0 = cos(uv);
+    vec2 s1 = cos(uv * 2.5 * r);
+    vec2 s2 = cos(uv * 4.0 * r * r);
 
-float Func(float pX)
-{
-    return 0.6*(0.5*sin(0.1*pX) + 0.5*sin(0.553*pX) + 0.7*sin(1.2*pX));
+    vec2 s = s0 * s1 * s2;
+
+    return (s.x + s.y) * 0.25 + 0.5;
 }
 
-float FuncR(float pX)
-{
-    return 0.5 + 0.25*(1.0 + sin(mod(40.0*pX, TAU)));
-}
+#define S(x) (smoothstep(0.0, 1.0, (x)))
 
-float Layer(vec2 pQ, float pT)
-{
-    vec2 Qt = 3.5*pQ;
-    pT *= 0.5;
-    Qt.x += pT;
+void main() {
+    vec2 uv = (frag_position - 0.5 * vec2(win_width, win_height)) / win_height;
 
-    float Xi = floor(Qt.x);
-    float Xf = Qt.x - Xi -0.5;
+    // Bias for smoothstep function to  simulate anti aliasing
+    // with gradients.
+    float dy = (smoothstep(0.0, -1.0, uv.y) * 40.0 + 1.5) / win_height;
 
-    vec2 C;
-    float Yi;
-    float D = 1.0 - step(Qt.y,  Func(Qt.x));
+    // Wave displacement factors.
+    // XY: scale the UV coordinates for the noise.
+    // Z: scales the noises strength.
+    #define DISP_LENGTH 4
+    vec3[DISP_LENGTH] disp;
+    disp[0] = vec3(vec2( 0.5, 20.0), 8.0);
+    disp[1] = vec3(vec2( 2.5, 60.0), 4.0);
+    disp[2] = vec3(vec2( 5.0, 80.0), 2.0);
+    disp[3] = vec3(vec2(10.0, 20.0), 2.0);
 
-    // Disk:
-    Yi = Func(Xi + 0.5);
-    C = vec2(Xf, Qt.y - Yi );
-    D =  min(D, length(C) - FuncR(Xi+ pT/80.0));
-
-    // Previous disk:
-    Yi = Func(Xi+1.0 + 0.5);
-    C = vec2(Xf-1.0, Qt.y - Yi );
-    D =  min(D, length(C) - FuncR(Xi+1.0+ pT/80.0));
-
-    // Next Disk:
-    Yi = Func(Xi-1.0 + 0.5);
-    C = vec2(Xf+1.0, Qt.y - Yi );
-    D =  min(D, length(C) - FuncR(Xi-1.0+ pT/80.0));
-
-    return min(1.0, D);
-}
-
-void main()
-{
-    // Setup:
-    vec2 UV = 2.0*(frag_position.xy - vec2(win_width, win_height)/2.0) / min(win_width, win_height);
-
-    // Render:
-    vec3 Color= BackColor;
-
-    for(float J=0.0; J<=1.0; J+=0.2)
-    {
-        // Cloud Layer:
-        float Lt =  effect_time*(0.5  + 2.0*J)*(1.0 + 0.1*sin(226.0*J)) + 17.0*J;
-        vec2 Lp = vec2(0.0, 0.3+1.5*( J - 0.5));
-        float L = Layer(UV + Lp, Lt);
-
-        // Blur and color:
-        float Blur = 4.0*(0.5*abs(2.0 - 5.0*J))/(11.0 - 5.0*J);
-
-        float V = mix( 0.0, 1.0, 1.0 - smoothstep( 0.0, 0.01 +0.2*Blur, L ) );
-        vec3 Lc=  mix( CloudColor, vec3(1.0), J);
-
-        Color =mix(Color, Lc,  V);
+    float avg = 0.0;
+    // Compute average of noise displacements
+    for (int i = 0; i < DISP_LENGTH; i++) {
+      avg += cnoise(uv * disp[i].xy +
+                    effect_time * 0.5 /* 50% animation slowdown */) * disp[i].z - disp[i].z * 0.5;
     }
+    avg /= float(DISP_LENGTH);
 
-    gl_FragColor = vec4(Color, 1.0);
+    // Displace vertically.
+    vec2 st = vec2(uv.x, uv.y + clamp(avg * smoothstep(0.1, -1.0, uv.y), -0.1, 0.1));
+
+    gl_FragColor = vec4(
+        // Compose output gradients.
+        mix(
+            vec3(0.85, 0.55, 0),
+            vec3(0.90, 0.40, 0),
+            sqrt(abs(st.y * st.y * st.y)) * 28.0
+        )
+        /* Mask sun */
+        * smoothstep(0.25 + dy, 0.25, length(st))
+        /* Vingette + Background tint */
+        + smoothstep(2.0, 0.5, length(uv)) * 0.1,
+        1.0
+    );
 }

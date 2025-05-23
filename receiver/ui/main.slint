@@ -101,6 +101,7 @@ component PlaybackControl {
     // TODO: speed changer
 
     in property <string> progress-label;
+
     in-out property <GuiPlaybackState> pb-state;
 
     property <bool> is-scrubbing: false;
@@ -207,6 +208,7 @@ export component MainWindow inherits Window {
     in property <string> label;
     in property <string> progress-label;
     in property <GuiPlaybackState> playback-state;
+    in property <bool> using-background-underlay;
 
     in-out property <bool> playing: false;
 
@@ -257,12 +259,14 @@ export component MainWindow inherits Window {
                 text: "OpenMirroring";
                 font-weight: 800; // bold
                 horizontal-alignment: center;
+                color: using-background-underlay ? white : black;
             }
 
             if connected_devices == 0: Text {
                 font-size: 12pt;
                 text: "Waiting for a connection";
                 horizontal-alignment: center;
+                color: using-background-underlay ? white : black;
             }
             if connected_devices == 0: Spinner {
                 indeterminate: true;
@@ -271,21 +275,23 @@ export component MainWindow inherits Window {
                 font-size: 12pt;
                 text: "Device is connected";
                 horizontal-alignment: center;
+                color: using-background-underlay ? white : black;
             }
         }
 
         VerticalBox {
             alignment: center;
             Rectangle {
-                background: whitesmoke.with-alpha(60%);
+                background: (using-background-underlay ? black: white).with-alpha(40%);
                 border-radius: 8px;
-                border-color: white.with-alpha(60%);
+                border-color: (using-background-underlay ? black : white).with-alpha(40%);
                 border-width: 2px;
                 VerticalBox {
                     Text {
                         horizontal-alignment: center;
                         text: "Manual connection information";
                         font-size: 12pt;
+                        color: using-background-underlay ? white : black;
                     }
 
                     HorizontalRule {
@@ -296,6 +302,7 @@ export component MainWindow inherits Window {
                     Text {
                         horizontal-alignment: center;
                         text: "IPs";
+                        color: using-background-underlay ? white : black;
                     }
 
                     if !playing && label.is-empty: Spinner {
@@ -304,20 +311,24 @@ export component MainWindow inherits Window {
                     if !playing && !label.is-empty: Text {
                         horizontal-alignment: center;
                         text <=> label;
+                        color: using-background-underlay ? white : black;
                     }
                     Text {
                         horizontal-alignment: center;
                         text: "Port";
+                        color: using-background-underlay ? white : black;
                     }
 
                     Text {
                         horizontal-alignment: center;
                         text: "46899 (TCP)";
+                        color: using-background-underlay ? white : black;
                     }
 
                     Text {
                         horizontal-alignment: center;
                         text: "Automatic discovery is available via mDNS";
+                        color: using-background-underlay ? white : black;
                     }
                 }
             }

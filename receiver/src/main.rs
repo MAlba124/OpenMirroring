@@ -360,6 +360,8 @@ fn main() -> Result<()> {
     let ui = MainWindow::new()?;
     slint::set_xdg_app_id("com.github.malba124.OpenMirroring.receiver")?;
 
+    ui.set_using_background_underlay(!cli_args.no_background);
+
     ui.window().set_rendering_notifier({
         let ui_weak = ui.as_weak();
 
