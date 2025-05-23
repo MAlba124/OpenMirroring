@@ -19,7 +19,7 @@ use std::future::Future;
 use std::net::SocketAddr;
 use std::thread::JoinHandle;
 
-use anyhow::{bail, Result};
+use anyhow::{Result, bail};
 use fcast_lib::models::PlayMessage;
 use fcast_lib::{packet::Packet, read_packet, write_packet};
 use log::{debug, error, warn};
@@ -173,7 +173,9 @@ pub struct Session {
 
 impl Session {
     pub fn connect(&mut self, addr: SocketAddr) {
-        self.connect_jh = Some(std::thread::spawn(move || std::net::TcpStream::connect(addr)));
+        self.connect_jh = Some(std::thread::spawn(move || {
+            std::net::TcpStream::connect(addr)
+        }));
     }
 
     pub fn disconnect(&mut self) -> Result<()> {
