@@ -19,6 +19,7 @@ use anyhow::{Result, bail};
 use clap::Parser;
 use common::runtime;
 use common::video::opengl::SlintOpenGLSink;
+use fcast_lib::models::SetVolumeMessage;
 use fcast_lib::packet::Packet;
 use log::{debug, error, warn};
 use receiver::Event;
@@ -452,6 +453,25 @@ fn main() -> Result<()> {
         let event_tx = event_tx.clone();
         ui.on_seek_to_percent(move |percent| {
             event_tx.blocking_send(Event::SeekPercent(percent)).unwrap();
+        });
+    }
+
+    {
+        let ui_weak = ui.as_weak();
+        ui.on_toggle_fullscreen(move || {
+            let ui = ui_weak
+                .upgrade()
+                .expect("callbacks always get called from the event loop");
+            ui.window().set_fullscreen(!ui.window().is_fullscreen());
+        });
+    }
+
+    {
+        let event_tx = event_tx.clone();
+        ui.on_set_volume(move |volume| {
+            event_tx
+                .blocking_send(Event::SetVolume(SetVolumeMessage { volume: volume as f64 }))
+                .unwrap();
         });
     }
 

@@ -23,7 +23,7 @@ OMSender can cast to other FCast receivers as well.
 
 OMReceiver is also an FCast receiver.
 
-![OMReceiver playing Big Buck Bunny](./assets/receiver_playing_big_buck.png)
+![OMReceiver playing Big Buck Bunny](./assets/receiver_demo.png)
 *OMReceiver playing Big Buck Bunny*
 
 #### Mobile

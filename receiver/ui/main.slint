@@ -15,8 +15,9 @@
 // You should have received a copy of the GNU General Public License
 // along with OpenMirroring.  If not, see <https://www.gnu.org/licenses/>.
 
-import { Spinner, HorizontalBox, Button, Palette, VerticalBox, Slider } from "std-widgets.slint";
+import { Spinner, HorizontalBox, Button, Palette, VerticalBox } from "std-widgets.slint";
 import { HorizontalRule } from "../../ui-common/horizontal-rule.slint";
+import { SliderBase } from "slider-base.slint";
 
 // TODO: animate in and out transitions
 component ErrorAlert {
@@ -87,6 +88,98 @@ component ErrorAlert {
     }
 }
 
+// TODO: accesibility
+component IconButton {
+    in property <image> icon <=> img.source;
+
+    callback clicked <=> ta.clicked;
+
+    out property <bool> is-engaged: ta.has-hover;
+
+    accessible-role: button;
+    accessible-action-default => {
+        ta.clicked();
+    }
+
+    ta := TouchArea { }
+
+    states [
+        active-hover when ta.has-hover: {
+            img.colorize: lightgrey;
+            ta.mouse-cursor: pointer;
+        }
+    ]
+
+    HorizontalLayout {
+        img := Image {
+            width: 17px;
+            colorize: white;
+        }
+    }
+}
+
+component OmSlider {
+    in property <Orientation> orientation <=> base.orientation;
+    in property <float> maximum <=> base.maximum;
+    in property <float> minimum <=> base.minimum;
+    in property <float> step <=> base.step;
+    in property <bool> enabled <=> base.enabled;
+    out property <bool> has-focus: base.has-focus;
+    in-out property <float> value <=> base.value;
+
+    in property <color> foreground: #008BD7;
+
+    out property <bool> handle-pressed;
+
+    min-width: base.vertical ? 20px : 0px;
+    min-height: base.vertical ? 0px : 20px;
+    vertical-stretch: base.vertical ? 1 : 0;
+    horizontal-stretch: base.vertical ? 0 : 1;
+    accessible-role: slider;
+    accessible-enabled: root.enabled;
+    accessible-value: root.value;
+    accessible-value-minimum: root.minimum;
+    accessible-value-maximum: root.maximum;
+    accessible-value-step: min(root.step, (root.maximum - root.minimum) / 100);
+    forward-focus: base;
+
+    callback changed <=> base.changed;
+    callback released <=> base.released;
+
+    rail := Rectangle {
+        width: base.vertical ? 4px : parent.width;
+        height: base.vertical ? parent.height : 4px;
+        background: grey;
+        border-radius: 2px;
+    }
+
+    track := Rectangle {
+        x: base.vertical ? (parent.width - self.width) / 2 : 0;
+        y: base.vertical ? 0 : (parent.height - self.height) / 2;
+        width: base.vertical ? rail.width : thumb.x + (thumb.width / 2);
+        height: base.vertical ? thumb.y + (thumb.height / 2) : rail.height;
+        background: root.foreground;
+    }
+
+    thumb := Rectangle {
+        x: base.vertical ? (parent.width - self.width) / 2 : clamp((parent.width - self.width) * (root.value - root.minimum) / (root.maximum - root.minimum), 0, root.width - self.width);
+        y: base.vertical ? clamp((parent.height - self.height) * (root.value - root.minimum) / (root.maximum - root.minimum), 0, root.height - self.height) : (parent.height - self.height) / 2;
+        width: 18px;
+        height: self.width;
+        border-radius: 10px;
+        background: root.foreground;
+    }
+
+    base := SliderBase {
+        width: 100%;
+        height: 100%;
+        handle-x: thumb.x;
+        handle-y: thumb.y;
+        handle-width: thumb.width;
+        handle-height: thumb.height;
+    }
+}
+
 export enum GuiPlaybackState {
     Playing,
     Paused,
@@ -97,7 +190,6 @@ export enum GuiPlaybackState {
 component PlaybackControl {
     visible: false;
 
-    // TODO: volume changeer
     // TODO: speed changer
 
     in property <string> progress-label;
@@ -105,17 +197,25 @@ component PlaybackControl {
     in-out property <GuiPlaybackState> pb-state;
 
     property <bool> is-scrubbing: false;
+    property <bool> is-changing-volume: false;
+    property <bool> is-fullscreen: false;
+    property <float> volume: 1.0;
 
-    callback resume-or-pause;
+    callback resume-or-pause();
+    // TODO: seeking while paused does not update the video frame with the new location
     callback seek-to-percent(float);
+    callback toggle-fullscreen();
+    callback set-volume(float);
 
     public function show() {
         root.visible = true;
         tim.counter = 0;
+        tim.running = true;
     }
 
     public function close() {
         root.visible = false;
+        tim.running = false;
     }
 
     public function playback-started() {
@@ -138,36 +238,18 @@ component PlaybackControl {
         show();
     }
 
-    Rectangle {
-        background: Palette.alternate-background;
-        opacity: 80%;
-        border-radius: 8px;
+    function volume-changed() {
+        is-changing-volume = true;
+        show();
+    }
 
-        HorizontalBox {
-            if pb-state == GuiPlaybackState.Loading: Spinner {
-                indeterminate: true;
-            }
-            // TODO: rect with touch area and icon or something so the button border etc. can be omitted
-            if pb-state == GuiPlaybackState.Playing: Button {
-                icon: @image-url("../../assets/icons/video_pause.svg");
-                colorize-icon: true;
-                clicked => {
-                    resume-or-pause();
-                }
-            }
-            if pb-state == GuiPlaybackState.Paused: Button {
-                icon: @image-url("../../assets/icons/video_play.svg");
-                colorize-icon: true;
-                clicked => {
-                    resume-or-pause();
-                }
-            }
-            if pb-state == GuiPlaybackState.Live: Text {
-                text: "LIVE";
-                font-weight: 800;
-                vertical-alignment: center;
-            }
-            scrubber := Slider {
+    // TODO: maybe touch area inside this component
+
+    Rectangle {
+        background: @linear-gradient(180deg, #8a8a8a00 0%, #202020AA 100%);
+
+        VerticalLayout {
+            scrubber := OmSlider {
                 maximum: 100;
                 value: 0;
                 enabled: pb-state != GuiPlaybackState.Loading && pb-state != GuiPlaybackState.Live;
@@ -180,12 +262,83 @@ component PlaybackControl {
                 }
             }
 
-            Text {
-                text <=> progress-label;
-                vertical-alignment: center;
+            HorizontalBox {
+                alignment: space-between;
+                HorizontalLayout {
+                    spacing: 15px;
+                    if pb-state == GuiPlaybackState.Loading: Spinner {
+                        indeterminate: true;
+                    }
+                    // TODO: handle is-engaged for the buttons
+                    if pb-state == GuiPlaybackState.Playing: pause-btn := IconButton {
+                        icon: @image-url("../../assets/icons/video_pause.svg");
+                        clicked => {
+                            resume-or-pause();
+                        }
+                    }
+                    if pb-state == GuiPlaybackState.Paused: IconButton {
+                        icon: @image-url("../../assets/icons/video_play.svg");
+                        clicked => {
+                            resume-or-pause();
+                        }
+                    }
+                    if pb-state == GuiPlaybackState.Live: Text {
+                        text: "LIVE";
+                        font-weight: 800;
+                        vertical-alignment: center;
+                        color: white;
+                    }
+
+                    volume-btn := IconButton {
+                        icon: volume-slider.value > 0 ? @image-url("../../assets/icons/volume.svg") : @image-url("../../assets/icons/volume-muted.svg");
+                        clicked => {
+                            if volume-slider.value > 0 {
+                                volume-slider.value = 0;
+                                set-volume(0);
+                            } else {
+                                // TOOD: probably shouldn't go from 0 to 100%
+                                volume-slider.value = 1;
+                                set-volume(1);
+                            }
+                        }
+                    }
+
+                    volume-slider := OmSlider {
+                        value: 1.0;
+                        step: 0.01;
+                        maximum: 1.0;
+                        width: 100px;
+                        foreground: white;
+                        changed(_) => {
+                            volume-changed();
+                        }
+                        released(new-volume) => {
+                            is-changing-volume = false;
+                            set-volume(new-volume);
+                        }
+                    }
+
+                    Text {
+                        text <=> progress-label;
+                        vertical-alignment: center;
+                        color: white;
+                        font-size: 13px;
+                    }
+                }
+
+                fullscreen-btn := IconButton {
+                    icon: root.is-fullscreen ? @image-url("../../assets/icons/compress.svg") : @image-url("../../assets/icons/expand.svg");
+                    clicked => {
+                        toggle-fullscreen();
+                        root.is-fullscreen = !root.is-fullscreen;
+                    }
+                }
             }
         }
     }
+
+    // TODO: should be a property or used directly inside the timer, but it's blocked by https://github.com/slint-ui/slint/issues/8541
+    property <bool> playback-is-engaged: fullscreen-btn.is-engaged || volume-btn.is-engaged;
 
     tim := Timer {
         property <int> counter;
@@ -193,15 +346,19 @@ component PlaybackControl {
         running: true;
         triggered => {
             counter += 1;
-            // Wait 500ms * 3 before hiding the bar
-            if counter >= 3 {
-                parent.close();
+            // mouse cursor in root root
+            // Wait 500ms * 4 before hiding the bar
+            if counter >= 4 {
+                if playback-is-engaged {
+                    parent.show();
+                } else {
+                    parent.close();
+                }
             }
         }
     }
 }
 
-// TODO: on screen controls for video playback
 export component MainWindow inherits Window {
     title: "Open Mirroring Receiver";
 
@@ -214,15 +371,17 @@ export component MainWindow inherits Window {
 
     property <int> connected_devices: 0;
 
-    callback resume-or-pause;
+    callback resume-or-pause();
     callback seek-to-percent(float);
+    callback toggle-fullscreen();
+    callback set-volume(float);
 
     public function playback-started() {
         playing = true;
         playback-control.playback-started();
     }
 
-    // TODO: playback-paused?
+    // TODO: function playback-paused()?
 
     public function playback-stopped() {
         playing = false;
@@ -282,7 +441,7 @@ export component MainWindow inherits Window {
         VerticalBox {
             alignment: center;
             Rectangle {
-                background: (using-background-underlay ? black: white).with-alpha(40%);
+                background: (using-background-underlay ? black : white).with-alpha(40%);
                 border-radius: 8px;
                 border-color: (using-background-underlay ? black : white).with-alpha(40%);
                 border-width: 2px;
@@ -344,6 +503,8 @@ export component MainWindow inherits Window {
 
         visible: playing;
 
+        mouse-cursor: self.visible && !playback-control.visible ? none : default;
+
         pointer-event(pe) => {
             if pe.kind == PointerEventKind.move {
                 playback-control.show();
@@ -351,8 +512,8 @@ export component MainWindow inherits Window {
         }
 
         playback-control := PlaybackControl {
-            width: parent.width - 10px * 2;
-            y: parent.height - self.height - 10px;
+            width: 100%;
+            y: parent.height - self.height;
             progress-label <=> progress-label;
             pb-state: playback-state;
 
@@ -362,6 +523,14 @@ export component MainWindow inherits Window {
 
             seek-to-percent(percent) => {
                 seek-to-percent(percent);
+            }
+
+            toggle-fullscreen => {
+                toggle-fullscreen();
+            }
+
+            set-volume(volume) => {
+                set-volume(volume);
             }
         }
     }
