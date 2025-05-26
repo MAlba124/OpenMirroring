@@ -470,7 +470,9 @@ fn main() -> Result<()> {
         let event_tx = event_tx.clone();
         ui.on_set_volume(move |volume| {
             event_tx
-                .blocking_send(Event::SetVolume(SetVolumeMessage { volume: volume as f64 }))
+                .blocking_send(Event::SetVolume(SetVolumeMessage {
+                    volume: volume as f64,
+                }))
                 .unwrap();
         });
     }
