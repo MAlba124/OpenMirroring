@@ -61,6 +61,7 @@
                 ''-I"${pkgs.llvmPackages.libclang.lib}/lib/clang/${pkgs.llvmPackages.libclang.version}/include"''
                 "-I ${pkgs.glibc.dev}/include"
             ];
+            LIBCLANG_PATH = "${pkgs.llvmPackages.libclang.lib}/lib";
 
             inherit buildInputs nativeBuildInputs;
           };
