@@ -229,8 +229,6 @@ impl Application {
             Event::SetVolume(set_volume_message) => {
                 self.pipeline.set_volume(set_volume_message.volume)
             }
-            // TODO: send only when it's playing?
-            Event::SendPlaybackUpdate => self.notify_updates()?,
             Event::Quit => return Ok(true),
             Event::PipelineEos => {
                 debug!("Pipeline reached EOS");
@@ -272,7 +270,9 @@ impl Application {
                     }
                 }
                 _ = tokio::time::sleep(std::time::Duration::from_millis(1000)) => {
-                    self.notify_updates()?;
+                    if self.pipeline.is_playing() == Some(true) {
+                        self.notify_updates()?;
+                    }
                 }
                 session = dispatch_listener.accept() => {
                     let (stream, _) = session?;

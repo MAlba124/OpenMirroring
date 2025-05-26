@@ -30,7 +30,6 @@ pub enum Event {
     SetSpeed(SetSpeedMessage),
     Seek(SeekMessage),
     SetVolume(SetVolumeMessage),
-    SendPlaybackUpdate,
     Quit,
     PipelineEos,
     PipelineError,
