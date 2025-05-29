@@ -67,11 +67,6 @@ impl From<PlayMessage> for Packet {
 }
 
 impl Packet {
-    // TODO: wtf does this exist
-    pub const fn pong() -> Self {
-        Self::Pong
-    }
-
     pub fn decode(header: Header, body: &str) -> Result<Self, serde_json::Error> {
         Ok(match header.opcode {
             Opcode::None => Self::None,
