@@ -37,7 +37,6 @@ impl BackgroundUnderlay {
         unsafe {
             let program = gl.create_program().map_err(|err| anyhow!("{err}"))?;
 
-            // TODO: try out https://www.shadertoy.com/view/sldGDf or any from wallpaper tag on shader toy https://www.shadertoy.com/results?query=tag%3Dwallpaper
             super::compile_shader(
                 &gl,
                 &program,
