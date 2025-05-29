@@ -242,7 +242,6 @@ impl Pipeline {
                     }
                 }
 
-                // TODO: can have a poll_bus() function so the thread can die?
                 for msg in bus.iter_timed(gst::ClockTime::NONE) {
                     use gst::MessageView;
                     match msg.view() {
