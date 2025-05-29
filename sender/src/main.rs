@@ -308,17 +308,33 @@ impl Application {
                     }
 
                     if r.0.name.starts_with("OpenMirroring") {
-                        let receiver_addr = {
-                            let mut addr = None;
-                            for r in &self.receivers {
-                                if r.0.state == ReceiverState::Connected {
-                                    addr = Some(r.1.ip());
-                                    break;
-                                }
+                        self.pipeline.add_rtsp_sink(port)?;
+
+                        let addr = match self.addresses.get(self.selected_addr_idx) {
+                            Some(addr) => addr,
+                            None => {
+                                error!(
+                                    "Address ({}) is out of bounds in the addresses list",
+                                    self.selected_addr_idx,
+                                );
+                                return Ok(false);
                             }
-                            addr
                         };
-                        self.pipeline.add_rtp_sink(port, receiver_addr.unwrap())?;
+
+                        let Some(play_msg) = self.pipeline.get_play_msg(*addr) else {
+                            error!("Could not get stream uri");
+                            return Ok(false);
+                        };
+
+                        debug!("Sending play message: {play_msg:?}");
+
+                        self.send_packet_to_receiver(Packet::Play(play_msg))?;
+
+                        self.ui_weak.upgrade_in_event_loop(|ui| {
+                            ui.invoke_cast_started();
+                        })?;
+
+                        return Ok(false);
                     } else {
                         self.pipeline.add_hls_sink(port)?;
                     }

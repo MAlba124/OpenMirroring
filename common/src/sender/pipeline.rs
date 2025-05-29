@@ -15,14 +15,19 @@
 // You should have received a copy of the GNU General Public License
 // along with OpenMirroring.  If not, see <https://www.gnu.org/licenses/>.
 
-use super::transmission::{self, TransmissionSink, hls::HlsSink, rtp::RtpSink};
+#[cfg(target_os = "android")]
+use super::transmission::rtp::RtpSink;
+use super::transmission::{self, TransmissionSink, hls::HlsSink};
 use anyhow::Result;
 use fcast_lib::models::PlayMessage;
+#[cfg(target_os = "android")]
 use futures::StreamExt;
 use gst::prelude::*;
 use log::debug;
 use log::error;
-use std::{future::Future, net::IpAddr};
+#[cfg(target_os = "android")]
+use std::future::Future;
+use std::net::IpAddr;
 
 pub use transmission::init;
 
@@ -345,15 +350,15 @@ impl Pipeline {
     }
 
     #[cfg(not(target_os = "android"))]
-    pub fn add_rtp_sink(&mut self, port: u16, receiver_addr: IpAddr) -> Result<()> {
+    pub fn add_rtsp_sink(&mut self, port: u16) -> Result<()> {
         let tee_pad = self
             .tee
             .request_pad_simple("src_%u")
             .ok_or(anyhow::anyhow!("`request_pad_simple()` failed"))?;
-        let rtp = RtpSink::new(&self.inner, tee_pad, port, receiver_addr)?;
-        self.tx_sink = Some(Box::new(rtp));
+        let rtsp = transmission::rtsp::RtspSink::new(tee_pad, &self.inner, port)?;
+        self.tx_sink = Some(Box::new(rtsp));
 
-        debug!("Added RTP sink");
+        debug!("Added RTSP sink");
 
         Ok(())
     }
@@ -379,6 +384,8 @@ impl Pipeline {
         }
 
         self.tx_sink = None;
+
+        debug!("Removed transmission sink");
 
         Ok(())
     }

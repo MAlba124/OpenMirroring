@@ -21,7 +21,9 @@ use fcast_lib::models::PlayMessage;
 use gst::glib;
 
 pub mod hls;
+#[cfg(target_os = "android")]
 pub mod rtp;
+pub mod rtsp;
 
 fn block_downstream(pad: &gst::Pad) -> Result<gst::PadProbeId, glib::error::BoolError> {
     use gst::prelude::*;

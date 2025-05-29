@@ -47,6 +47,20 @@ impl Pipeline {
         // https://gstreamer.freedesktop.org/documentation/playback/playbin3.html?gi-language=c#Buffering
         let playbin = gst::ElementFactory::make("playbin3").build()?;
 
+        playbin.connect("element-setup", false, |vals| {
+            let Ok(elem) = vals[1].get::<gst::Element>() else {
+                return None;
+            };
+
+            if let Some(factory) = elem.factory() {
+                if factory.name() == "rtspsrc" {
+                    elem.set_property("latency", 0u32);
+                }
+            }
+
+            None
+        });
+
         pipeline.add(&playbin)?;
 
         pipeline.set_state(gst::State::Ready)?;
