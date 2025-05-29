@@ -15,15 +15,10 @@
 // You should have received a copy of the GNU General Public License
 // along with OpenMirroring.  If not, see <https://www.gnu.org/licenses/>.
 
-use std::{
-    io::{Read, Write},
-    net::{SocketAddr, TcpStream},
-    rc::Rc,
-    thread::{self, JoinHandle, sleep},
-    time::Duration,
-};
+use std::{net::SocketAddr, rc::Rc, thread::sleep, time::Duration};
 
 use anyhow::Result;
+use common::sender::session::{Session, SessionEvent};
 use crossbeam_channel::Receiver;
 use fcast_lib::packet::Packet;
 use log::{debug, error};
@@ -46,6 +41,7 @@ enum Event {
 struct Application {
     ui_weak: Weak<MainWindow>,
     receivers: Vec<(ReceiverItem, SocketAddr)>,
+    session: Session,
 }
 
 impl Application {
@@ -53,6 +49,7 @@ impl Application {
         Self {
             ui_weak,
             receivers: Vec::new(),
+            session: Session::default(),
         }
     }
 
@@ -76,14 +73,6 @@ impl Application {
 
         ReceiverState::Connectable
     }
-
-    // fn set_all_receivers_connectable(&mut self) {
-    //     for r in &mut self.receivers {
-    //         if r.0.state != ReceiverState::Connectable {
-    //             r.0.state = ReceiverState::Connectable;
-    //         }
-    //     }
-    // }
 
     fn update_receivers_in_ui(&mut self) -> Result<()> {
         let g_state = self.receivers_general_state();
@@ -155,10 +144,6 @@ impl Application {
         let mdns = mdns_sd::ServiceDaemon::new()?;
         let mdns_receiver = mdns.browse("_fcast._tcp.local.")?;
 
-        // TODO: move session to own thread
-        let mut session_stream_jh = None::<JoinHandle<Result<TcpStream, std::io::Error>>>;
-        let mut session_stream = None::<TcpStream>;
-
         loop {
             match event_rx.try_recv() {
                 Ok(event) => match event {
@@ -173,8 +158,7 @@ impl Application {
                             )?;
 
                             let addr = self.receivers[idx].1;
-                            session_stream_jh =
-                                Some(thread::spawn(move || TcpStream::connect(addr)));
+                            self.session.connect(addr);
 
                             self.update_receivers_in_ui()?;
                         } else {
@@ -185,8 +169,9 @@ impl Application {
                         self.add_receiver(name, addresses)?;
                     }
                     Event::DisconnectReceiver => {
-                        let _ = session_stream_jh.take();
-                        let _ = session_stream.take();
+                        if let Err(err) = self.session.disconnect() {
+                            error!("Failed to disconnect from receiver: {err}");
+                        }
 
                         for r in &mut self.receivers {
                             if r.0.state == ReceiverState::Connected
@@ -204,9 +189,14 @@ impl Application {
                         )?;
                     }
                     Event::SendPacket(packet) => {
-                        if let Some(stream) = session_stream.as_mut() {
+                        if self.session.is_connected() {
                             self.push_message(MessageDirection::Out, format!("{packet:?}"))?;
-                            stream.write_all(&packet.encode())?;
+                            if let Err(err) = self.session.send_packet(packet) {
+                                error!("Failed to send packet: {err}");
+                                if let Err(err) = self.session.disconnect() {
+                                    error!("Failed to disconnect from receiver: {err}");
+                                }
+                            }
                         }
                     }
                 },
@@ -252,9 +242,22 @@ impl Application {
                 }
             }
 
-            if let Some(jh) = session_stream_jh.take_if(|jh| jh.is_finished()) {
-                match jh.join().unwrap() {
-                    Ok(stream) => {
+            match self.session.poll_event() {
+                Ok(Some(event)) => match event {
+                    SessionEvent::Packet(packet) => {
+                        self.push_message(MessageDirection::In, format!("{packet:?}"))?;
+                        if packet == Packet::Ping {
+                            let packet = Packet::Pong;
+                            self.push_message(MessageDirection::Out, format!("{packet:?}"))?;
+                            if let Err(err) = self.session.send_packet(packet) {
+                                error!("Failed to send packet: {err}");
+                                if let Err(err) = self.session.disconnect() {
+                                    error!("Failed to disconnect from receiver: {err}");
+                                }
+                            }
+                        }
+                    }
+                    SessionEvent::Connected => {
                         debug!("Successfully connected to receiver");
 
                         self.push_message(
@@ -269,60 +272,14 @@ impl Application {
                             }
                         }
 
-                        // self.ui_weak.upgrade_in_event_loop(|ui| {
-                        //     ui.invoke_receiver_connected();
-                        // })?;
-
                         self.update_receivers_in_ui()?;
-
-                        stream.set_nonblocking(true)?;
-                        session_stream = Some(stream);
                     }
-                    Err(err) => {
-                        error!("Failed to connect to receiver: {err}");
-                        self.push_message(
-                            MessageDirection::Info,
-                            format!("Failed to connect to receiver: {err}"),
-                        )?;
-                    }
+                },
+                Err(err) => {
+                    error!("Failed to poll session event: {err}");
+                    self.session.disconnect()?;
                 }
-            }
-
-            'out: {
-                if let Some(stream) = session_stream.as_mut() {
-                    let mut header_buf = [0u8; 5];
-                    if let Err(err) = stream.read_exact(&mut header_buf) {
-                        if err.kind() != std::io::ErrorKind::WouldBlock {
-                            return Err(err.into());
-                        }
-                        break 'out;
-                    }
-
-                    let header = fcast_lib::models::Header::decode(header_buf);
-
-                    let mut body_string = String::new();
-
-                    if header.size > 0 {
-                        let mut body_buf = vec![0; header.size as usize];
-                        // TODO: this can fail badly, need to read the whole packet
-                        if let Err(err) = stream.read_exact(&mut body_buf) {
-                            if err.kind() != std::io::ErrorKind::WouldBlock {
-                                return Err(err.into());
-                            }
-                            error!("Failed to read from receiver (cuz nonblocking)");
-                            break 'out;
-                        }
-                        body_string = String::from_utf8(body_buf)?;
-                    }
-
-                    let packet = Packet::decode(header, &body_string)?;
-                    self.push_message(MessageDirection::In, format!("{packet:?}"))?;
-                    if packet == Packet::Ping {
-                        let packet = Packet::Pong;
-                        self.push_message(MessageDirection::Out, format!("{packet:?}"))?;
-                        stream.write_all(&packet.encode())?;
-                    }
-                }
+                _ => (),
             }
 
             sleep(Duration::from_millis(25));

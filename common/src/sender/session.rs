@@ -178,6 +178,10 @@ impl Session {
         }));
     }
 
+    pub fn is_connected(&self) -> bool {
+        self.stream.is_some()
+    }
+
     pub fn disconnect(&mut self) -> Result<()> {
         if let Some(jh) = self.connect_jh.take() {
             if jh.is_finished() {

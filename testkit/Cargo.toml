@@ -13,6 +13,7 @@ log = { workspace = true }
 env_logger = { workspace = true }
 fcast-lib = { path = "../fcast-lib" }
 chrono = "0.4.41"
+common = { path = "../common", features = ["sender"] }
 
 [build-dependencies]
 slint-build = { workspace = true }
