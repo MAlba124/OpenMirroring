@@ -496,7 +496,6 @@ export component MainWindow inherits Window {
 
     // TODO: subtitles
 
-    // TODO: keypress handling
     TouchArea {
         width: 100%;
         height: 100%;
@@ -505,8 +504,19 @@ export component MainWindow inherits Window {
 
         mouse-cursor: self.visible && !playback-control.visible ? none : default;
 
+        FocusScope {
+            key-pressed(event) => {
+                if (event.text == Key.Space) {
+                    resume-or-pause();
+                    return accept;
+                }
+                // TODO: seeking with arrow keys
+                reject
+            }
+        }
+
         pointer-event(pe) => {
-            if pe.kind == PointerEventKind.move {
+            if (pe.kind == PointerEventKind.move) {
                 playback-control.show();
             }
         }
