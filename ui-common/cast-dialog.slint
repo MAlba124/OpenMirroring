@@ -19,7 +19,7 @@ import { Palette, VerticalBox, HorizontalBox, ListView, Spinner, Button } from "
 
 import { HorizontalRule } from "horizontal-rule.slint";
 import { ToolTipArea } from "tool-tip-area.slint";
-import { LabeledLineEdit } from "input.slint";
+import { LabeledLineEdit, NetworkPortInput } from "input.slint";
 
 export enum ReceiverState {
     Connectable,
@@ -142,9 +142,8 @@ export component CastDialog {
                 label: "Address:";
             }
 
-            ti-port := LabeledLineEdit {
+            ti-port := NetworkPortInput {
                 label: "Port:";
-                input-type: number;
                 text: "46899";
             }
 

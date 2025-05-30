@@ -19,7 +19,7 @@ import { Palette, VerticalBox, HorizontalBox, StandardButton, Switch, Button, Co
 
 import { HorizontalRule } from "../../ui-common/horizontal-rule.slint";
 import { ToolTipArea } from "../../ui-common/tool-tip-area.slint";
-import { LabeledLineEdit } from "../../ui-common/input.slint";
+import { LabeledLineEdit, NetworkPortInput } from "../../ui-common/input.slint";
 
 export component Settings {
     callback closed();
@@ -27,10 +27,6 @@ export component Settings {
 
     in property <length> border-radius;
     in property <[string]> stream-addresses;
-
-    pure function is-valid-port-number(port: int) -> bool {
-        port >= 1 && port <= 65535
-    }
 
     public function currently-selected-address() -> { addr-idx: int, port: int} {
         {
@@ -88,15 +84,9 @@ export component Settings {
             }
         }
 
-        ti-stream-port := LabeledLineEdit {
+        ti-stream-port := NetworkPortInput {
             label: "Media stream port:";
-            input-type: number;
             text: "3000";
-        }
-
-        if !is-valid-port-number(ti-stream-port.text.to-float()): Text {
-            horizontal-alignment: center;
-            text: "Port is not in the valid range (1-65535)";
         }
 
         VerticalLayout {

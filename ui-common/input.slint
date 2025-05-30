@@ -1,23 +1,38 @@
-import { HorizontalBox, LineEdit } from "std-widgets.slint";
+import { HorizontalBox, LineEdit, VerticalBox } from "std-widgets.slint";
 
 export component LabeledLineEdit {
-    in property <string> label;
-    in property <string> placeholder-text;
-    in property <InputType> input-type: InputType.text;
-
-    in-out property <string> text;
+    in property <string> label <=> text.text;
+    in property <string> placeholder-text <=> line.placeholder-text;
+    in property <InputType> input-type <=> line.input-type;
+    in-out property <string> text <=> line.text;
 
     HorizontalBox {
-        Text {
-            text <=> label;
+        text := Text {
             vertical-alignment: center;
         }
 
-        LineEdit {
-            text <=> text;
-            placeholder-text <=> placeholder-text;
-            input-type <=> input-type;
-        }
+        line := LineEdit {}
     }
 }
 
+export component NetworkPortInput {
+    in property <string> label <=> input.label;
+    in-out property <string> text <=> input.text;
+
+    pure function is-valid-port-number(port: int) -> bool {
+        port >= 1 && port <= 65535
+    }
+
+    VerticalBox {
+        width: 100%;
+
+        input := LabeledLineEdit {
+            input-type: number;
+        }
+
+        if !is-valid-port-number(root.text.to-float()): Text {
+            horizontal-alignment: center;
+            text: "Port is not in the valid range (1-65535)";
+        }
+    }
+}
