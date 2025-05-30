@@ -52,9 +52,12 @@ impl RtspSink {
 
         let factory = RTSPMediaFactory::default();
         factory.set_shared(true);
-        // TODO: vp8 maybe?
+        // factory.set_launch("( intervideosrc ! video/x-raw,framerate=25/1 ! videoconvert  \
+        //                     ! queue ! vp8enc deadline=1 keyframe-max-dist=2000 keyframe-mode=disabled \
+        //                       error-resilient=default lag-in-frames=0 buffer-initial-size=20 buffer-optimal-size=30 buffer-size=75 \
+        //                     ! rtpvp8pay name=pay0 )");
         // NOTE: "superfast" speed-preset seems to be fine. "ultrafast" yields no noticeable difference in latency
-        factory.set_launch("( intervideosrc ! videoconvert ! videoscale \
+        factory.set_launch("( intervideosrc ! video/x-raw,framerate=25/1 ! videoconvert ! videoscale \
                             ! video/x-raw,width=(int)[16,8192,2],height=(int)[16,8192,2] \
                             ! queue ! x264enc tune=zerolatency speed-preset=superfast b-adapt=false key-int-max=2250 \
                             ! video/x-h264,profile=baseline ! rtph264pay config-interval=-1 name=pay0 )");
