@@ -28,6 +28,7 @@
             graphviz
             slint-lsp
             heaptrack
+            slint-viewer
           ];
           buildInputs = with pkgs; [
             libGL
