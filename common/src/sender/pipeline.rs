@@ -37,13 +37,19 @@ pub enum Event {
     Error,
 }
 
+pub enum SourceConfig {
+    AudioVideo {
+        video: gst::Element,
+        audio: gst::Element,
+    },
+    Video(gst::Element),
+    Audio(gst::Element),
+}
+
 #[cfg(not(target_os = "android"))]
 pub struct Pipeline {
     inner: gst::Pipeline,
-    tx_sink: Option<Box<dyn TransmissionSink>>,
-    tee: gst::Element,
-    preview_queue: gst::Element,
-    preview_appsink: gst::Element,
+    tx_sink: Box<dyn TransmissionSink>,
 }
 
 #[cfg(target_os = "android")]
@@ -172,54 +178,64 @@ impl Pipeline {
     }
 
     #[cfg(not(target_os = "android"))]
-    pub fn new<E, S>(preview_appsink: gst::Element, mut on_event: E, on_sources: S) -> Result<Self>
+    pub fn new_rtsp<E>(mut on_event: E, source: SourceConfig) -> Result<Self>
     where
         E: FnMut(Event) + Send + Clone + 'static,
-        S: Fn(&[gst::glib::Value]) -> Option<gst::glib::Value> + Send + Sync + 'static,
     {
-        let scapsrc = gst::ElementFactory::make("scapsrc")
-            .property("perform-internal-preroll", true)
-            .build()?;
-        let tee = gst::ElementFactory::make("tee").build()?;
-        let preview_queue = gst::ElementFactory::make("queue")
-            .name("preview_queue")
-            .property("max-size-time", 0u64)
-            .property("max-size-buffers", 0u32)
-            .property("max-size-bytes", 0u32)
-            .property_from_str("leaky", "downstream")
-            .property("silent", true) // Don't emit signals, can give better perf.
-            .build()?;
+        use std::str::FromStr;
+
+        use crate::sender::transmission::rtsp::RtspSink;
+
+        fn setup_video_source(pipeline: &gst::Pipeline, src: gst::Element) -> Result<gst::Element> {
+            let videorate = gst::ElementFactory::make("videorate")
+                .property("skip-to-first", true)
+                .build()?;
+            let capsfilter = gst::ElementFactory::make("capsfilter")
+                .name("video_capsfilter")
+                .property("caps", gst::Caps::from_str("video/x-raw,framerate=25/1")?)
+                .build()?;
+
+            pipeline.add_many([&src, &videorate, &capsfilter])?;
+            gst::Element::link_many([&src, &videorate, &capsfilter])?;
+
+            Ok(capsfilter)
+        }
+
+        fn setup_audio_source(pipeline: &gst::Pipeline, src: gst::Element) -> Result<gst::Element> {
+            let capsfilter = gst::ElementFactory::make("capsfilter")
+                .name("audio_capsfilter")
+                .property(
+                    "caps",
+                    gst::Caps::from_str("audio/x-raw,channels=2,rate=48000")?,
+                )
+                .build()?;
+
+            pipeline.add_many([&src, &capsfilter])?;
+            gst::Element::link_many([&src, &capsfilter])?;
+
+            Ok(capsfilter)
+        }
 
         let pipeline = gst::Pipeline::new();
 
-        let tx_sink = None::<Box<dyn TransmissionSink>>;
-
-        // https://gitlab.freedesktop.org/gstreamer/gstreamer/-/issues/3993
-        scapsrc.static_pad("src").unwrap().add_probe(
-            gst::PadProbeType::QUERY_UPSTREAM.union(gst::PadProbeType::PUSH),
-            |_pad, info| match info.query_mut().map(|query| query.view_mut()) {
-                Some(gst::QueryViewMut::Latency(latency)) => {
-                    let (_live, min, max) = latency.result();
-                    latency.set(false, min, max);
-                    gst::PadProbeReturn::Handled
-                }
-                _ => gst::PadProbeReturn::Pass,
+        let source = match source {
+            SourceConfig::AudioVideo { video, audio } => SourceConfig::AudioVideo {
+                video: setup_video_source(&pipeline, video)?,
+                audio: setup_audio_source(&pipeline, audio)?,
             },
-        );
+            SourceConfig::Video(video) => {
+                SourceConfig::Video(setup_video_source(&pipeline, video)?)
+            }
+            SourceConfig::Audio(audio) => {
+                SourceConfig::Audio(setup_audio_source(&pipeline, audio)?)
+            }
+        };
 
-        scapsrc.connect("select-source", false, on_sources);
-
-        pipeline.add_many([&scapsrc, &tee, &preview_queue, &preview_appsink])?;
-        gst::Element::link_many([&scapsrc, &tee])?;
-        gst::Element::link_many([&preview_queue, &preview_appsink])?;
-
-        let tee_preview_pad = tee
-            .request_pad_simple("src_%u")
-            .map_or_else(|| Err(anyhow::anyhow!("`request_pad_simple()` failed")), Ok)?;
-        let queue_preview_pad = preview_queue
-            .static_pad("sink")
-            .ok_or(anyhow::anyhow!("preview_queue is missing static sink pad"))?;
-        tee_preview_pad.link(&queue_preview_pad)?;
+        let rtsp = RtspSink::new(&pipeline, source, 3000)?;
+        let p = Self {
+            inner: pipeline.clone(),
+            tx_sink: Box::new(rtsp),
+        };
 
         // Start the pipeline in background thread because `scapsrc` initialization will block until
         // the user selects the input source.
@@ -236,9 +252,11 @@ impl Pipeline {
                         debug!("Failed to upgrade pipeline before starting");
                         return;
                     };
-                    debug!("Starting pipeline");
+                    debug!("Starting pipeline...");
                     if let Err(err) = pipeline.set_state(gst::State::Playing) {
                         error!("Failed to start pipeline: {err}");
+                    } else {
+                        debug!("Pipeline started");
                     }
                 }
 
@@ -278,20 +296,11 @@ impl Pipeline {
             }
         });
 
-        Ok(Self {
-            inner: pipeline,
-            tx_sink,
-            tee,
-            preview_queue,
-            preview_appsink,
-        })
+        Ok(p)
     }
 
     pub fn playing(&mut self) -> Result<()> {
-        match &mut self.tx_sink {
-            Some(sink) => sink.playing(),
-            None => Ok(()),
-        }
+        self.tx_sink.playing()
     }
 
     #[cfg(target_os = "android")]
@@ -308,27 +317,7 @@ impl Pipeline {
     #[cfg(not(target_os = "android"))]
     pub fn shutdown(&mut self) -> Result<()> {
         self.inner.set_state(gst::State::Null)?;
-
-        self.preview_queue.unlink(&self.preview_appsink);
-        self.inner.remove(&self.preview_appsink)?;
-
-        if let Some(sink) = &mut self.tx_sink {
-            sink.shutdown();
-        }
-
-        Ok(())
-    }
-
-    #[cfg(not(target_os = "android"))]
-    pub fn add_hls_sink(&mut self, port: u16) -> Result<()> {
-        let tee_pad = self
-            .tee
-            .request_pad_simple("src_%u")
-            .ok_or(anyhow::anyhow!("`request_pad_simple()` failed"))?;
-        let hls = HlsSink::new(&self.inner, tee_pad, port)?;
-        self.tx_sink = Some(Box::new(hls));
-
-        debug!("Added HLS sink");
+        self.tx_sink.shutdown();
 
         Ok(())
     }
@@ -348,20 +337,6 @@ impl Pipeline {
         Ok(())
     }
 
-    #[cfg(not(target_os = "android"))]
-    pub fn add_rtsp_sink(&mut self, port: u16) -> Result<()> {
-        let tee_pad = self
-            .tee
-            .request_pad_simple("src_%u")
-            .ok_or(anyhow::anyhow!("`request_pad_simple()` failed"))?;
-        let rtsp = transmission::rtsp::RtspSink::new(tee_pad, &self.inner, port)?;
-        self.tx_sink = Some(Box::new(rtsp));
-
-        debug!("Added RTSP sink");
-
-        Ok(())
-    }
-
     #[cfg(target_os = "android")]
     pub fn add_rtp_sink(&mut self, port: u16, receiver_addr: IpAddr) -> Result<()> {
         let appsrc_pad = self
@@ -376,26 +351,9 @@ impl Pipeline {
         Ok(())
     }
 
-    pub fn remove_transmission_sink(&mut self) -> Result<()> {
-        if let Some(sink) = &mut self.tx_sink {
-            sink.shutdown();
-            sink.unlink(&self.inner)?;
-        }
-
-        self.tx_sink = None;
-
-        debug!("Removed transmission sink");
-
-        Ok(())
-    }
-
     /// Get the message that should be sent to a receiver to consume the stream if a transmission
     /// sink is present
     pub fn get_play_msg(&self, addr: IpAddr) -> Option<PlayMessage> {
-        if let Some(sink) = &self.tx_sink {
-            sink.get_play_msg(addr)
-        } else {
-            None
-        }
+        self.tx_sink.get_play_msg(addr)
     }
 }

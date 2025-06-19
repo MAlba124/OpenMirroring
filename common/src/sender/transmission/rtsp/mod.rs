@@ -15,6 +15,8 @@
 // You should have received a copy of the GNU General Public License
 // along with OpenMirroring.  If not, see <https://www.gnu.org/licenses/>.
 
+use crate::sender::pipeline::SourceConfig;
+
 use super::TransmissionSink;
 
 use gst::glib;
@@ -24,25 +26,14 @@ pub struct RtspSink {
     server: RTSPServer,
     id: Option<glib::SourceId>,
     main_loop: glib::MainLoop,
-    src_pad: gst::Pad,
-    videointersink: gst::Element,
 }
 
 impl RtspSink {
-    pub fn new(src_pad: gst::Pad, pipeline: &gst::Pipeline, port: u16) -> anyhow::Result<Self> {
-        let videointersink = gst::ElementFactory::make("intervideosink").build()?;
-
-        pipeline.add(&videointersink)?;
-
-        let src_pad_block = super::block_downstream(&src_pad)?;
-        let intersink_pad = videointersink.static_pad("sink").ok_or(anyhow::anyhow!(
-            "Failed to get static sink pad from intersink"
-        ))?;
-        src_pad.link(&intersink_pad)?;
-        src_pad.remove_probe(src_pad_block);
-
-        videointersink.sync_state_with_parent()?;
-
+    pub fn new(
+        pipeline: &gst::Pipeline,
+        source_config: SourceConfig,
+        port: u16,
+    ) -> anyhow::Result<Self> {
         let server = RTSPServer::new();
 
         server.set_service(&format!("{port}"));
@@ -52,15 +43,45 @@ impl RtspSink {
 
         let factory = RTSPMediaFactory::default();
         factory.set_shared(true);
-        // factory.set_launch("( intervideosrc ! video/x-raw,framerate=25/1 ! videoconvert  \
-        //                     ! queue ! vp8enc deadline=1 keyframe-max-dist=2000 keyframe-mode=disabled \
-        //                       error-resilient=default lag-in-frames=0 buffer-initial-size=20 buffer-optimal-size=30 buffer-size=75 \
-        //                     ! rtpvp8pay name=pay0 )");
-        // NOTE: "superfast" speed-preset seems to be fine. "ultrafast" yields no noticeable difference in latency
-        factory.set_launch("( intervideosrc ! video/x-raw,framerate=25/1 ! videoconvert ! videoscale \
-                            ! video/x-raw,width=(int)[16,8192,2],height=(int)[16,8192,2] \
-                            ! queue ! x264enc tune=zerolatency speed-preset=superfast b-adapt=false key-int-max=2250 \
-                            ! video/x-h264,profile=baseline ! rtph264pay config-interval=-1 name=pay0 )");
+
+        match source_config {
+            SourceConfig::AudioVideo { video, audio } => {
+                let video_sink = gst::ElementFactory::make("intervideosink").build()?;
+                let audio_sink = gst::ElementFactory::make("interaudiosink").build()?;
+                pipeline.add_many([&video_sink, &audio_sink])?;
+                video.link(&video_sink)?;
+                audio.link(&audio_sink)?;
+                factory.set_launch(
+                    "( intervideosrc ! queue ! videoconvert ! videoscale \
+                       ! video/x-raw,width=(int)[16,8192,2],height=(int)[16,8192,2] \
+                       ! queue ! x264enc tune=zerolatency speed-preset=ultrafast b-adapt=false key-int-max=2250 \
+                       ! video/x-h264,profile=baseline ! rtph264pay config-interval=-1 name=pay0 \
+                       interaudiosrc ! queue ! audioconvert ! audioresample ! audio/x-raw,rate=48000 \
+                       ! queue ! opusenc ! rtpopuspay name=pay1 )"
+                );
+            }
+            SourceConfig::Video(video) => {
+                let video_sink = gst::ElementFactory::make("intervideosink").build()?;
+                pipeline.add(&video_sink)?;
+                video.link(&video_sink)?;
+                factory.set_launch(
+                    "( intervideosrc ! queue ! videoconvert ! videoscale \
+                       ! video/x-raw,width=(int)[16,8192,2],height=(int)[16,8192,2] \
+                       ! queue ! x264enc tune=zerolatency speed-preset=ultrafast b-adapt=false key-int-max=2250 \
+                       ! video/x-h264,profile=baseline ! rtph264pay config-interval=-1 name=pay0 )"
+                );
+            }
+            SourceConfig::Audio(audio) => {
+                let audio_sink = gst::ElementFactory::make("interaudiosink").build()?;
+                pipeline.add(&audio_sink)?;
+                audio.link(&audio_sink)?;
+                factory.set_launch(
+                    "( interaudiosrc ! queue ! audioconvert ! audioresample ! audio/x-raw,rate=48000 \
+                      ! queue ! opusenc ! rtpopuspay name=pay0 )"
+                );
+            }
+        }
+
         factory.set_latency(0);
 
         mounts.add_factory("/", factory);
@@ -80,8 +101,6 @@ impl RtspSink {
             server,
             id: Some(id),
             main_loop,
-            src_pad,
-            videointersink,
         })
     }
 }
@@ -114,22 +133,6 @@ impl TransmissionSink for RtspSink {
     }
 
     fn unlink(&mut self, pipeline: &gst::Pipeline) -> Result<(), gio::glib::error::BoolError> {
-        let block = super::block_downstream(&self.src_pad)?;
-        let intersink_pad = self
-            .videointersink
-            .static_pad("sink")
-            .ok_or(glib::bool_error!(
-                "Failed to get static sink pad from intersink"
-            ))?;
-        self.src_pad.unlink(&intersink_pad)?;
-        self.src_pad.remove_probe(block);
-
-        pipeline.remove(&self.videointersink)?;
-
-        self.videointersink
-            .set_state(gst::State::Null)
-            .map_err(|err| glib::bool_error!("{err}"))?;
-
         Ok(())
     }
 }

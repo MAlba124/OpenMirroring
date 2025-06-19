@@ -15,34 +15,96 @@
 // You should have received a copy of the GNU General Public License
 // along with OpenMirroring.  If not, see <https://www.gnu.org/licenses/>.
 
-use anyhow::Result;
+use anyhow::{Context, Result, bail};
 use common::sender::session::{Session, SessionEvent};
-use common::video::opengl::SlintOpenGLSink;
 use fcast_lib::packet::Packet;
+use gst::glib::object::ObjectExt;
+use gst::prelude::{DeviceExt, GstObjectExt};
 use log::{debug, error, trace};
+use std::os::fd::AsRawFd;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, atomic};
+use std::sync::{Arc, Mutex};
 use std::thread::sleep;
 use std::time::{Duration, Instant};
+use tokio::runtime::{self, Runtime};
 
 use std::net::{IpAddr, SocketAddr};
 use std::rc::Rc;
 
-use common::sender::pipeline;
+use ashpd::desktop::{
+    PersistMode,
+    screencast::{CursorMode, Screencast, SourceType},
+};
+
+use common::sender::pipeline::{self, SourceConfig};
 
 slint::include_modules!();
 
 pub type ProducerId = String;
 
 #[derive(Debug)]
+pub enum AudioSource {
+    Pulse(gst::Device),
+}
+
+impl AudioSource {
+    pub fn display_name(&self) -> gst::glib::GString {
+        match self {
+            AudioSource::Pulse(device) => device.display_name(),
+        }
+    }
+}
+
+#[cfg(target_os = "linux")]
+pub fn get_audio_devices() -> anyhow::Result<Vec<AudioSource>> {
+    use anyhow::bail;
+    use gst::prelude::*;
+
+    let provider = gst::DeviceProviderFactory::by_name("pulsedeviceprovider").ok_or(
+        anyhow::anyhow!("Could not find pulse device provider factory"),
+    )?;
+
+    provider.start()?;
+    let devices = provider.devices();
+    provider.stop();
+
+    for device in devices {
+        if !device.has_classes("Audio/Sink") {
+            continue;
+        }
+        let Some(props) = device.properties() else {
+            continue;
+        };
+        if props.get::<bool>("is-default") == Ok(true) {
+            return Ok(vec![AudioSource::Pulse(device)]);
+        }
+    }
+
+    bail!("No device found")
+}
+
+#[derive(Debug)]
+enum VideoSource {
+    PipeWire { node_id: u32, fd: i32 },
+}
+
+impl VideoSource {
+    pub fn display_name(&self) -> String {
+        match self {
+            VideoSource::PipeWire { .. } => "PipeWire Video Source".to_owned(),
+        }
+    }
+}
+
+#[derive(Debug)]
 pub enum Event {
     StartCast {
         addr_idx: usize,
         port: i32,
+        video_idx: Option<usize>,
+        audio_idx: Option<usize>,
     },
     StopCast,
-    Sources(Vec<String>),
-    SelectSource(usize),
     Packet(fcast_lib::packet::Packet),
     ReceiverAvailable {
         name: String,
@@ -54,100 +116,165 @@ pub enum Event {
     PipelineFinished,
     PipelineIsPlaying,
     DisconnectedFromReceiver,
+    VideosAvailable(Vec<VideoSource>),
+    AudiosAvailable(Vec<AudioSource>),
+    ReloadVideoSources,
+    ReloadAudioSources,
+    Quit,
+}
+
+enum FetchEvent {
+    Fetch,
     Quit,
 }
 
 struct Application {
-    pipeline: pipeline::Pipeline,
+    pipeline: Option<pipeline::Pipeline>,
     ui_weak: slint::Weak<MainWindow>,
     event_tx: crossbeam_channel::Sender<Event>,
-    select_source_tx: crossbeam_channel::Sender<usize>,
-    selected_source: bool,
     receivers: Vec<(ReceiverItem, SocketAddr)>,
-    appsink: gst::Element,
     addresses: Vec<IpAddr>,
     mdns: mdns_sd::ServiceDaemon,
     mdns_receiver: flume::Receiver<mdns_sd::ServiceEvent>,
     session: Session,
     should_play: bool,
     selected_addr_idx: usize,
+    video_sources: Vec<VideoSource>,
+    audio_sources: Vec<AudioSource>,
+    video_source_fetcher_tx: tokio::sync::mpsc::Sender<FetchEvent>,
+    audio_source_fetcher_tx: tokio::sync::mpsc::Sender<FetchEvent>,
 }
 
 impl Application {
+    /// Must be called from a tokio runtime.
     pub fn new(
         ui_weak: slint::Weak<MainWindow>,
         event_tx: crossbeam_channel::Sender<Event>,
-        appsink: gst::Element,
     ) -> Result<Self> {
-        let (select_source_tx, pipeline) = Self::new_pipeline(event_tx.clone(), appsink.clone())?;
-
         let mdns = mdns_sd::ServiceDaemon::new()?;
         let mdns_receiver = mdns.browse("_fcast._tcp.local.")?;
 
+        let (video_source_fetcher_tx, mut video_source_fetcher_rx) = tokio::sync::mpsc::channel(10);
+        let (audio_source_fetcher_tx, mut audio_source_fetcher_rx) = tokio::sync::mpsc::channel(10);
+
+        #[cfg(target_os = "linux")]
+        {
+            let event_tx = event_tx.clone();
+            tokio::spawn(async move {
+                let mut proxy = None;
+                let mut session = None;
+                enum WindowingSystem {
+                    Wayland,
+                    X11,
+                }
+
+                let winsys = if std::env::var("WAYLAND_DISPLAY").is_ok() {
+                    WindowingSystem::Wayland
+                } else if std::env::var("DISPLAY").is_ok() {
+                    WindowingSystem::X11
+                } else {
+                    panic!("Unsupported windowing system!");
+                    // TODO: tell user or something
+                };
+
+                loop {
+                    let Some(event) = video_source_fetcher_rx.recv().await else {
+                        error!("Failed to receive new video source fetcher event");
+                        break;
+                    };
+
+                    match (event, &winsys) {
+                        (FetchEvent::Fetch, WindowingSystem::Wayland) => {
+                            let new_proxy = Screencast::new().await.unwrap();
+                            let new_session = new_proxy.create_session().await.unwrap();
+                            new_proxy
+                                .select_sources(
+                                    &new_session,
+                                    CursorMode::Embedded,
+                                    SourceType::Monitor | SourceType::Window,
+                                    false,
+                                    None,
+                                    PersistMode::DoNot,
+                                )
+                                .await
+                                .unwrap();
+
+                            let response = new_proxy
+                                .start(&new_session, None)
+                                .await
+                                .unwrap()
+                                .response()
+                                .unwrap();
+                            let stream = response.streams().get(0).unwrap();
+                            let fd = new_proxy
+                                .open_pipe_wire_remote(&new_session)
+                                .await
+                                .unwrap()
+                                .as_raw_fd();
+                            event_tx
+                                .send(Event::VideosAvailable(vec![VideoSource::PipeWire {
+                                    node_id: stream.pipe_wire_node_id(),
+                                    fd,
+                                }]))
+                                .unwrap();
+
+                            proxy = Some(new_proxy);
+                            session = Some(new_session);
+                        }
+                        (FetchEvent::Fetch, WindowingSystem::X11) => debug!("TODO: X11"),
+                        (FetchEvent::Quit, _)=> break,
+                    }
+                }
+
+                debug!("Video source fetch loop quit");
+            });
+        }
+
+        #[cfg(target_os = "linux")]
+        {
+            let event_tx = event_tx.clone();
+            tokio::spawn(async move {
+                loop {
+                    let Some(event) = audio_source_fetcher_rx.recv().await else {
+                        error!("Failed to receive new video source fetcher event");
+                        break;
+                    };
+
+                    match event {
+                        FetchEvent::Fetch => {
+                            match get_audio_devices() {
+                                Ok(devs) => {
+                                    for dev in devs {
+                                        event_tx.send(Event::AudiosAvailable(vec![dev])).unwrap();
+                                    }
+                                }
+                                Err(err) => error!("Failed to get default pulse device: {err}"),
+                            };
+                        }
+                        FetchEvent::Quit => break,
+                    }
+                }
+
+                debug!("Audio source fetch loop quit");
+            });
+        }
+
         Ok(Self {
-            pipeline,
+            pipeline: None,
             ui_weak,
             event_tx,
-            select_source_tx,
-            selected_source: false,
             receivers: Vec::new(),
-            appsink,
             addresses: Vec::new(),
             mdns,
             mdns_receiver,
             session: Session::default(),
             should_play: false,
             selected_addr_idx: 0,
+            video_sources: Vec::new(),
+            audio_sources: Vec::new(),
+            video_source_fetcher_tx,
+            audio_source_fetcher_tx,
         })
-    }
-
-    fn new_pipeline(
-        event_tx: crossbeam_channel::Sender<Event>,
-        appsink: gst::Element,
-    ) -> Result<(crossbeam_channel::Sender<usize>, pipeline::Pipeline)> {
-        let (selected_tx, selected_rx) = crossbeam_channel::bounded::<usize>(1);
-
-        let pipeline = pipeline::Pipeline::new(
-            appsink,
-            {
-                let event_tx = event_tx.clone();
-                let pipeline_has_finished = std::sync::Arc::new(AtomicBool::new(false));
-                move |event| {
-                    let event_tx = event_tx.clone();
-                    let pipeline_has_finished = std::sync::Arc::clone(&pipeline_has_finished);
-                    match event {
-                        pipeline::Event::PipelineIsPlaying => {
-                            event_tx.send(crate::Event::PipelineIsPlaying).unwrap();
-                        }
-                        pipeline::Event::Eos => {
-                            if !pipeline_has_finished.load(Ordering::Acquire) {
-                                event_tx.send(crate::Event::PipelineFinished).unwrap();
-                                pipeline_has_finished.store(true, Ordering::Release);
-                            }
-                        }
-                        pipeline::Event::Error => {
-                            if !pipeline_has_finished.load(Ordering::Acquire) {
-                                event_tx.send(crate::Event::PipelineFinished).unwrap();
-                                pipeline_has_finished.store(true, Ordering::Release);
-                            }
-                        }
-                    }
-                }
-            },
-            {
-                let selected_rx = std::sync::Arc::new(std::sync::Mutex::new(selected_rx));
-                move |vals| {
-                    let sources = vals[1].get::<Vec<String>>().unwrap();
-                    event_tx.send(Event::Sources(sources)).unwrap();
-                    let selected_rx = selected_rx.lock().unwrap();
-                    let res = selected_rx.recv().unwrap() as u64;
-                    use gst::prelude::*;
-                    Some(res.to_value())
-                }
-            },
-        )?;
-
-        Ok((selected_tx, pipeline))
     }
 
     fn disconnect_receiver(&mut self) -> Result<()> {
@@ -162,7 +289,12 @@ impl Application {
         if let Err(err) = self.session.disconnect() {
             error!("Error occured when disconnecting from receiver: {err}");
         }
-        self.pipeline.remove_transmission_sink()?;
+
+        if let Some(mut pipeline) = self.pipeline.take() {
+            if let Err(err) = pipeline.shutdown() {
+                error!("Failed to shutdown pipeline: {err}");
+            }
+        }
 
         self.ui_weak.upgrade_in_event_loop(|ui| {
             ui.invoke_receiver_disconnected();
@@ -290,9 +422,16 @@ impl Application {
     }
 
     /// Returns `true` if the event loop should quit
-    fn handle_event(&mut self, event: Event) -> Result<bool> {
+    async fn handle_event(&mut self, event: Event) -> Result<bool> {
+        debug!("Handling event: {event:?}");
+
         match event {
-            Event::StartCast { addr_idx, port } => {
+            Event::StartCast {
+                addr_idx,
+                port,
+                video_idx,
+                audio_idx,
+            } => {
                 let port = {
                     if port < 1 || port > u16::MAX as i32 {
                         error!("Port ({port}) is not in the valid port range");
@@ -302,13 +441,104 @@ impl Application {
                 };
                 self.selected_addr_idx = addr_idx;
 
+                debug!("{video_idx:?}");
+                let video_src = match video_idx {
+                    Some(video_idx) => {
+                        let Some(video_src) = self.video_sources.get(video_idx) else {
+                            error!(
+                                "Failed to get video source, video_idx ({video_idx}) > video_sources.len ({})",
+                                self.video_sources.len()
+                            );
+                            return Ok(false);
+                        };
+                        match video_src {
+                            VideoSource::PipeWire { node_id, .. } => Some(
+                                gst::ElementFactory::make("pipewiresrc")
+                                    .property("path", node_id.to_string())
+                                    // .property("fd", fd) // ??
+                                    .build()?,
+                            ),
+                        }
+                    }
+                    None => None,
+                };
+
+                let audio_src = match audio_idx {
+                    Some(audio_idx) => {
+                        let Some(audio_src) = self.audio_sources.get(audio_idx) else {
+                            error!(
+                                "Failed to get audio source, audio_idx ({audio_idx}) > audio_sources.len ({})",
+                                self.audio_sources.len()
+                            );
+                            return Ok(false);
+                        };
+                        match audio_src {
+                            AudioSource::Pulse(device) => {
+                                let pulsesink = device.create_element(None)?;
+                                let device_name = pulsesink
+                                    .property::<Option<String>>("device")
+                                    .context("No device name")?;
+
+                                let monitor_name = format!("{}.monitor", device_name);
+                                Some(
+                                    gst::ElementFactory::make("pulsesrc")
+                                        .property("provide-clock", false)
+                                        .property("device", format!("{}.monitor", device_name))
+                                        .build()?,
+                                )
+                            }
+                        }
+                    }
+                    None => None,
+                };
+
+                let source_config = match (video_src, audio_src) {
+                    (Some(video), Some(audio)) => SourceConfig::AudioVideo { video, audio },
+                    (Some(video), None) => SourceConfig::Video(video),
+                    (None, Some(audio)) => SourceConfig::Audio(audio),
+                    _ => bail!("must have at least one source"),
+                };
+
                 for r in self.receivers.iter_mut() {
                     if r.0.state != ReceiverState::Connected {
                         continue;
                     }
 
                     if r.0.name.starts_with("OpenMirroring") {
-                        self.pipeline.add_rtsp_sink(port)?;
+                        self.pipeline = Some(pipeline::Pipeline::new_rtsp(
+                            {
+                                let event_tx = self.event_tx.clone();
+                                let pipeline_has_finished = Arc::new(AtomicBool::new(false));
+                                move |event| {
+                                    let event_tx = event_tx.clone();
+                                    let pipeline_has_finished = Arc::clone(&pipeline_has_finished);
+                                    match event {
+                                        pipeline::Event::PipelineIsPlaying => {
+                                            event_tx.send(crate::Event::PipelineIsPlaying).unwrap();
+                                        }
+                                        pipeline::Event::Eos => {
+                                            if !pipeline_has_finished.load(Ordering::Acquire) {
+                                                event_tx
+                                                    .send(crate::Event::PipelineFinished)
+                                                    .unwrap();
+                                                pipeline_has_finished
+                                                    .store(true, Ordering::Release);
+                                            }
+                                        }
+                                        pipeline::Event::Error => {
+                                            if !pipeline_has_finished.load(Ordering::Acquire) {
+                                                event_tx
+                                                    .send(crate::Event::PipelineFinished)
+                                                    .unwrap();
+                                                pipeline_has_finished
+                                                    .store(true, Ordering::Release);
+                                            }
+                                        }
+                                    }
+                                }
+                            },
+                            source_config,
+                        )?);
 
                         let addr = match self.addresses.get(self.selected_addr_idx) {
                             Some(addr) => addr,
@@ -321,7 +551,8 @@ impl Application {
                             }
                         };
 
-                        let Some(play_msg) = self.pipeline.get_play_msg(*addr) else {
+                        let Some(play_msg) = self.pipeline.as_ref().unwrap().get_play_msg(*addr)
+                        else {
                             error!("Could not get stream uri");
                             return Ok(false);
                         };
@@ -335,9 +566,10 @@ impl Application {
                         })?;
 
                         return Ok(false);
-                    } else {
-                        self.pipeline.add_hls_sink(port)?;
                     }
+                    //     } else {
+                    //         self.pipeline.add_hls_sink(port)?;
+                    //     }
 
                     break;
                 }
@@ -353,31 +585,11 @@ impl Application {
                 self.ui_weak.upgrade_in_event_loop(|ui| {
                     ui.invoke_cast_stopped();
                 })?;
-                self.pipeline.remove_transmission_sink()?;
-            }
-            Event::Sources(sources) => {
-                debug!("Available sources: {sources:?}");
-                if sources.len() == 1 {
-                    debug!("One source available, auto selecting");
-                    self.event_tx.send(Event::SelectSource(0))?;
-                } else {
-                    self.ui_weak.upgrade_in_event_loop(move |ui| {
-                        let model = Rc::new(slint::VecModel::<slint::SharedString>::from(
-                            sources
-                                .iter()
-                                .map(|s| s.into())
-                                .collect::<Vec<slint::SharedString>>(),
-                        ));
-                        ui.set_sources_model(model.into());
-                    })?;
+                if let Some(mut pipeline) = self.pipeline.take() {
+                    if let Err(err) = pipeline.shutdown() {
+                        error!("Failed to shutdown pipeline: {err}");
+                    }
                 }
-            }
-            Event::SelectSource(idx) => {
-                self.select_source_tx.send(idx)?;
-                self.selected_source = true;
-                self.ui_weak.upgrade_in_event_loop(|ui| {
-                    ui.set_has_source(true);
-                })?;
             }
             Event::Packet(packet) => {
                 trace!("Unhandled packet: {packet:?}");
@@ -401,11 +613,14 @@ impl Application {
                 }
             }
             Event::DisconnectReceiver => self.disconnect_receiver()?,
-            Event::ChangeSource | Event::PipelineFinished => {
-                self.shutdown_pipeline_and_create_new_and_update_ui()?;
-            }
+            Event::ChangeSource | Event::PipelineFinished => error!("TODO"),
             Event::PipelineIsPlaying => {
-                self.pipeline.playing()?;
+                if let Some(pipeline) = self.pipeline.as_mut() {
+                    if let Err(err) = pipeline.playing() {
+                        error!("Failed to run playing on pipeline: {err}");
+                        // TODO: set pipeline to None?
+                    }
+                }
 
                 if self.should_play {
                     let addr = match self.addresses.get(self.selected_addr_idx) {
@@ -419,18 +634,19 @@ impl Application {
                         }
                     };
 
-                    let Some(play_msg) = self.pipeline.get_play_msg(*addr) else {
-                        error!("Could not get stream uri");
-                        return Ok(false);
-                    };
+                    // let Some(play_msg) = self.pipeline.get_play_msg(*addr) else {
+                    // let Some(play_msg) = pipeline.get_play_msg(*addr) else {
+                    //     error!("Could not get stream uri");
+                    //     return Ok(false);
+                    // };
 
-                    debug!("Sending play message: {play_msg:?}");
+                    // debug!("Sending play message: {play_msg:?}");
 
-                    self.send_packet_to_receiver(Packet::Play(play_msg))?;
+                    // self.send_packet_to_receiver(Packet::Play(play_msg))?;
 
-                    self.ui_weak.upgrade_in_event_loop(|ui| {
-                        ui.invoke_cast_started();
-                    })?;
+                    // self.ui_weak.upgrade_in_event_loop(|ui| {
+                    //     ui.invoke_cast_started();
+                    // })?;
                     self.should_play = false;
                 }
             }
@@ -445,20 +661,72 @@ impl Application {
                 })?;
             }
             Event::Quit => return Ok(true),
+            Event::VideosAvailable(sources) => {
+                self.video_sources = sources;
+                self.update_video_sources_in_ui()?;
+            }
+            Event::AudiosAvailable(sources) => {
+                self.audio_sources = sources;
+                self.update_audio_sources_in_ui()?;
+            }
+            Event::ReloadVideoSources => self.video_source_fetcher_tx.send(FetchEvent::Fetch).await?,
+            Event::ReloadAudioSources => self.audio_source_fetcher_tx.send(FetchEvent::Fetch).await?,
         }
 
         Ok(false)
     }
 
-    pub fn run_event_loop(mut self, event_rx: crossbeam_channel::Receiver<Event>) -> Result<()> {
+    fn update_audio_sources_in_ui(&self) -> Result<()> {
+        let audio_dev_names = self
+            .audio_sources
+            .iter()
+            .map(|dev| slint::SharedString::from(dev.display_name().as_str()))
+            .collect::<Vec<slint::SharedString>>();
+        self.ui_weak.upgrade_in_event_loop(move |ui| {
+            ui.set_audio_sources_model(
+                Rc::new(slint::VecModel::<slint::SharedString>::from_slice(
+                    &audio_dev_names,
+                ))
+                .into(),
+            );
+        })?;
+
+        Ok(())
+    }
+
+    fn update_video_sources_in_ui(&self) -> Result<()> {
+        let video_dev_names = self
+            .video_sources
+            .iter()
+            .map(|dev| slint::SharedString::from(dev.display_name().as_str()))
+            .collect::<Vec<slint::SharedString>>();
+        self.ui_weak.upgrade_in_event_loop(move |ui| {
+            ui.set_video_sources_model(
+                Rc::new(slint::VecModel::<slint::SharedString>::from_slice(
+                    &video_dev_names,
+                ))
+                .into(),
+            );
+        })?;
+
+        Ok(())
+    }
+
+    pub async fn run_event_loop(
+        mut self,
+        event_rx: crossbeam_channel::Receiver<Event>,
+    ) -> Result<()> {
         self.update_addresses_and_in_ui()?;
         const ADDR_UPDATE_INTERVAL: Duration = Duration::from_secs(5);
         let mut prev_addr_update = Instant::now();
 
+        self.video_source_fetcher_tx.send(FetchEvent::Fetch).await?;
+        self.audio_source_fetcher_tx.send(FetchEvent::Fetch).await?;
+
         loop {
             match event_rx.try_recv() {
                 Ok(event) => {
-                    if self.handle_event(event)? {
+                    if self.handle_event(event).await? {
                         break;
                     }
                 }
@@ -536,41 +804,21 @@ impl Application {
                 self.update_addresses_and_in_ui()?;
             }
 
-            sleep(Duration::from_millis(25));
+            tokio::time::sleep(Duration::from_millis(25)).await;
         }
 
-        debug!("Quitting");
+        debug!("Quitting event loop");
 
-        if !self.selected_source {
-            debug!("Source is not selected, sending fake");
-            self.select_source_tx.send(0)?;
+        if let Some(mut pipeline) = self.pipeline.take() {
+            if let Err(err) = pipeline.shutdown() {
+                error!("Failed to shutdown pipeline: {err}");
+            }
         }
-
-        self.pipeline.shutdown()?;
 
         self.mdns.shutdown()?;
 
-        Ok(())
-    }
-
-    fn shutdown_pipeline_and_create_new_and_update_ui(&mut self) -> Result<()> {
-        if !self.selected_source {
-            self.select_source_tx.send(0)?;
-        }
-
-        self.pipeline.shutdown()?;
-
-        let (new_select_srouce_tx, new_pipeline) =
-            Self::new_pipeline(self.event_tx.clone(), self.appsink.clone())?;
-
-        self.pipeline = new_pipeline;
-        self.select_source_tx = new_select_srouce_tx;
-        self.selected_source = false;
-
-        self.ui_weak.upgrade_in_event_loop(|ui| {
-            ui.set_has_source(false);
-            ui.set_sources_model(Rc::new(slint::VecModel::<slint::SharedString>::default()).into());
-        })?;
+        self.video_source_fetcher_tx.send(FetchEvent::Quit).await?;
+        self.audio_source_fetcher_tx.send(FetchEvent::Quit).await?;
 
         Ok(())
     }
@@ -579,78 +827,28 @@ impl Application {
 fn main() -> Result<()> {
     env_logger::Builder::from_default_env()
         .filter_module("sender", common::default_log_level())
-        .filter_module("scap", common::default_log_level())
         .filter_module("common", common::default_log_level())
         .filter_module("mdns_sd", common::default_log_level())
         .init();
 
-    slint::BackendSelector::new()
-        .backend_name("winit".into())
-        .require_opengl()
-        .select()?;
-
     gst::init()?;
-    scapgst::plugin_register_static()?;
     common::sender::pipeline::init()?;
 
-    let (event_tx, event_rx) = crossbeam_channel::bounded::<Event>(100);
+    let runtime = Runtime::new()?;
 
-    // This sink is used in every consecutively created pipelines
-    let mut slint_sink = SlintOpenGLSink::new()?;
-    let slint_appsink = slint_sink.video_sink();
+    let (event_tx, event_rx) = crossbeam_channel::bounded::<Event>(100);
 
     let ui = MainWindow::new()?;
     slint::set_xdg_app_id("com.github.malba124.OpenMirroring.sender")?;
 
-    let gotten_gl = Arc::new(AtomicBool::new(false));
-
-    ui.window().set_rendering_notifier({
-        let ui_weak = ui.as_weak();
-        let gotten_gl = Arc::clone(&gotten_gl);
-
-        move |state, graphics_api| match state {
-            slint::RenderingState::RenderingSetup => {
-                let ui_weak = ui_weak.clone();
-                slint_sink
-                    .connect(graphics_api, move || {
-                        ui_weak
-                            .upgrade_in_event_loop(move |ui| {
-                                ui.window().request_redraw();
-                            })
-                            .ok();
-                    })
-                    .unwrap();
-                gotten_gl.store(true, atomic::Ordering::Release);
-            }
-            slint::RenderingState::BeforeRendering => {
-                if let Some(next_frame) = slint_sink.fetch_next_frame() {
-                    if let Some(ui) = ui_weak.upgrade() {
-                        ui.set_preview_frame(next_frame);
-                    } else {
-                        error!("Failed to upgrade ui_weak");
-                    }
-                }
-            }
-            slint::RenderingState::RenderingTeardown => {
-                slint_sink.deactivate_and_pause().unwrap();
-            }
-            _ => (),
-        }
-    })?;
-
-    let event_loop_jh = std::thread::spawn({
+    let event_loop_jh = runtime.spawn({
         let ui_weak = ui.as_weak();
         let event_tx = event_tx.clone();
-        move || {
-            // We need to wait until the preview sink has gotten it's required GL contexts,
-            // if not, creating a pipeline would fail
-            while !gotten_gl.load(atomic::Ordering::Acquire) {
-                std::thread::sleep(Duration::from_millis(25));
-            }
-
-            Application::new(ui_weak, event_tx, slint_appsink)
+        async move {
+            Application::new(ui_weak, event_tx)
                 .unwrap()
                 .run_event_loop(event_rx)
+                .await
                 .unwrap();
         }
     });
@@ -663,13 +861,6 @@ fn main() -> Result<()> {
     }
 
     event_handler!(event_tx, |event_tx: crossbeam_channel::Sender<Event>| {
-        ui.on_select_source(move |idx| {
-            assert!(idx >= 0, "Invalid select source index");
-            event_tx.send(Event::SelectSource(idx as usize)).unwrap();
-        });
-    });
-
-    event_handler!(event_tx, |event_tx: crossbeam_channel::Sender<Event>| {
         ui.on_connect_receiver(move |receiver| {
             event_tx
                 .send(Event::SelectReceiver(receiver.to_string()))
@@ -678,11 +869,21 @@ fn main() -> Result<()> {
     });
 
     event_handler!(event_tx, |event_tx: crossbeam_channel::Sender<Event>| {
-        ui.on_start_cast(move |(addr_idx, port)| {
+        ui.on_start_cast(move |(addr_idx, port), video_idx, audio_idx| {
             event_tx
                 .send(Event::StartCast {
                     addr_idx: addr_idx as usize,
                     port,
+                    video_idx: if video_idx >= 0 {
+                        Some(video_idx as usize)
+                    } else {
+                        None
+                    },
+                    audio_idx: if audio_idx >= 0 {
+                        Some(audio_idx as usize)
+                    } else {
+                        None
+                    },
                 })
                 .unwrap();
         });
@@ -725,11 +926,24 @@ fn main() -> Result<()> {
         });
     });
 
+    event_handler!(event_tx, |event_tx: crossbeam_channel::Sender<Event>| {
+        ui.on_reload_video_sources(move || {
+            event_tx.send(Event::ReloadVideoSources).unwrap();
+        });
+    });
+
+    event_handler!(event_tx, |event_tx: crossbeam_channel::Sender<Event>| {
+        ui.on_reload_audio_sources(move || {
+            event_tx.send(Event::ReloadAudioSources).unwrap();
+        });
+    });
+
     ui.run()?;
 
-    event_tx.send(Event::Quit).unwrap();
-
-    event_loop_jh.join().unwrap();
+    runtime.block_on(async move {
+        event_tx.send(Event::Quit).unwrap();
+        event_loop_jh.await.unwrap();
+    });
 
     Ok(())
 }

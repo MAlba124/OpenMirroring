@@ -42,10 +42,8 @@ glutin_glx_sys = { version = "0.6.1", optional = true }
 
 [features]
 video = ["gst", "gst-app", "gst-video", "gst-gl", "gst-gl-egl", "gst-gl-x11", "glutin_egl_sys", "glutin_glx_sys",]
-sender = ["gst", "gst-video", "gio", "m3u8-rs", "gst-pbutils",
-        "http", "crossbeam-channel", "gst-app", "futures",
-        "fcast-lib", "tokio-stream", "mdns-sd", "gst-gl-egl", "gst-gl-x11",
-        "glutin_egl_sys", "glutin_glx_sys", "gst-rtsp", "gst-rtsp-server"]
+sender = ["gst", "gst-video", "gio", "m3u8-rs", "gst-pbutils", "http", "crossbeam-channel", "gst-app", "futures",
+        "fcast-lib", "tokio-stream", "mdns-sd", "gst-rtsp", "gst-rtsp-server",]
 
 [dev-dependencies]
 quickcheck = "1"

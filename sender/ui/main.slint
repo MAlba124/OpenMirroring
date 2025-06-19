@@ -15,11 +15,10 @@
 // You should have received a copy of the GNU General Public License
 // along with OpenMirroring.  If not, see <https://www.gnu.org/licenses/>.
 
-import { VerticalBox, HorizontalBox, Button, ComboBox, Palette, Spinner } from "std-widgets.slint";
+import { VerticalBox, HorizontalBox, Button, ComboBox, Palette, Spinner, Switch } from "std-widgets.slint";
 
 import { Settings } from "settings.slint";
 import { CastDialog, ReceiverItem } from "../../ui-common/cast-dialog.slint";
-import { VideoPreview } from "video-preview.slint";
 import { ToolTipArea } from "../../ui-common/tool-tip-area.slint";
 
 export component MainWindow inherits Window {
@@ -28,18 +27,18 @@ export component MainWindow inherits Window {
     preferred-width: 800px;
     preferred-height: 500px;
 
-    callback select-source(int);
     callback connect-receiver(string);
-    callback start-cast({addr-idx: int, port: int});
+    callback start-cast({addr-idx: int, port: int}, video_idx: int, audio_idx: int);
     callback stop-cast();
     callback disconnect-receiver();
     callback change-source();
     callback add-receiver-manually(name: string, addr: string, port: string);
+    callback reload-video-sources();
+    callback reload-audio-sources();
 
     in property <bool> has-source: false;
-    property <bool> preview-enable: true;
-    in property <image> preview-frame <=> preview-image.source;
-    in property <[string]> sources-model: [];
+    in property <[string]> video-sources-model: [];
+    in property <[string]> audio-sources-model: [];
     in property <[ReceiverItem]> receivers-model: [];
     in property <[string]> addresses-model: [];
 
@@ -69,18 +68,72 @@ export component MainWindow inherits Window {
         casting = false;
     }
 
-    // Maybe have vertical layout when the root width is, say 800 px, horizontal otherwise
     VerticalBox {
-        preview := VideoPreview {
-            visible: has-source;
-            show-preview: true;
-            background: Palette.background;
-            height: has-source ? 60% : 0%;
-            preview-image := Image {
-                visible <=> parent.show-preview;
-                width: 100%;
-                height: parent.height;
-                image-fit: contain;
+        alignment: center;
+
+        VerticalBox {
+            video-switch := Switch {
+                enabled: video-sources-model.length > 0;
+                text: "Video";
+                checked: true;
+            }
+
+            HorizontalBox {
+                Text {
+                    vertical-alignment: center;
+                    text: "Source:";
+                    opacity: video-switch.checked ? 1.0 : 0.6;
+                    animate opacity { duration: 150ms; }
+                }
+
+                video-combo := ComboBox {
+                    enabled <=> video-switch.checked;
+                    model <=> video-sources-model;
+                }
+
+                ToolTipArea {
+                    text: "Reload";
+                    Button {
+                        icon: @image-url("../../assets/icons/reload.svg");
+                        colorize-icon: true;
+                        clicked => {
+                            reload-video-sources();
+                        }
+                    }
+                }
+            }
+        }
+
+        VerticalBox {
+            audio-switch := Switch {
+                enabled: audio-sources-model.length > 0;
+                text: "Audio";
+                checked: false;
+            }
+
+            HorizontalBox {
+                Text {
+                    vertical-alignment: center;
+                    text: "Source:";
+                    opacity: audio-switch.checked ? 1.0 : 0.6;
+                    animate opacity { duration: 150ms; }
+                }
+
+                audio-combo := ComboBox {
+                    enabled <=> audio-switch.checked;
+                    model <=> audio-sources-model;
+                }
+
+                ToolTipArea {
+                    text: "Reload";
+                    Button {
+                        icon: @image-url("../../assets/icons/reload.svg");
+                        colorize-icon: true;
+                        clicked => {
+                            reload-audio-sources();
+                        }
+                    }
+                }
             }
         }
 
@@ -112,26 +165,29 @@ export component MainWindow inherits Window {
                     }
                 }
 
-                if has-source && !casting && !starting: ToolTipArea {
+                if !casting && !starting: ToolTipArea {
                     text: "Start casting";
                     Button {
-                        enabled: receiver-is-connected;
+                        enabled: receiver-is-connected && (video-switch.checked || audio-switch.checked);
                         icon: @image-url("../../assets/icons/play.svg");
                         colorize-icon: true;
                         clicked => {
-                            start-cast(settings.currently-selected-address());
+                            start-cast(
+                                settings.currently-selected-address(),
+                                video-switch.checked ? video-combo.current-index : -1,
+                                audio-switch.checked ? audio-combo.current-index : -1);
                         }
                     }
                 }
 
-                if has-source && starting: ToolTipArea {
+                if starting: ToolTipArea {
                     text: "Casting is starting...";
                     Spinner {
                         indeterminate: true;
                     }
                 }
 
-                if has-source && casting: ToolTipArea {
+                if casting: ToolTipArea {
                     text: "Stop casting";
                     Button {
                         icon: @image-url("../../assets/icons/stop.svg");
@@ -142,7 +198,7 @@ export component MainWindow inherits Window {
                     }
                 }
 
-                if has-source: ToolTipArea {
+                ToolTipArea {
                     text: "Open casting dialog";
                     Button {
                         icon: @image-url("../../assets/icons/cast.svg");
@@ -151,21 +207,6 @@ export component MainWindow inherits Window {
                             cast-dialog.visible = true;
                             shadow.visible = true;
                         }
-                    }
-                }
-            }
-
-            if !has-source: HorizontalBox {
-                alignment: center;
-                source-combo := ComboBox {
-                    model <=> sources-model;
-                }
-
-                Button {
-                    text: "Select source";
-                    enabled: sources-model.length > 0;
-                    clicked => {
-                        select-source(source-combo.current-index);
                     }
                 }
             }
@@ -186,7 +227,7 @@ export component MainWindow inherits Window {
     settings := Settings {
         visible: false;
         width: root.width >= 500px ? 500px : root.width;
-        border-radius: root.width >= 500px ? 8px: 0px;
+        border-radius: root.width >= 500px ? 8px : 0px;
         stream-addresses <=> addresses-model;
 
         closed => {
@@ -201,7 +242,7 @@ export component MainWindow inherits Window {
         receivers-model <=> receivers-model;
         width: root.width >= 500px ? 500px : root.width;
         root-height <=> root.height;
-        border-radius: root.width >= 500px ? 8px: 0px;
+        border-radius: root.width >= 500px ? 8px : 0px;
 
         connect(receiver) => {
             connect-receiver(receiver);
