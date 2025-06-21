@@ -1,7 +1,0 @@
-[package]
-name = "http"
-version = "0.1.0"
-edition = "2021"
-
-[dev-dependencies]
-ureq = { version = "3.0.8", default-features = false }

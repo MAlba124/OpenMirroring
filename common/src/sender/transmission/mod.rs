@@ -20,7 +20,6 @@ use std::net::IpAddr;
 use fcast_lib::models::PlayMessage;
 use gst::glib;
 
-pub mod hls;
 #[cfg(target_os = "android")]
 pub mod rtp;
 pub mod rtsp;

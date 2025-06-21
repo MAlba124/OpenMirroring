@@ -4,17 +4,20 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-env_logger = { workspace = true }
-log = { workspace = true }
-gst = { workspace = true }
-common = { path = "../common", features = ["video", "sender"] }
+env_logger.workspace = true
+log.workspace = true
+gst.workspace = true
+common = { path = "../common", features = ["sender"] }
 fcast-lib = { path = "../fcast-lib" }
-scap-gstreamer = { path = "../scap-gstreamer" }
-slint = { version = "1.11.0", default-features = false, features = ["accessibility", "backend-winit", "compat-1-2", "renderer-femtovg", "std"] }
-anyhow = { workspace = true }
-crossbeam-channel = { workspace = true }
-mdns-sd = { version = "0.13.9", default-features = false, features = ["log"] }
-flume = { version = "0.11.1", default-features = false, features = ["eventual-fairness"] }
+slint.workspace = true
+anyhow.workspace = true
+crossbeam-channel.workspace = true
+mdns-sd = "0.13.9"
+flume = "0.11.1"
+tokio.workspace = true
 
 [build-dependencies]
-slint-build = { workspace = true }
+slint-build.workspace = true
+
+[target.'cfg(target_os = "linux")'.dependencies]
+ashpd = { version = "0.11.0", default-features = false, features = ["async-std"] } # `tokio` breaks slint
