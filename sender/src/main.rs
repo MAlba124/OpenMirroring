@@ -222,7 +222,7 @@ impl Application {
                             session = Some(new_session);
                         }
                         (FetchEvent::Fetch, WindowingSystem::X11) => debug!("TODO: X11"),
-                        (FetchEvent::Quit, _)=> break,
+                        (FetchEvent::Quit, _) => break,
                     }
                 }
 
@@ -441,7 +441,6 @@ impl Application {
                 };
                 self.selected_addr_idx = addr_idx;
 
-                debug!("{video_idx:?}");
                 let video_src = match video_idx {
                     Some(video_idx) => {
                         let Some(video_src) = self.video_sources.get(video_idx) else {
@@ -504,72 +503,68 @@ impl Application {
                         continue;
                     }
 
-                    if r.0.name.starts_with("OpenMirroring") {
-                        self.pipeline = Some(pipeline::Pipeline::new_rtsp(
-                            {
-                                let event_tx = self.event_tx.clone();
-                                let pipeline_has_finished = Arc::new(AtomicBool::new(false));
-                                move |event| {
-                                    let event_tx = event_tx.clone();
-                                    let pipeline_has_finished = Arc::clone(&pipeline_has_finished);
-                                    match event {
-                                        pipeline::Event::PipelineIsPlaying => {
-                                            event_tx.send(crate::Event::PipelineIsPlaying).unwrap();
+                    debug!("Adding RTSP pipeline");
+                    self.pipeline = Some(pipeline::Pipeline::new_rtsp(
+                        {
+                            let event_tx = self.event_tx.clone();
+                            let pipeline_has_finished = Arc::new(AtomicBool::new(false));
+                            move |event| {
+                                let event_tx = event_tx.clone();
+                                let pipeline_has_finished = Arc::clone(&pipeline_has_finished);
+                                match event {
+                                    pipeline::Event::PipelineIsPlaying => {
+                                        event_tx.send(crate::Event::PipelineIsPlaying).unwrap();
+                                    }
+                                    pipeline::Event::Eos => {
+                                        if !pipeline_has_finished.load(Ordering::Acquire) {
+                                            event_tx
+                                                .send(crate::Event::PipelineFinished)
+                                                .unwrap();
+                                            pipeline_has_finished
+                                                .store(true, Ordering::Release);
                                         }
-                                        pipeline::Event::Eos => {
-                                            if !pipeline_has_finished.load(Ordering::Acquire) {
-                                                event_tx
-                                                    .send(crate::Event::PipelineFinished)
-                                                    .unwrap();
-                                                pipeline_has_finished
-                                                    .store(true, Ordering::Release);
-                                            }
-                                        }
-                                        pipeline::Event::Error => {
-                                            if !pipeline_has_finished.load(Ordering::Acquire) {
-                                                event_tx
-                                                    .send(crate::Event::PipelineFinished)
-                                                    .unwrap();
-                                                pipeline_has_finished
-                                                    .store(true, Ordering::Release);
-                                            }
+                                    }
+                                    pipeline::Event::Error => {
+                                        if !pipeline_has_finished.load(Ordering::Acquire) {
+                                            event_tx
+                                                .send(crate::Event::PipelineFinished)
+                                                .unwrap();
+                                            pipeline_has_finished
+                                                .store(true, Ordering::Release);
                                         }
                                     }
                                 }
-                            },
-                            source_config,
-                        )?);
-
-                        let addr = match self.addresses.get(self.selected_addr_idx) {
-                            Some(addr) => addr,
-                            None => {
-                                error!(
-                                    "Address ({}) is out of bounds in the addresses list",
-                                    self.selected_addr_idx,
-                                );
-                                return Ok(false);
                             }
-                        };
+                        },
+                        source_config,
+                    )?);
 
-                        let Some(play_msg) = self.pipeline.as_ref().unwrap().get_play_msg(*addr)
-                        else {
-                            error!("Could not get stream uri");
+                    let addr = match self.addresses.get(self.selected_addr_idx) {
+                        Some(addr) => addr,
+                        None => {
+                            error!(
+                                "Address ({}) is out of bounds in the addresses list",
+                                self.selected_addr_idx,
+                            );
                             return Ok(false);
-                        };
+                        }
+                    };
 
-                        debug!("Sending play message: {play_msg:?}");
-
-                        self.send_packet_to_receiver(Packet::Play(play_msg))?;
-
-                        self.ui_weak.upgrade_in_event_loop(|ui| {
-                            ui.invoke_cast_started();
-                        })?;
-
+                    let Some(play_msg) = self.pipeline.as_ref().unwrap().get_play_msg(*addr)
+                    else {
+                        error!("Could not get stream uri");
                         return Ok(false);
-                    }
-                    //     } else {
-                    //         self.pipeline.add_hls_sink(port)?;
-                    //     }
+                    };
+
+                    debug!("Sending play message: {play_msg:?}");
+
+                    self.send_packet_to_receiver(Packet::Play(play_msg))?;
+
+                    self.ui_weak.upgrade_in_event_loop(|ui| {
+                        ui.invoke_cast_started();
+                    })?;
+
+                    return Ok(false);
 
                     break;
                 }
@@ -623,6 +618,7 @@ impl Application {
                 }
 
                 if self.should_play {
+                    self.should_play = false;
                     let addr = match self.addresses.get(self.selected_addr_idx) {
                         Some(addr) => addr,
                         None => {
@@ -634,20 +630,22 @@ impl Application {
                         }
                     };
 
-                    // let Some(play_msg) = self.pipeline.get_play_msg(*addr) else {
-                    // let Some(play_msg) = pipeline.get_play_msg(*addr) else {
-                    //     error!("Could not get stream uri");
-                    //     return Ok(false);
-                    // };
+                    let Some(pipeline) = self.pipeline.as_ref() else {
+                        error!("Should play but missing pipeline");
+                        return Ok(false);
+                    };
+                    let Some(play_msg) = pipeline.get_play_msg(*addr) else {
+                        error!("Could not get stream uri");
+                        return Ok(false);
+                    };
 
-                    // debug!("Sending play message: {play_msg:?}");
+                    debug!("Sending play message: {play_msg:?}");
 
-                    // self.send_packet_to_receiver(Packet::Play(play_msg))?;
+                    self.send_packet_to_receiver(Packet::Play(play_msg))?;
 
-                    // self.ui_weak.upgrade_in_event_loop(|ui| {
-                    //     ui.invoke_cast_started();
-                    // })?;
-                    self.should_play = false;
+                    self.ui_weak.upgrade_in_event_loop(|ui| {
+                        ui.invoke_cast_started();
+                    })?;
                 }
             }
             Event::DisconnectedFromReceiver => {
@@ -669,8 +667,12 @@ impl Application {
                 self.audio_sources = sources;
                 self.update_audio_sources_in_ui()?;
             }
-            Event::ReloadVideoSources => self.video_source_fetcher_tx.send(FetchEvent::Fetch).await?,
-            Event::ReloadAudioSources => self.audio_source_fetcher_tx.send(FetchEvent::Fetch).await?,
+            Event::ReloadVideoSources => {
+                self.video_source_fetcher_tx.send(FetchEvent::Fetch).await?
+            }
+            Event::ReloadAudioSources => {
+                self.audio_source_fetcher_tx.send(FetchEvent::Fetch).await?
+            }
         }
 
         Ok(false)
@@ -723,6 +725,7 @@ impl Application {
         self.video_source_fetcher_tx.send(FetchEvent::Fetch).await?;
         self.audio_source_fetcher_tx.send(FetchEvent::Fetch).await?;
 
+        // TODO: do all async
         loop {
             match event_rx.try_recv() {
                 Ok(event) => {

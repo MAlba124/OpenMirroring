@@ -17,7 +17,7 @@
 
 #[cfg(target_os = "android")]
 use super::transmission::rtp::RtpSink;
-use super::transmission::{self, TransmissionSink, hls::HlsSink};
+use super::transmission::{self, TransmissionSink};
 use anyhow::Result;
 use fcast_lib::models::PlayMessage;
 #[cfg(target_os = "android")]
@@ -28,6 +28,7 @@ use log::error;
 #[cfg(target_os = "android")]
 use std::future::Future;
 use std::net::IpAddr;
+use std::str::FromStr;
 
 pub use transmission::init;
 
@@ -177,57 +178,60 @@ impl Pipeline {
         })
     }
 
+    fn setup_video_source(pipeline: &gst::Pipeline, src: gst::Element) -> Result<gst::Element> {
+        // TODO: needed?
+        let videoflip = gst::ElementFactory::make("videoflip")
+            .property_from_str("video-direction", "auto")
+            .build()?;
+        let videorate = gst::ElementFactory::make("videorate")
+            .property("skip-to-first", true)
+            .build()?;
+        let capsfilter = gst::ElementFactory::make("capsfilter")
+            .property("caps", gst::Caps::from_str("video/x-raw,framerate=30/1")?)
+            .build()?;
+
+        // pipeline.add_many([&src, &videorate, &capsfilter])?;
+        // gst::Element::link_many([&src, &videorate, &capsfilter])?;
+
+        pipeline.add_many([&src, &videoflip, &videorate, &capsfilter])?;
+        gst::Element::link_many([&src, &videoflip, &videorate, &capsfilter])?;
+
+        Ok(capsfilter)
+    }
+
+    fn setup_audio_source(pipeline: &gst::Pipeline, src: gst::Element) -> Result<gst::Element> {
+        let capsfilter = gst::ElementFactory::make("capsfilter")
+            .property(
+                "caps",
+                gst::Caps::from_str("audio/x-raw,channels=2,rate=48000")?,
+            )
+            .build()?;
+
+        pipeline.add_many([&src, &capsfilter])?;
+        gst::Element::link_many([&src, &capsfilter])?;
+
+        Ok(capsfilter)
+    }
+
     #[cfg(not(target_os = "android"))]
     pub fn new_rtsp<E>(mut on_event: E, source: SourceConfig) -> Result<Self>
     where
         E: FnMut(Event) + Send + Clone + 'static,
     {
-        use std::str::FromStr;
-
         use crate::sender::transmission::rtsp::RtspSink;
-
-        fn setup_video_source(pipeline: &gst::Pipeline, src: gst::Element) -> Result<gst::Element> {
-            let videorate = gst::ElementFactory::make("videorate")
-                .property("skip-to-first", true)
-                .build()?;
-            let capsfilter = gst::ElementFactory::make("capsfilter")
-                .name("video_capsfilter")
-                .property("caps", gst::Caps::from_str("video/x-raw,framerate=25/1")?)
-                .build()?;
-
-            pipeline.add_many([&src, &videorate, &capsfilter])?;
-            gst::Element::link_many([&src, &videorate, &capsfilter])?;
-
-            Ok(capsfilter)
-        }
-
-        fn setup_audio_source(pipeline: &gst::Pipeline, src: gst::Element) -> Result<gst::Element> {
-            let capsfilter = gst::ElementFactory::make("capsfilter")
-                .name("audio_capsfilter")
-                .property(
-                    "caps",
-                    gst::Caps::from_str("audio/x-raw,channels=2,rate=48000")?,
-                )
-                .build()?;
-
-            pipeline.add_many([&src, &capsfilter])?;
-            gst::Element::link_many([&src, &capsfilter])?;
-
-            Ok(capsfilter)
-        }
 
         let pipeline = gst::Pipeline::new();
 
         let source = match source {
             SourceConfig::AudioVideo { video, audio } => SourceConfig::AudioVideo {
-                video: setup_video_source(&pipeline, video)?,
-                audio: setup_audio_source(&pipeline, audio)?,
+                video: Self::setup_video_source(&pipeline, video)?,
+                audio: Self::setup_audio_source(&pipeline, audio)?,
             },
             SourceConfig::Video(video) => {
-                SourceConfig::Video(setup_video_source(&pipeline, video)?)
+                SourceConfig::Video(Self::setup_video_source(&pipeline, video)?)
             }
             SourceConfig::Audio(audio) => {
-                SourceConfig::Audio(setup_audio_source(&pipeline, audio)?)
+                SourceConfig::Audio(Self::setup_audio_source(&pipeline, audio)?)
             }
         };
 
@@ -237,8 +241,6 @@ impl Pipeline {
             tx_sink: Box::new(rtsp),
         };
 
-        // Start the pipeline in background thread because `scapsrc` initialization will block until
-        // the user selects the input source.
         let _ = std::thread::spawn({
             let bus = pipeline
                 .bus()

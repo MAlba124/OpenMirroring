@@ -97,6 +97,8 @@ impl RtspSink {
             });
         }
 
+        // pipeline.debug_to_dot_file(gst::DebugGraphDetails::all(), "rtsp-pipeline");
+
         Ok(Self {
             server,
             id: Some(id),
@@ -108,7 +110,7 @@ impl RtspSink {
 impl TransmissionSink for RtspSink {
     fn get_play_msg(&self, addr: std::net::IpAddr) -> Option<fcast_lib::models::PlayMessage> {
         Some(fcast_lib::models::PlayMessage {
-            container: "video/x-rtsp".to_owned(),
+            container: "application/x-rtsp".to_owned(),
             url: Some(format!(
                 "rtsp://{}:{}/",
                 super::addr_to_url_string(addr),
