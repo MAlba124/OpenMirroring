@@ -21,3 +21,5 @@ slint-build.workspace = true
 
 [target.'cfg(target_os = "linux")'.dependencies]
 ashpd = { version = "0.11.0", default-features = false, features = ["async-std"] } # `tokio` breaks slint
+xcb = { version = "1.5.0", features = ["randr", "xlib_xcb"] }
+x11 = "2.21.0"

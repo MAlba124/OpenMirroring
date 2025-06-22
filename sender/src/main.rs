@@ -21,6 +21,8 @@ use fcast_lib::packet::Packet;
 use gst::glib::object::ObjectExt;
 use gst::prelude::{DeviceExt, GstObjectExt};
 use log::{debug, error, trace};
+use std::ffi::CString;
+use std::ffi::{CStr, NulError};
 use std::os::fd::AsRawFd;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
@@ -34,6 +36,13 @@ use std::rc::Rc;
 use ashpd::desktop::{
     PersistMode,
     screencast::{CursorMode, Screencast, SourceType},
+};
+
+use x11::xlib::{XFreeStringList, XGetTextProperty, XTextProperty, XmbTextPropertyToTextList};
+use xcb::{
+    Xid,
+    randr::{GetCrtcInfo, GetOutputInfo, GetOutputPrimary, GetScreenResources},
+    x::{self, GetPropertyReply, Screen},
 };
 
 use common::sender::pipeline::{self, SourceConfig};
@@ -85,15 +94,187 @@ pub fn get_audio_devices() -> anyhow::Result<Vec<AudioSource>> {
 
 #[derive(Debug)]
 enum VideoSource {
+    #[cfg(target_os = "linux")]
     PipeWire { node_id: u32, fd: i32 },
+    #[cfg(target_os = "linux")]
+    XWindow { id: u32, name: String },
+    #[cfg(target_os = "linux")]
+    XDisplay {
+        id: u32,
+        width: u16,
+        height: u16,
+        x_offset: i16,
+        y_offset: i16,
+        name: String,
+    },
 }
 
 impl VideoSource {
     pub fn display_name(&self) -> String {
         match self {
             VideoSource::PipeWire { .. } => "PipeWire Video Source".to_owned(),
+            VideoSource::XWindow { id, name } => name.clone(),
+            VideoSource::XDisplay { name, .. } => name.clone(),
         }
     }
+}
+
+fn get_atom(conn: &xcb::Connection, atom_name: &str) -> Result<x::Atom, xcb::Error> {
+    let cookie = conn.send_request(&x::InternAtom {
+        only_if_exists: true,
+        name: atom_name.as_bytes(),
+    });
+    Ok(conn.wait_for_reply(cookie)?.atom())
+}
+
+fn get_property(
+    conn: &xcb::Connection,
+    win: x::Window,
+    prop: x::Atom,
+    typ: x::Atom,
+    length: u32,
+) -> Result<GetPropertyReply, xcb::Error> {
+    let cookie = conn.send_request(&x::GetProperty {
+        delete: false,
+        window: win,
+        property: prop,
+        r#type: typ,
+        long_offset: 0,
+        long_length: length,
+    });
+    conn.wait_for_reply(cookie)
+}
+
+fn decode_compound_text(
+    conn: &xcb::Connection,
+    value: &[u8],
+    client: &xcb::x::Window,
+    ttype: xcb::x::Atom,
+) -> Result<String, NulError> {
+    let display = conn.get_raw_dpy();
+    assert!(!display.is_null());
+
+    let c_string = CString::new(value.to_vec())?;
+    let mut text_prop = XTextProperty {
+        value: std::ptr::null_mut(),
+        encoding: 0,
+        format: 0,
+        nitems: 0,
+    };
+    let res = unsafe {
+        XGetTextProperty(
+            display,
+            client.resource_id() as u64,
+            &mut text_prop,
+            x::ATOM_WM_NAME.resource_id() as u64,
+        )
+    };
+    if res == 0 || text_prop.nitems == 0 {
+        return Ok(String::from("n/a"));
+    }
+
+    let xname = XTextProperty {
+        value: c_string.as_ptr() as *mut u8,
+        encoding: ttype.resource_id() as u64,
+        format: 8,
+        nitems: text_prop.nitems,
+    };
+    let mut list: *mut *mut i8 = std::ptr::null_mut();
+    let mut count: i32 = 0;
+    let result = unsafe { XmbTextPropertyToTextList(display, &xname, &mut list, &mut count) };
+    if result < 1 || list.is_null() || count < 1 {
+        Ok(String::from("n/a"))
+    } else {
+        let title = unsafe { CStr::from_ptr(*list).to_string_lossy().into_owned() };
+        unsafe { XFreeStringList(list) };
+        Ok(title)
+    }
+}
+
+fn get_x11_targets(conn: &xcb::Connection) -> Result<Vec<VideoSource>> {
+    let setup = conn.get_setup();
+    let screens = setup.roots();
+
+    let wm_client_list = get_atom(&conn, "_NET_CLIENT_LIST")?;
+    assert!(wm_client_list != x::ATOM_NONE, "EWMH not supported");
+
+    let atom_net_wm_name = get_atom(&conn, "_NET_WM_NAME")?;
+    let atom_text = get_atom(&conn, "TEXT")?;
+    let atom_utf8_string = get_atom(&conn, "UTF8_STRING")?;
+    let atom_compound_text = get_atom(&conn, "COMPOUND_TEXT")?;
+
+    let mut targets = Vec::new();
+    for screen in screens {
+        let window_list = get_property(&conn, screen.root(), wm_client_list, x::ATOM_NONE, 100)?;
+
+        for client in window_list.value::<x::Window>() {
+            let cr = get_property(&conn, *client, atom_net_wm_name, x::ATOM_STRING, 4096)?;
+            if !cr.value::<x::Atom>().is_empty() {
+                targets.push(VideoSource::XWindow {
+                    id: client.resource_id(),
+                    name: String::from_utf8(cr.value().to_vec())
+                        .map_err(|_| xcb::Error::Connection(xcb::ConnError::ClosedParseErr))?,
+                });
+                continue;
+            }
+
+            let reply = get_property(&conn, *client, x::ATOM_WM_NAME, x::ATOM_ANY, 4096)?;
+            let value: &[u8] = reply.value();
+            if !value.is_empty() {
+                let ttype = reply.r#type();
+                let title =
+                    if ttype == x::ATOM_STRING || ttype == atom_utf8_string || ttype == atom_text {
+                        String::from_utf8(reply.value().to_vec()).unwrap_or(String::from("n/a"))
+                    } else if ttype == atom_compound_text {
+                        decode_compound_text(&conn, value, client, ttype)
+                            .map_err(|_| xcb::Error::Connection(xcb::ConnError::ClosedParseErr))?
+                    } else {
+                        String::from_utf8(reply.value().to_vec()).unwrap_or(String::from("n/a"))
+                    };
+
+                targets.push(VideoSource::XWindow {
+                    id: client.resource_id(),
+                    name: title,
+                });
+                continue;
+            }
+            targets.push(VideoSource::XWindow {
+                id: client.resource_id(),
+                name: "n/a".to_owned(),
+            });
+        }
+
+        let resources = conn.send_request(&GetScreenResources {
+            window: screen.root(),
+        });
+        let resources = conn.wait_for_reply(resources)?;
+        for output in resources.outputs() {
+            let info = conn.send_request(&GetOutputInfo {
+                output: *output,
+                config_timestamp: 0,
+            });
+            let info = conn.wait_for_reply(info)?;
+            if info.connection() == xcb::randr::Connection::Connected {
+                let crtc = info.crtc();
+                let crtc_info = conn.send_request(&GetCrtcInfo {
+                    crtc,
+                    config_timestamp: 0,
+                });
+                let crtc_info = conn.wait_for_reply(crtc_info)?;
+                let title = String::from_utf8(info.name().to_vec()).unwrap_or(String::from("n/a"));
+                targets.push(VideoSource::XDisplay {
+                    name: title,
+                    id: screen.root().resource_id(),
+                    width: crtc_info.width(),
+                    height: crtc_info.height(),
+                    x_offset: crtc_info.x(),
+                    y_offset: crtc_info.y(),
+                });
+            }
+        }
+    }
+
+    Ok(targets)
 }
 
 #[derive(Debug)]
@@ -163,6 +344,7 @@ impl Application {
             tokio::spawn(async move {
                 let mut proxy = None;
                 let mut session = None;
+                let mut conn = None;
                 enum WindowingSystem {
                     Wayland,
                     X11,
@@ -171,6 +353,7 @@ impl Application {
                 let winsys = if std::env::var("WAYLAND_DISPLAY").is_ok() {
                     WindowingSystem::Wayland
                 } else if std::env::var("DISPLAY").is_ok() {
+                    conn = Some(xcb::Connection::connect(None).unwrap().0);
                     WindowingSystem::X11
                 } else {
                     panic!("Unsupported windowing system!");
@@ -221,7 +404,15 @@ impl Application {
                             proxy = Some(new_proxy);
                             session = Some(new_session);
                         }
-                        (FetchEvent::Fetch, WindowingSystem::X11) => debug!("TODO: X11"),
+                        (FetchEvent::Fetch, WindowingSystem::X11) => {
+                            let Some(xconn) = conn.as_ref() else {
+                                error!("No xcb connection available");
+                                continue;
+                            };
+
+                            let sources = get_x11_targets(&xconn).unwrap();
+                            event_tx.send(Event::VideosAvailable(sources)).unwrap();
+                        }
                         (FetchEvent::Quit, _) => break,
                     }
                 }
@@ -454,7 +645,29 @@ impl Application {
                             VideoSource::PipeWire { node_id, .. } => Some(
                                 gst::ElementFactory::make("pipewiresrc")
                                     .property("path", node_id.to_string())
-                                    // .property("fd", fd) // ??
+                                    .build()?,
+                            ),
+                            VideoSource::XWindow { name, id } => Some(
+                                gst::ElementFactory::make("ximagesrc")
+                                    .property("xid", *id as u64)
+                                    .property("use-damage", false)
+                                    .build()?,
+                            ),
+                            VideoSource::XDisplay {
+                                name,
+                                id,
+                                width,
+                                height,
+                                x_offset,
+                                y_offset,
+                            } => Some(
+                                gst::ElementFactory::make("ximagesrc")
+                                    .property("xid", *id as u64)
+                                    .property("startx", *x_offset as u32)
+                                    .property("starty", *y_offset as u32)
+                                    .property("endx", (*x_offset as u32) + (*width as u32) - 1)
+                                    .property("endy", (*y_offset as u32) + (*height as u32) - 1)
+                                    .property("use-damage", false)
                                     .build()?,
                             ),
                         }
@@ -517,20 +730,14 @@ impl Application {
                                     }
                                     pipeline::Event::Eos => {
                                         if !pipeline_has_finished.load(Ordering::Acquire) {
-                                            event_tx
-                                                .send(crate::Event::PipelineFinished)
-                                                .unwrap();
-                                            pipeline_has_finished
-                                                .store(true, Ordering::Release);
+                                            event_tx.send(crate::Event::PipelineFinished).unwrap();
+                                            pipeline_has_finished.store(true, Ordering::Release);
                                         }
                                     }
                                     pipeline::Event::Error => {
                                         if !pipeline_has_finished.load(Ordering::Acquire) {
-                                            event_tx
-                                                .send(crate::Event::PipelineFinished)
-                                                .unwrap();
-                                            pipeline_has_finished
-                                                .store(true, Ordering::Release);
+                                            event_tx.send(crate::Event::PipelineFinished).unwrap();
+                                            pipeline_has_finished.store(true, Ordering::Release);
                                         }
                                     }
                                 }
@@ -550,8 +757,7 @@ impl Application {
                         }
                     };
 
-                    let Some(play_msg) = self.pipeline.as_ref().unwrap().get_play_msg(*addr)
-                    else {
+                    let Some(play_msg) = self.pipeline.as_ref().unwrap().get_play_msg(*addr) else {
                         error!("Could not get stream uri");
                         return Ok(false);
                     };
