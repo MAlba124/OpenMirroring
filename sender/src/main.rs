@@ -24,8 +24,8 @@ use std::ffi::CString;
 use std::ffi::{CStr, NulError};
 use std::os::fd::AsRawFd;
 use std::rc::Rc;
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 use tokio::runtime::Runtime;
 
@@ -168,7 +168,7 @@ impl VideoSource {
     pub fn display_name(&self) -> String {
         match self {
             VideoSource::PipeWire { .. } => "PipeWire Video Source".to_owned(),
-            VideoSource::XWindow {  name, .. } => name.clone(),
+            VideoSource::XWindow { name, .. } => name.clone(),
             VideoSource::XDisplay { name, .. } => name.clone(),
         }
     }
