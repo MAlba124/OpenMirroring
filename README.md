@@ -1,7 +1,7 @@
 > [!WARNING]
 > This is an actively developed project and is intended solely for testing purposes at this stage.
 
-![Demonstration](./assets/demo.png)
+![Demonstration](./assets/demo-23-06-25.png)
 
 # OpenMirroring
 
