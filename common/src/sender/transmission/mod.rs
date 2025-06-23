@@ -18,22 +18,10 @@
 use std::net::IpAddr;
 
 use fcast_lib::models::PlayMessage;
-use gst::glib;
 
-pub mod hls;
 #[cfg(target_os = "android")]
 pub mod rtp;
 pub mod rtsp;
-
-fn block_downstream(pad: &gst::Pad) -> Result<gst::PadProbeId, glib::error::BoolError> {
-    use gst::prelude::*;
-    pad.add_probe(gst::PadProbeType::BLOCK_DOWNSTREAM, |_, _| {
-        gst::PadProbeReturn::Ok
-    })
-    .ok_or(glib::bool_error!(
-        "Failed to add BLOCK_DOWNSTREAM pad probe"
-    ))
-}
 
 fn addr_to_url_string(addr: IpAddr) -> String {
     match addr {
@@ -55,7 +43,4 @@ pub trait TransmissionSink: Send {
 
     /// Perform any necessary shutdown procedures
     fn shutdown(&mut self);
-
-    /// Remove the sink's elements from the pipeline and unlink them from the source
-    fn unlink(&mut self, pipeline: &gst::Pipeline) -> Result<(), glib::error::BoolError>;
 }

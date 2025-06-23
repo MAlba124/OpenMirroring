@@ -77,7 +77,6 @@ fn main() {
     cargo_link!("gstaudio-1.0");
     cargo_link!("gstapp-1.0");
     cargo_link!("gstrtp-1.0");
-    cargo_link!("gstwebrtc-1.0");
 
     const DEFAULT_CLANG_VERSION: &str = "20";
     let clang_version =

@@ -14,12 +14,14 @@ The current platform support matrix looks like this:
 
 #### Desktop
 
-|            |Linux (Wayland)  |Linux (X11)  |Windows  |MacOS     |
-|------------|-----------------|-------------|---------|----------|
-|OMSender    |Yes              |Yes          |Yes      |No        |
-|OMReceiver  |Yes              |Yes          |Yes      |Untested  |
+|            |Linux (Wayland)  |Linux (X11)  |Windows       |MacOS     |
+|------------|-----------------|-------------|--------------|----------|
+|OMSender    |Yes              |Yes          |~~Yes~~ No^1  |No^1      |
+|OMReceiver  |Yes              |Yes          |Yes           |Untested  |
 
-OMSender can cast to other FCast receivers as well.
+1: Support is planned
+
+~~OMSender can cast to other FCast receivers as well.~~
 
 OMReceiver is also an FCast receiver.
 
