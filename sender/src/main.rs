@@ -18,8 +18,6 @@
 use anyhow::{Context, Result, bail};
 use common::sender::session::{Session, SessionEvent};
 use fcast_lib::packet::Packet;
-use gst::glib::object::ObjectExt;
-use gst::prelude::{DeviceExt, GstObjectExt};
 use log::{debug, error, trace};
 use std::cell::Cell;
 use std::ffi::CString;
@@ -27,10 +25,9 @@ use std::ffi::{CStr, NulError};
 use std::os::fd::AsRawFd;
 use std::rc::Rc;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex};
-use std::thread::sleep;
+use std::sync::Arc;
 use std::time::{Duration, Instant};
-use tokio::runtime::{self, Runtime};
+use tokio::runtime::Runtime;
 
 use std::net::{IpAddr, SocketAddr};
 
@@ -42,8 +39,8 @@ use ashpd::desktop::{
 use x11::xlib::{XFreeStringList, XGetTextProperty, XTextProperty, XmbTextPropertyToTextList};
 use xcb::{
     Xid,
-    randr::{GetCrtcInfo, GetOutputInfo, GetOutputPrimary, GetScreenResources},
-    x::{self, GetPropertyReply, Screen},
+    randr::{GetCrtcInfo, GetOutputInfo, GetScreenResources},
+    x::{self, GetPropertyReply},
 };
 
 use common::sender::pipeline::{self, SourceConfig};
@@ -60,7 +57,7 @@ pub enum AudioSource {
 impl AudioSource {
     pub fn display_name(&self) -> String {
         match self {
-            AudioSource::Pipewire { name, id } => name.clone(),
+            AudioSource::Pipewire { name, .. } => name.clone(),
         }
     }
 }
@@ -68,10 +65,6 @@ impl AudioSource {
 #[cfg(target_os = "linux")]
 pub fn get_audio_devices() -> anyhow::Result<Vec<AudioSource>> {
     use std::cell::RefCell;
-
-    use anyhow::bail;
-    use gst::prelude::*;
-    use log::info;
 
     let mainloop =
         pipewire::main_loop::MainLoop::new(None).context("failed to create PipeWire main loop")?;
@@ -88,7 +81,7 @@ pub fn get_audio_devices() -> anyhow::Result<Vec<AudioSource>> {
     let done_clone = done.clone();
     let loop_clone = mainloop.clone();
     let pending = core.sync(0).expect("sync failed");
-    let mut pw_sources = Rc::new(RefCell::new(Vec::new()));
+    let pw_sources = Rc::new(RefCell::new(Vec::new()));
     let pw_sources_clone = pw_sources.clone();
 
     let _listener_core = core
@@ -153,7 +146,11 @@ pub fn get_audio_devices() -> anyhow::Result<Vec<AudioSource>> {
 #[derive(Debug)]
 enum VideoSource {
     #[cfg(target_os = "linux")]
-    PipeWire { node_id: u32, fd: i32 },
+    PipeWire {
+        node_id: u32,
+        #[allow(dead_code)]
+        fd: i32, // TODO: does not work, why not?
+    },
     #[cfg(target_os = "linux")]
     XWindow { id: u32, name: String },
     #[cfg(target_os = "linux")]
@@ -171,7 +168,7 @@ impl VideoSource {
     pub fn display_name(&self) -> String {
         match self {
             VideoSource::PipeWire { .. } => "PipeWire Video Source".to_owned(),
-            VideoSource::XWindow { id, name } => name.clone(),
+            VideoSource::XWindow {  name, .. } => name.clone(),
             VideoSource::XDisplay { name, .. } => name.clone(),
         }
     }
@@ -253,20 +250,20 @@ fn get_x11_targets(conn: &xcb::Connection) -> Result<Vec<VideoSource>> {
     let setup = conn.get_setup();
     let screens = setup.roots();
 
-    let wm_client_list = get_atom(&conn, "_NET_CLIENT_LIST")?;
+    let wm_client_list = get_atom(conn, "_NET_CLIENT_LIST")?;
     assert!(wm_client_list != x::ATOM_NONE, "EWMH not supported");
 
-    let atom_net_wm_name = get_atom(&conn, "_NET_WM_NAME")?;
-    let atom_text = get_atom(&conn, "TEXT")?;
-    let atom_utf8_string = get_atom(&conn, "UTF8_STRING")?;
-    let atom_compound_text = get_atom(&conn, "COMPOUND_TEXT")?;
+    let atom_net_wm_name = get_atom(conn, "_NET_WM_NAME")?;
+    let atom_text = get_atom(conn, "TEXT")?;
+    let atom_utf8_string = get_atom(conn, "UTF8_STRING")?;
+    let atom_compound_text = get_atom(conn, "COMPOUND_TEXT")?;
 
     let mut targets = Vec::new();
     for screen in screens {
-        let window_list = get_property(&conn, screen.root(), wm_client_list, x::ATOM_NONE, 100)?;
+        let window_list = get_property(conn, screen.root(), wm_client_list, x::ATOM_NONE, 100)?;
 
         for client in window_list.value::<x::Window>() {
-            let cr = get_property(&conn, *client, atom_net_wm_name, x::ATOM_STRING, 4096)?;
+            let cr = get_property(conn, *client, atom_net_wm_name, x::ATOM_STRING, 4096)?;
             if !cr.value::<x::Atom>().is_empty() {
                 targets.push(VideoSource::XWindow {
                     id: client.resource_id(),
@@ -276,7 +273,7 @@ fn get_x11_targets(conn: &xcb::Connection) -> Result<Vec<VideoSource>> {
                 continue;
             }
 
-            let reply = get_property(&conn, *client, x::ATOM_WM_NAME, x::ATOM_ANY, 4096)?;
+            let reply = get_property(conn, *client, x::ATOM_WM_NAME, x::ATOM_ANY, 4096)?;
             let value: &[u8] = reply.value();
             if !value.is_empty() {
                 let ttype = reply.r#type();
@@ -284,7 +281,7 @@ fn get_x11_targets(conn: &xcb::Connection) -> Result<Vec<VideoSource>> {
                     if ttype == x::ATOM_STRING || ttype == atom_utf8_string || ttype == atom_text {
                         String::from_utf8(reply.value().to_vec()).unwrap_or(String::from("n/a"))
                     } else if ttype == atom_compound_text {
-                        decode_compound_text(&conn, value, client, ttype)
+                        decode_compound_text(conn, value, client, ttype)
                             .map_err(|_| xcb::Error::Connection(xcb::ConnError::ClosedParseErr))?
                     } else {
                         String::from_utf8(reply.value().to_vec()).unwrap_or(String::from("n/a"))
@@ -336,7 +333,7 @@ fn get_x11_targets(conn: &xcb::Connection) -> Result<Vec<VideoSource>> {
 }
 
 #[derive(Debug)]
-pub enum Event {
+enum Event {
     StartCast {
         addr_idx: usize,
         port: i32,
@@ -400,8 +397,8 @@ impl Application {
         {
             let event_tx = event_tx.clone();
             tokio::spawn(async move {
-                let mut proxy = None;
-                let mut session = None;
+                let mut _proxy = None;
+                let mut _session = None;
                 let mut conn = None;
                 enum WindowingSystem {
                     Wayland,
@@ -446,7 +443,7 @@ impl Application {
                                 .unwrap()
                                 .response()
                                 .unwrap();
-                            let stream = response.streams().get(0).unwrap();
+                            let stream = response.streams().first().unwrap();
                             let fd = new_proxy
                                 .open_pipe_wire_remote(&new_session)
                                 .await
@@ -459,8 +456,8 @@ impl Application {
                                 }]))
                                 .unwrap();
 
-                            proxy = Some(new_proxy);
-                            session = Some(new_session);
+                            _proxy = Some(new_proxy);
+                            _session = Some(new_session);
                         }
                         (FetchEvent::Fetch, WindowingSystem::X11) => {
                             let Some(xconn) = conn.as_ref() else {
@@ -468,7 +465,7 @@ impl Application {
                                 continue;
                             };
 
-                            let sources = get_x11_targets(&xconn).unwrap();
+                            let sources = get_x11_targets(xconn).unwrap();
                             event_tx.send(Event::VideosAvailable(sources)).unwrap();
                         }
                         (FetchEvent::Quit, _) => break,
@@ -677,6 +674,7 @@ impl Application {
                 video_idx,
                 audio_idx,
             } => {
+                // TODO
                 let port = {
                     if port < 1 || port > u16::MAX as i32 {
                         error!("Port ({port}) is not in the valid port range");
@@ -701,19 +699,19 @@ impl Application {
                                     .property("path", node_id.to_string())
                                     .build()?,
                             ),
-                            VideoSource::XWindow { name, id } => Some(
+                            VideoSource::XWindow { id, .. } => Some(
                                 gst::ElementFactory::make("ximagesrc")
                                     .property("xid", *id as u64)
                                     .property("use-damage", false)
                                     .build()?,
                             ),
                             VideoSource::XDisplay {
-                                name,
                                 id,
                                 width,
                                 height,
                                 x_offset,
                                 y_offset,
+                                ..
                             } => Some(
                                 gst::ElementFactory::make("ximagesrc")
                                     .property("xid", *id as u64)
@@ -739,7 +737,7 @@ impl Application {
                             return Ok(false);
                         };
                         match audio_src {
-                            AudioSource::Pipewire { name, id } => Some(
+                            AudioSource::Pipewire { id, .. } => Some(
                                 gst::ElementFactory::make("pipewiresrc")
                                     .property("path", id.to_string())
                                     .build()?,
@@ -816,8 +814,6 @@ impl Application {
                     })?;
 
                     return Ok(false);
-
-                    break;
                 }
 
                 self.ui_weak.upgrade_in_event_loop(|ui| {

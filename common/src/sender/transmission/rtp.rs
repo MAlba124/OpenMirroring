@@ -162,34 +162,4 @@ impl TransmissionSink for RtpSink {
     }
 
     fn shutdown(&mut self) {}
-
-    fn unlink(&mut self, pipeline: &gst::Pipeline) -> Result<(), glib::error::BoolError> {
-        let block = super::block_downstream(&self.src_pad)?;
-        let queue_sink_pad = self.queue.static_pad("sink").ok_or(glib::bool_error!(
-            "Failed to get static sink pad from queue"
-        ))?;
-        self.src_pad.unlink(&queue_sink_pad)?;
-        self.src_pad.remove_probe(block);
-
-        let elems = [
-            &self.queue,
-            &self.convert,
-            &self.scale,
-            &self.capsfilter,
-            &self.enc,
-            &self.enc_caps,
-            &self.queue2,
-            &self.pay,
-            &self.sink,
-        ];
-
-        pipeline.remove_many(elems)?;
-
-        for elem in elems {
-            elem.set_state(gst::State::Null)
-                .map_err(|err| glib::bool_error!("{err}"))?;
-        }
-
-        Ok(())
-    }
 }

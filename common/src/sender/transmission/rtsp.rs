@@ -133,8 +133,4 @@ impl TransmissionSink for RtspSink {
             id.remove();
         }
     }
-
-    fn unlink(&mut self, pipeline: &gst::Pipeline) -> Result<(), gio::glib::error::BoolError> {
-        Ok(())
-    }
 }
