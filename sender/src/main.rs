@@ -21,9 +21,11 @@ use fcast_lib::packet::Packet;
 use gst::glib::object::ObjectExt;
 use gst::prelude::{DeviceExt, GstObjectExt};
 use log::{debug, error, trace};
+use std::cell::Cell;
 use std::ffi::CString;
 use std::ffi::{CStr, NulError};
 use std::os::fd::AsRawFd;
+use std::rc::Rc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread::sleep;
@@ -31,7 +33,6 @@ use std::time::{Duration, Instant};
 use tokio::runtime::{self, Runtime};
 
 use std::net::{IpAddr, SocketAddr};
-use std::rc::Rc;
 
 use ashpd::desktop::{
     PersistMode,
@@ -53,43 +54,100 @@ pub type ProducerId = String;
 
 #[derive(Debug)]
 pub enum AudioSource {
-    Pulse(gst::Device),
+    Pipewire { name: String, id: u32 },
 }
 
 impl AudioSource {
-    pub fn display_name(&self) -> gst::glib::GString {
+    pub fn display_name(&self) -> String {
         match self {
-            AudioSource::Pulse(device) => device.display_name(),
+            AudioSource::Pipewire { name, id } => name.clone(),
         }
     }
 }
 
 #[cfg(target_os = "linux")]
 pub fn get_audio_devices() -> anyhow::Result<Vec<AudioSource>> {
+    use std::cell::RefCell;
+
     use anyhow::bail;
     use gst::prelude::*;
+    use log::info;
 
-    let provider = gst::DeviceProviderFactory::by_name("pulsedeviceprovider").ok_or(
-        anyhow::anyhow!("Could not find pulse device provider factory"),
-    )?;
+    let mainloop =
+        pipewire::main_loop::MainLoop::new(None).context("failed to create PipeWire main loop")?;
+    let context =
+        pipewire::context::Context::new(&mainloop).context("failed to create PipeWire context")?;
+    let core = context
+        .connect(None)
+        .context("failed to connect to PipeWire core")?;
+    let registry = core
+        .get_registry()
+        .context("failed to get PipeWire registry")?;
 
-    provider.start()?;
-    let devices = provider.devices();
-    provider.stop();
+    let done = Rc::new(Cell::new(false));
+    let done_clone = done.clone();
+    let loop_clone = mainloop.clone();
+    let pending = core.sync(0).expect("sync failed");
+    let mut pw_sources = Rc::new(RefCell::new(Vec::new()));
+    let pw_sources_clone = pw_sources.clone();
 
-    for device in devices {
-        if !device.has_classes("Audio/Sink") {
-            continue;
-        }
-        let Some(props) = device.properties() else {
-            continue;
-        };
-        if props.get::<bool>("is-default") == Ok(true) {
-            return Ok(vec![AudioSource::Pulse(device)]);
-        }
+    let _listener_core = core
+        .add_listener_local()
+        .done(move |id, seq| {
+            if id == pipewire::core::PW_ID_CORE && seq == pending {
+                done_clone.set(true);
+                loop_clone.quit();
+            }
+        })
+        .register();
+    let _listener_reg = registry
+        .add_listener_local()
+        .global(move |global| {
+            let props = global.props.as_ref().unwrap();
+            let Some(mut name) = props
+                .get(&pipewire::keys::NODE_DESCRIPTION)
+                .or_else(|| props.get(&pipewire::keys::NODE_NICK))
+                .or_else(|| props.get(&pipewire::keys::NODE_NAME))
+                .map(|n| n.to_string())
+            else {
+                return;
+            };
+
+            let Some(media_class) = props.get(&pipewire::keys::MEDIA_CLASS) else {
+                return;
+            };
+
+            if !media_class.contains("Audio") {
+                return;
+            }
+
+            if media_class == "Audio/Source" {
+                name.push_str(" (source)");
+            } else if media_class == "Audio/Sink" {
+                name.push_str(" (sink)");
+            }
+
+            if props
+                .get(&pipewire::keys::MEDIA_CLASS)
+                .map(|class| class.contains("Audio"))
+                != Some(true)
+            {
+                debug!("PipeWire object `{name}` is not audio class");
+                return;
+            }
+
+            pw_sources_clone.borrow_mut().push(AudioSource::Pipewire {
+                name,
+                id: global.id,
+            });
+        })
+        .register();
+
+    while !done.get() {
+        mainloop.run();
     }
 
-    bail!("No device found")
+    Ok(pw_sources.take())
 }
 
 #[derive(Debug)]
@@ -434,11 +492,7 @@ impl Application {
                     match event {
                         FetchEvent::Fetch => {
                             match get_audio_devices() {
-                                Ok(devs) => {
-                                    for dev in devs {
-                                        event_tx.send(Event::AudiosAvailable(vec![dev])).unwrap();
-                                    }
-                                }
+                                Ok(devs) => event_tx.send(Event::AudiosAvailable(devs)).unwrap(),
                                 Err(err) => error!("Failed to get default pulse device: {err}"),
                             };
                         }
@@ -685,18 +739,11 @@ impl Application {
                             return Ok(false);
                         };
                         match audio_src {
-                            AudioSource::Pulse(device) => {
-                                let pulsesink = device.create_element(None)?;
-                                let device_name = pulsesink
-                                    .property::<Option<String>>("device")
-                                    .context("No device name")?;
-
-                                let monitor_name = format!("{}.monitor", device_name);
+                            AudioSource::Pipewire { name, id } => {
                                 Some(
-                                    gst::ElementFactory::make("pulsesrc")
-                                        .property("provide-clock", false)
-                                        .property("device", format!("{}.monitor", device_name))
-                                        .build()?,
+                                    gst::ElementFactory::make("pipewiresrc")
+                                        .property("path", id.to_string())
+                                        .build()?
                                 )
                             }
                         }
