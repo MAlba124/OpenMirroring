@@ -31,12 +31,15 @@ use tokio::runtime::Runtime;
 
 use std::net::{IpAddr, SocketAddr};
 
+#[cfg(target_os = "linux")]
 use ashpd::desktop::{
     PersistMode,
     screencast::{CursorMode, Screencast, SourceType},
 };
 
+#[cfg(target_os = "linux")]
 use x11::xlib::{XFreeStringList, XGetTextProperty, XTextProperty, XmbTextPropertyToTextList};
+#[cfg(target_os = "linux")]
 use xcb::{
     Xid,
     randr::{GetCrtcInfo, GetOutputInfo, GetScreenResources},
@@ -51,10 +54,12 @@ pub type ProducerId = String;
 
 #[derive(Debug)]
 pub enum AudioSource {
+    #[cfg(target_os = "linux")]
     Pipewire { name: String, id: u32 },
 }
 
 impl AudioSource {
+    #[cfg(target_os = "linux")]
     pub fn display_name(&self) -> String {
         match self {
             AudioSource::Pipewire { name, .. } => name.clone(),
@@ -165,6 +170,7 @@ enum VideoSource {
 }
 
 impl VideoSource {
+    #[cfg(target_os = "linux")]
     pub fn display_name(&self) -> String {
         match self {
             VideoSource::PipeWire { .. } => "PipeWire Video Source".to_owned(),
@@ -174,6 +180,7 @@ impl VideoSource {
     }
 }
 
+#[cfg(target_os = "linux")]
 fn get_atom(conn: &xcb::Connection, atom_name: &str) -> Result<x::Atom, xcb::Error> {
     let cookie = conn.send_request(&x::InternAtom {
         only_if_exists: true,
@@ -182,6 +189,7 @@ fn get_atom(conn: &xcb::Connection, atom_name: &str) -> Result<x::Atom, xcb::Err
     Ok(conn.wait_for_reply(cookie)?.atom())
 }
 
+#[cfg(target_os = "linux")]
 fn get_property(
     conn: &xcb::Connection,
     win: x::Window,
@@ -200,6 +208,7 @@ fn get_property(
     conn.wait_for_reply(cookie)
 }
 
+#[cfg(target_os = "linux")]
 fn decode_compound_text(
     conn: &xcb::Connection,
     value: &[u8],
@@ -246,6 +255,7 @@ fn decode_compound_text(
     }
 }
 
+#[cfg(target_os = "linux")]
 fn get_x11_targets(conn: &xcb::Connection) -> Result<Vec<VideoSource>> {
     let setup = conn.get_setup();
     let screens = setup.roots();
@@ -694,17 +704,20 @@ impl Application {
                             return Ok(false);
                         };
                         match video_src {
+                            #[cfg(target_os = "linux")]
                             VideoSource::PipeWire { node_id, .. } => Some(
                                 gst::ElementFactory::make("pipewiresrc")
                                     .property("path", node_id.to_string())
                                     .build()?,
                             ),
+                            #[cfg(target_os = "linux")]
                             VideoSource::XWindow { id, .. } => Some(
                                 gst::ElementFactory::make("ximagesrc")
                                     .property("xid", *id as u64)
                                     .property("use-damage", false)
                                     .build()?,
                             ),
+                            #[cfg(target_os = "linux")]
                             VideoSource::XDisplay {
                                 id,
                                 width,
@@ -737,6 +750,7 @@ impl Application {
                             return Ok(false);
                         };
                         match audio_src {
+                            #[cfg(target_os = "linux")]
                             AudioSource::Pipewire { id, .. } => Some(
                                 gst::ElementFactory::make("pipewiresrc")
                                     .property("path", id.to_string())
@@ -772,15 +786,15 @@ impl Application {
                                         event_tx.send(crate::Event::PipelineIsPlaying).unwrap();
                                     }
                                     pipeline::Event::Eos => {
-                                        if !pipeline_has_finished.load(Ordering::Acquire) {
+                                        if !pipeline_has_finished.load(Ordering::Relaxed) {
                                             event_tx.send(crate::Event::PipelineFinished).unwrap();
-                                            pipeline_has_finished.store(true, Ordering::Release);
+                                            pipeline_has_finished.store(true, Ordering::Relaxed);
                                         }
                                     }
                                     pipeline::Event::Error => {
-                                        if !pipeline_has_finished.load(Ordering::Acquire) {
+                                        if !pipeline_has_finished.load(Ordering::Relaxed) {
                                             event_tx.send(crate::Event::PipelineFinished).unwrap();
-                                            pipeline_has_finished.store(true, Ordering::Release);
+                                            pipeline_has_finished.store(true, Ordering::Relaxed);
                                         }
                                     }
                                 }
