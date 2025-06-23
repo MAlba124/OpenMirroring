@@ -739,13 +739,11 @@ impl Application {
                             return Ok(false);
                         };
                         match audio_src {
-                            AudioSource::Pipewire { name, id } => {
-                                Some(
-                                    gst::ElementFactory::make("pipewiresrc")
-                                        .property("path", id.to_string())
-                                        .build()?
-                                )
-                            }
+                            AudioSource::Pipewire { name, id } => Some(
+                                gst::ElementFactory::make("pipewiresrc")
+                                    .property("path", id.to_string())
+                                    .build()?,
+                            ),
                         }
                     }
                     None => None,
