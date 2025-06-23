@@ -433,9 +433,21 @@ impl Application {
 
                     match (event, &winsys) {
                         (FetchEvent::Fetch, WindowingSystem::Wayland) => {
-                            let new_proxy = Screencast::new().await.unwrap();
-                            let new_session = new_proxy.create_session().await.unwrap();
-                            new_proxy
+                            let new_proxy = match Screencast::new().await {
+                                Ok(proxy) => proxy,
+                                Err(err) => {
+                                    error!("Failed to create Screencast proxy");
+                                    continue;
+                                }
+                            };
+                            let new_session = match new_proxy.create_session().await {
+                                Ok(session) => session,
+                                Err(err) => {
+                                    error!("Failed to create screencast session");
+                                    continue;
+                                }
+                            };
+                            if let Err(err) = new_proxy
                                 .select_sources(
                                     &new_session,
                                     CursorMode::Embedded,
@@ -445,24 +457,45 @@ impl Application {
                                     PersistMode::DoNot,
                                 )
                                 .await
-                                .unwrap();
+                            {
+                                error!("Failed to select source: {err}");
+                                continue;
+                            }
 
-                            let response = new_proxy
+                            let response = match new_proxy
                                 .start(&new_session, None)
                                 .await
-                                .unwrap()
-                                .response()
-                                .unwrap();
-                            let stream = response.streams().first().unwrap();
-                            let fd = new_proxy
-                                .open_pipe_wire_remote(&new_session)
-                                .await
-                                .unwrap()
-                                .as_raw_fd();
+                            {
+                                Ok(resp) => resp,
+                                Err(err) => {
+                                    error!("Failed to start screencast session: {err}");
+                                    continue;
+                                }
+                            };
+                            let response = match response.response() {
+                                Ok(resp) => resp,
+                                Err(err) => {
+                                    error!("Failed to get response: {err}");
+                                    continue;
+                                }
+                            };
+
+                            let Some(stream) = response.streams().first() else {
+                                error!("No screencast streams available");
+                                continue;
+                            };
+
+                            // let fd = new_proxy
+                            //     .open_pipe_wire_remote(&new_session)
+                            //     .await
+                            //     .unwrap()
+                            //     .as_raw_fd();
+
                             event_tx
                                 .send(Event::VideosAvailable(vec![VideoSource::PipeWire {
                                     node_id: stream.pipe_wire_node_id(),
-                                    fd,
+                                    // fd,
+                                    fd: 0,
                                 }]))
                                 .unwrap();
 
