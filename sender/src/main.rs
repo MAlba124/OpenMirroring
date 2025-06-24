@@ -462,10 +462,7 @@ impl Application {
                                 continue;
                             }
 
-                            let response = match new_proxy
-                                .start(&new_session, None)
-                                .await
-                            {
+                            let response = match new_proxy.start(&new_session, None).await {
                                 Ok(resp) => resp,
                                 Err(err) => {
                                     error!("Failed to start screencast session: {err}");
