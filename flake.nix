@@ -24,8 +24,7 @@
             clang
             dig
             graphviz
-            # rust-bin.stable.latest.complete
-            rust-bin.nightly.latest.complete
+            rust-bin.stable.latest.complete
             graphviz
             slint-lsp
             heaptrack

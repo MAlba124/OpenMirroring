@@ -32,6 +32,9 @@ use std::str::FromStr;
 
 pub use transmission::init;
 
+// sender  : whipsink
+// receiver: Whepsrc
+
 pub enum Event {
     PipelineIsPlaying,
     Eos,
@@ -211,6 +214,94 @@ impl Pipeline {
         gst::Element::link_many([&src, &capsfilter])?;
 
         Ok(capsfilter)
+    }
+
+    #[cfg(not(target_os = "android"))]
+    pub fn new_whep<E>(mut on_event: E, source: SourceConfig) -> Result<Self>
+    where
+        E: FnMut(Event) + Send + Clone + 'static,
+    {
+        use crate::sender::transmission::{rtsp::RtspSink, whep::WhepSink};
+
+        let pipeline = gst::Pipeline::new();
+
+        let source = match source {
+            SourceConfig::AudioVideo { video, audio } => SourceConfig::AudioVideo {
+                video: Self::setup_video_source(&pipeline, video)?,
+                audio: Self::setup_audio_source(&pipeline, audio)?,
+            },
+            SourceConfig::Video(video) => {
+                SourceConfig::Video(Self::setup_video_source(&pipeline, video)?)
+            }
+            SourceConfig::Audio(audio) => {
+                SourceConfig::Audio(Self::setup_audio_source(&pipeline, audio)?)
+            }
+        };
+
+        let whep = WhepSink::new(&pipeline, source)?;
+        let p = Self {
+            inner: pipeline.clone(),
+            tx_sink: Box::new(whep),
+        };
+
+        let _ = std::thread::spawn({
+            let bus = pipeline
+                .bus()
+                .ok_or(anyhow::anyhow!("Pipeline without bus"))?;
+            // We keep weak pipeline ref because the thread does not receive a finish signal,
+            // therefore when we can't upgrade the ref, we know to quit
+            let pipeline_weak = pipeline.downgrade();
+            move || {
+                {
+                    let Some(pipeline) = pipeline_weak.upgrade() else {
+                        debug!("Failed to upgrade pipeline before starting");
+                        return;
+                    };
+                    debug!("Starting pipeline...");
+                    if let Err(err) = pipeline.set_state(gst::State::Playing) {
+                        error!("Failed to start pipeline: {err}");
+                    } else {
+                        debug!("Pipeline started");
+                    }
+                }
+
+                for msg in bus.iter_timed(gst::ClockTime::NONE) {
+                    use gst::MessageView;
+                    match msg.view() {
+                        MessageView::Eos(..) => (on_event)(Event::Eos),
+                        MessageView::Error(err) => {
+                            error!(
+                                "Error from {:?}: {} ({:?})",
+                                err.src().map(|s| s.path_string()),
+                                err.error(),
+                                err.debug()
+                            );
+                            (on_event)(Event::Error);
+                        }
+                        MessageView::StateChanged(state_changed) => {
+                            let Some(pipeline) = pipeline_weak.upgrade() else {
+                                debug!(
+                                    "Failed to handle state change bus message because pipeline is missing"
+                                );
+                                return;
+                            };
+
+                            if state_changed.src() == Some(pipeline.upcast_ref())
+                                && state_changed.old() == gst::State::Paused
+                                && state_changed.current() == gst::State::Playing
+                            {
+                                (on_event)(Event::PipelineIsPlaying);
+                            }
+                        }
+                        _ => (),
+                    }
+                }
+
+                debug!("Bus watcher quit");
+            }
+        });
+
+        Ok(p)
     }
 
     #[cfg(not(target_os = "android"))]

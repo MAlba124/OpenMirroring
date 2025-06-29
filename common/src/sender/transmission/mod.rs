@@ -22,6 +22,7 @@ use fcast_lib::models::PlayMessage;
 #[cfg(target_os = "android")]
 pub mod rtp;
 pub mod rtsp;
+pub mod whep;
 
 fn addr_to_url_string(addr: IpAddr) -> String {
     match addr {
@@ -30,7 +31,8 @@ fn addr_to_url_string(addr: IpAddr) -> String {
     }
 }
 
-pub fn init() -> Result<(), gst::glib::BoolError> {
+pub fn init() -> anyhow::Result<()> {
+    gst_webrtc::plugin_register_static()?;
     Ok(())
 }
 

@@ -803,8 +803,10 @@ impl Application {
                         continue;
                     }
 
-                    debug!("Adding RTSP pipeline");
-                    self.pipeline = Some(pipeline::Pipeline::new_rtsp(
+                    // debug!("Adding RTSP pipeline");
+                    debug!("Adding WHEP pipeline");
+                    // self.pipeline = Some(pipeline::Pipeline::new_rtsp(
+                    self.pipeline = Some(pipeline::Pipeline::new_whep(
                         {
                             let event_tx = self.event_tx.clone();
                             let pipeline_has_finished = Arc::new(AtomicBool::new(false));
@@ -848,6 +850,8 @@ impl Application {
                         error!("Could not get stream uri");
                         return Ok(false);
                     };
+
+                    // tokio::time::sleep(Duration::from_secs(2)).await;
 
                     debug!("Sending play message: {play_msg:?}");
 

@@ -54,10 +54,10 @@ pub struct SeekMessage {
 pub struct PlaybackUpdateMessage {
     #[serde(rename = "generationTime")]
     pub generation: u64,
-    pub time: f64,
-    pub duration: f64,
+    pub time: Option<f64>,
+    pub duration: Option<f64>,
     pub state: PlaybackState,
-    pub speed: f64,
+    pub speed: Option<f64>,
 }
 
 #[derive(Deserialize, Serialize, Debug, Clone, PartialEq)]

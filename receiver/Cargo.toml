@@ -4,22 +4,22 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-tokio = { workspace = true }
-log = { workspace = true }
-env_logger = { workspace = true }
-gst = { workspace = true }
+tokio.workspace = true
+log.workspace = true
+env_logger.workspace = true
+gst.workspace = true
 fcast-lib = { path = "../fcast-lib" }
 common = { path = "../common", features = ["video"] }
 gethostname = "1.0.1"
-slint = { workspace = true }
-anyhow = { workspace = true }
-futures = { workspace = true }
-tokio-stream = { workspace = true }
+slint.workspace = true
+anyhow.workspace = true
+futures.workspace = true
+tokio-stream.workspace = true
 glow = "0.16.0"
 url = "2.5.4"
 thiserror = "2.0.12"
 clap = { version = "4.5.38", features = ["derive"] }
-mdns-sd = { workspace = true }
+mdns-sd.workspace = true
 
 [build-dependencies]
-slint-build = { workspace = true }
+slint-build.workspace = true

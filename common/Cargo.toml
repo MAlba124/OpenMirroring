@@ -16,6 +16,8 @@ gst = { workspace = true, optional = true, features = [ "v1_24" ] }
 gst-app = { workspace = true, optional = true, features = [ "v1_24" ] }
 gst-rtsp = { package = "gstreamer-rtsp", version = "0.23.5", optional = true}
 gst-rtsp-server = { package = "gstreamer-rtsp-server", version = "0.23.5", optional = true}
+gst-webrtc = { git = "https://github.com/MAlba124/gst-plugins-rs.git", rev = "9fd4a8ab5817630bc6d6d0cca2fad6478f8c0f5c", package = "gst-plugin-webrtc", features = ["whep"] }
+memchr = "2.7.5"
 
 gio = { version = "0.20.9", optional = true }
 futures = { workspace = true, optional = true }

@@ -1,3 +1,5 @@
+use anyhow::Context;
+
 use crate::models::{
     Header, Opcode, PlayMessage, PlaybackErrorMessage, PlaybackUpdateMessage, SeekMessage,
     SetSpeedMessage, SetVolumeMessage, VersionMessage, VolumeUpdateMessage,
@@ -67,20 +69,20 @@ impl From<PlayMessage> for Packet {
 }
 
 impl Packet {
-    pub fn decode(header: Header, body: &str) -> Result<Self, serde_json::Error> {
+    pub fn decode(header: Header, body: &str) -> anyhow::Result<Self> {
         Ok(match header.opcode {
             Opcode::None => Self::None,
-            Opcode::Play => Self::Play(serde_json::from_str(body)?),
+            Opcode::Play => Self::Play(serde_json::from_str(body).context("Play")?),
             Opcode::Pause => Self::Pause,
             Opcode::Resume => Self::Resume,
             Opcode::Stop => Self::Stop,
             Opcode::Seek => Self::Seek(serde_json::from_str(body)?),
-            Opcode::PlaybackUpdate => Self::PlaybackUpdate(serde_json::from_str(body)?),
-            Opcode::VolumeUpdate => Self::VolumeUpdate(serde_json::from_str(body)?),
-            Opcode::SetVolume => Self::SetVolume(serde_json::from_str(body)?),
-            Opcode::PlaybackError => Self::PlaybackError(serde_json::from_str(body)?),
-            Opcode::SetSpeed => Self::SetSpeed(serde_json::from_str(body)?),
-            Opcode::Version => Self::Version(serde_json::from_str(body)?),
+            Opcode::PlaybackUpdate => Self::PlaybackUpdate(serde_json::from_str(body).context("PlaybackUpdate")?),
+            Opcode::VolumeUpdate => Self::VolumeUpdate(serde_json::from_str(body).context("VolumeUpdate")?),
+            Opcode::SetVolume => Self::SetVolume(serde_json::from_str(body).context("SetVolume")?),
+            Opcode::PlaybackError => Self::PlaybackError(serde_json::from_str(body).context("PlaybackError")?),
+            Opcode::SetSpeed => Self::SetSpeed(serde_json::from_str(body).context("SetSpeed")?),
+            Opcode::Version => Self::Version(serde_json::from_str(body).context("Version")?),
             Opcode::Ping => Self::Ping,
             Opcode::Pong => Self::Pong,
         })
