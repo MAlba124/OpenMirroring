@@ -28,9 +28,26 @@ endif
 
 GSTREAMER_NDK_BUILD_PATH  := $(GSTREAMER_ROOT)/share/gst-android/ndk-build/
 include $(GSTREAMER_NDK_BUILD_PATH)/plugins.mk
+
 # TODO: libgstreamer_android.so is very large with this configuration (~180MiB), so in the future, only include required plugins
 # GSTREAMER_PLUGINS         := $(GSTREAMER_PLUGINS_CORE) $(GSTREAMER_PLUGINS_NET) $(GSTREAMER_PLUGINS_CODECS) $(GSTREAMER_PLUGINS_CODECS_RESTRICTED)
-GSTREAMER_PLUGINS         := coreelements x264 hlssink3 rtp udp videoconvertscale
-GSTREAMER_EXTRA_DEPS      := gstreamer-app-1.0 gstreamer-video-1.0 gstreamer-rtp-1.0
+# GSTREAMER_PLUGINS         := coreelements x264 hlssink3 rtp udp videoconvertscale webrtc rswebrtc nice
+# GSTREAMER_EXTRA_DEPS      := gstreamer-app-1.0 gstreamer-video-1.0 gstreamer-rtp-1.0 gstreamer-webrtc-1.0
+
+
+# GSTREAMER_PLUGINS_CORE_CUSTOM := coreelements app audioconvert audiorate audioresample videorate videoconvertscale autodetect
+GSTREAMER_PLUGINS_CORE_CUSTOM := coreelements app audioconvert audiorate audioresample videorate videoconvertscale videofilter
+# GSTREAMER_PLUGINS_CODECS_CUSTOM := videoparsersbad vpx opus audioparsers opusparse androidmedia
+# GSTREAMER_PLUGINS_CODECS_CUSTOM := vpx opus audioparsers opusparse
+#                              $(GSTREAMER_PLUGINS_ENCODING)
+GSTREAMER_PLUGINS_CODECS_CUSTOM := vpx opus
+#                             $(GSTREAMER_PLUGINS_SYS)
+# GSTREAMER_PLUGINS_NET_CUSTOM := tcp rtsp rtp rtpmanager udp srtp webrtc dtls nice rswebrtc rsrtp
+GSTREAMER_PLUGINS_NET_CUSTOM := tcp rtsp rtpmanager udp srtp dtls nice
+GSTREAMER_PLUGINS         := $(GSTREAMER_PLUGINS_CORE_CUSTOM) $(GSTREAMER_PLUGINS_CODECS_CUSTOM) $(GSTREAMER_PLUGINS_NET_CUSTOM) \
+
+GSTREAMER_EXTRA_DEPS      := gstreamer-video-1.0 glib-2.0 gstreamer-app-1.0 gstreamer-base-1.0 gstreamer-webrtc-1.0
+
+G_IO_MODULES = openssl
 
 include $(GSTREAMER_NDK_BUILD_PATH)/gstreamer-1.0.mk

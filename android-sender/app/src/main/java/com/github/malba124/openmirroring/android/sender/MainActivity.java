@@ -30,8 +30,6 @@ public class MainActivity extends NativeActivity {
             finish();
             return;
         }
-
-        Log.d("MAIN_ACTIVITY", "Hello from java");
     }
 
     // Called from native code

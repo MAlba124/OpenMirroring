@@ -31,7 +31,9 @@ impl TransmissionSink for WhepSink {
     fn get_play_msg(&self, addr: std::net::IpAddr) -> Option<fcast_lib::models::PlayMessage> {
         Some(fcast_lib::models::PlayMessage {
             container: "application/x-whep".to_owned(),
-            url: Some(format!("http://127.0.0.1:9090/whep/endpoint",)),
+            // url: Some(format!("http://127.0.0.1:9090/whep/endpoint",)),
+            // url: Some(format!("http://192.168.1.9:9090/whep/endpoint",)),
+            url: Some(format!("http://[::ffff:192.168.1.9]:9090/whep/endpoint",)),
             content: None,
             time: None,
             speed: None,

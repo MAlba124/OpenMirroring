@@ -1,4 +1,5 @@
-RTARGET = x86_64-linux-android
+# RTARGET = x86_64-linux-android
+RTARGET = aarch64-linux-android
 OUT = app/src/main/jniLibs
 MAIN_UI = ui/main.slint
 

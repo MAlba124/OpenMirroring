@@ -18,8 +18,9 @@
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::rc::Rc;
 
-use common::sender::pipeline;
+use common::sender::pipeline::{self, SourceConfig};
 use common::sender::session::{self, SessionMessage};
+use gst::glib::object::Cast;
 use gst_video::VideoFrameExt;
 use jni::JavaVM;
 use jni::objects::JObject;
@@ -164,32 +165,33 @@ impl Application {
     }
 
     pub async fn run_event_loop(mut self) -> Result<()> {
-        let mut pipeline = pipeline::Pipeline::new(FRAME_CHAN.1.clone(), async move |event| {
-            match event {
-                pipeline::Event::PipelineIsPlaying => {
-                    tx!().send(Event::PipelineIsPlaying).await.unwrap();
-                }
-                pipeline::Event::Eos => (),   // TODO
-                pipeline::Event::Error => (), // TODO
-            }
-        })
-        .await?;
+        let mut pipeline = None;
+        // let mut pipeline = pipeline::Pipeline::new(FRAME_CHAN.1.clone(), async move |event| {
+        //     match event {
+        //         pipeline::Event::PipelineIsPlaying => {
+        //             tx!().send(Event::PipelineIsPlaying).await.unwrap();
+        //         }
+        //         pipeline::Event::Eos => (),   // TODO
+        //         pipeline::Event::Error => (), // TODO
+        //     }
+        // })
+        // .await?;
 
         // NOTE: used for testing in an emulator
-        tx!()
-            .send(crate::Event::ReceiverAvailable {
-                name: "OpenMirroring-test".to_owned(),
-                addr: std::net::SocketAddr::V4(std::net::SocketAddrV4::new(
-                    std::net::Ipv4Addr::new(10, 0, 2, 2),
-                    46899,
-                )),
-            })
-            .await
-            .unwrap();
+        // tx!()
+        //     .send(crate::Event::ReceiverAvailable {
+        //         name: "OpenMirroring-test".to_owned(),
+        //         addr: std::net::SocketAddr::V4(std::net::SocketAddrV4::new(
+        //             std::net::Ipv4Addr::new(10, 0, 2, 2),
+        //             46899,
+        //         )),
+        //     })
+        //     .await
+        //     .unwrap();
 
         // TODO: fix these when running on hardware
-        pipeline.add_rtp_sink(5004, IpAddr::V4(Ipv4Addr::new(10, 0, 2, 2)))?;
-        pipeline.start()?;
+        // pipeline.add_rtp_sink(5004, IpAddr::V4(Ipv4Addr::new(10, 0, 2, 2)))?;
+        // pipeline.start()?;
 
         while let Ok(event) = rx!().recv().await {
             match event {
@@ -249,7 +251,7 @@ impl Application {
                     self.update_receivers_in_ui()?;
                 }
                 Event::SessionTerminated => break,
-                Event::PipelineIsPlaying => pipeline.playing()?,
+                Event::PipelineIsPlaying => (), // pipeline.playing()?,
                 Event::SelectReceiver(receiver) => {
                     if let Some(idx) = self.receivers_contains(&receiver) {
                         self.receivers[idx].0.state = ReceiverState::Connecting;
@@ -281,15 +283,79 @@ impl Application {
                     })?;
                 }
                 Event::StartCast => {
-                    let Some(play_msg) =
-                        pipeline.get_play_msg(std::net::IpAddr::V4(Ipv4Addr::LOCALHOST))
-                    else {
-                        error!("Pipeline could not provide play message");
-                        // TODO: tell UI
-                        continue;
-                    };
+                    let newp = common::sender::pipeline::Pipeline::new_whep(
+                            move |event| {},
+                            SourceConfig::Video({
+                                let appsrc = gst_app::AppSrc::builder()
+                                    .caps(
+                                        &gst_video::VideoCapsBuilder::new()
+                                            .format(gst_video::VideoFormat::Rgba)
+                                            .build(),
+                                    )
+                                    .is_live(true)
+                                    .do_timestamp(true)
+                                    .format(gst::Format::Time)
+                                    .max_buffers(1)
+                                    .build();
+
+                                let mut caps = None::<gst::Caps>;
+                                appsrc.set_callbacks(
+                                    gst_app::AppSrcCallbacks::builder()
+                                        .need_data(move |appsrc, _| {
+                                            let frame = match crate::FRAME_CHAN.1.recv() {
+                                                Ok(frame) => frame,
+                                                Err(err) => {
+                                                    error!("Failed to receive frame: {err}");
+                                                    let _ = appsrc.end_of_stream();
+                                                    return;
+                                                }
+                                            };
+
+                                            use gst_video::prelude::*;
+
+                                            let now_caps = gst_video::VideoInfo::builder(
+                                                frame.format(),
+                                                frame.width(),
+                                                frame.height(),
+                                            )
+                                            .build()
+                                            .unwrap()
+                                            .to_caps()
+                                            .unwrap();
+
+                                            match &caps {
+                                                Some(old_caps) => {
+                                                    if *old_caps != now_caps {
+                                                        appsrc.set_caps(Some(&now_caps));
+                                                        caps = Some(now_caps);
+                                                    }
+                                                }
+                                                None => {
+                                                    appsrc.set_caps(Some(&now_caps));
+                                                    caps = Some(now_caps);
+                                                }
+                                            }
+
+                                            let _ = appsrc.push_buffer(frame.into_buffer());
+                                        })
+                                        .build(),
+                                );
+                                appsrc.upcast()
+                            }),
+                        )?;
+                    // let Some(play_msg) =
+                    //     pipeline.get_play_msg(std::net::IpAddr::V4(Ipv4Addr::LOCALHOST))
+                    // else {
+                    //     error!("Pipeline could not provide play message");
+                    //     // TODO: tell UI
+                    //     continue;
+                    // };
+
+                    let play_msg = newp.get_play_msg(std::net::IpAddr::V4(Ipv4Addr::LOCALHOST)).unwrap();
 
                     self.session_tx.send(SessionMessage::Play(play_msg)).await?;
+
+                    pipeline = Some(newp);
 
                     self.ui_weak.upgrade_in_event_loop(|ui| {
                         ui.invoke_cast_started();
@@ -318,8 +384,6 @@ fn android_main(app: slint::android::AndroidApp) {
     android_logger::init_once(
         android_logger::Config::default().with_max_level(common::default_log_level()),
     );
-
-    debug!("Hello from rust");
 
     #[cfg(debug_assertions)]
     unsafe {

@@ -63,7 +63,8 @@
                 export PKG_CONFIG_ALLOW_CROSS=1
 
                 # Add more when targeting other archs
-                export PKG_CONFIG_PATH="$PKG_CONFIG_PATH:$GSTREAMER_ROOT_ANDROID/x86_64/lib/pkgconfig"
+                # export PKG_CONFIG_PATH="$PKG_CONFIG_PATH:$GSTREAMER_ROOT_ANDROID/x86_64/lib/pkgconfig"
+                export PKG_CONFIG_PATH="$PKG_CONFIG_PATH:$GSTREAMER_ROOT_ANDROID/arm64/lib/pkgconfig"
             '';
 
             inherit buildInputs nativeBuildInputs;

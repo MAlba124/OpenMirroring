@@ -15,8 +15,6 @@
 // You should have received a copy of the GNU General Public License
 // along with OpenMirroring.  If not, see <https://www.gnu.org/licenses/>.
 
-#[cfg(target_os = "android")]
-use super::transmission::rtp::RtpSink;
 use super::transmission::{self, TransmissionSink};
 use anyhow::Result;
 use fcast_lib::models::PlayMessage;
@@ -29,6 +27,7 @@ use log::error;
 use std::future::Future;
 use std::net::IpAddr;
 use std::str::FromStr;
+use crate::sender::transmission::whep::WhepSink;
 
 pub use transmission::init;
 
@@ -50,136 +49,128 @@ pub enum SourceConfig {
     Audio(gst::Element),
 }
 
-#[cfg(not(target_os = "android"))]
 pub struct Pipeline {
     inner: gst::Pipeline,
     tx_sink: Box<dyn TransmissionSink>,
 }
 
-#[cfg(target_os = "android")]
-pub struct Pipeline {
-    inner: gst::Pipeline,
-    appsrc: gst::Element,
-    tx_sink: Option<Box<dyn TransmissionSink>>,
-}
-
 impl Pipeline {
-    #[cfg(target_os = "android")]
-    pub async fn new<E, Fut>(
-        frame_rx: crossbeam_channel::Receiver<
-            gst_video::VideoFrame<gst_video::video_frame::Writable>,
-        >,
-        mut on_event: E,
-    ) -> Result<Self>
-    where
-        E: FnMut(Event) -> Fut + Send + Clone + 'static,
-        Fut: Future<Output = ()> + Send + 'static,
-    {
-        let appsrc = gst_app::AppSrc::builder()
-            .caps(
-                &gst_video::VideoCapsBuilder::new()
-                    .format(gst_video::VideoFormat::Rgba)
-                    .build(),
-            )
-            .is_live(true)
-            .do_timestamp(true)
-            .format(gst::Format::Time)
-            .max_buffers(1)
-            .build();
+    // #[cfg(target_os = "android")]
+    // pub async fn new<E, Fut>(
+    //     frame_rx: crossbeam_channel::Receiver<
+    //         gst_video::VideoFrame<gst_video::video_frame::Writable>,
+    //     >,
+    //     mut on_event: E,
+    // ) -> Result<Self>
+    // where
+    //     E: FnMut(Event) -> Fut + Send + Clone + 'static,
+    //     Fut: Future<Output = ()> + Send + 'static,
+    // {
+    //     let appsrc = gst_app::AppSrc::builder()
+    //         .caps(
+    //             &gst_video::VideoCapsBuilder::new()
+    //                 .format(gst_video::VideoFormat::Rgba)
+    //                 .build(),
+    //         )
+    //         .is_live(true)
+    //         .do_timestamp(true)
+    //         .format(gst::Format::Time)
+    //         .max_buffers(1)
+    //         .build();
 
-        let mut caps = None::<gst::Caps>;
-        appsrc.set_callbacks(
-            gst_app::AppSrcCallbacks::builder()
-                .need_data(move |appsrc, _| {
-                    // let frame = match crate::FRAME_CHAN.1.recv() {
-                    let frame = match frame_rx.recv() {
-                        Ok(frame) => frame,
-                        Err(err) => {
-                            error!("Failed to receive frame: {err}");
-                            let _ = appsrc.end_of_stream();
-                            return;
-                        }
-                    };
+    //     let mut caps = None::<gst::Caps>;
+    //     appsrc.set_callbacks(
+    //         gst_app::AppSrcCallbacks::builder()
+    //             .need_data(move |appsrc, _| {
+    //                 // let frame = match crate::FRAME_CHAN.1.recv() {
+    //                 let frame = match frame_rx.recv() {
+    //                     Ok(frame) => frame,
+    //                     Err(err) => {
+    //                         error!("Failed to receive frame: {err}");
+    //                         let _ = appsrc.end_of_stream();
+    //                         return;
+    //                     }
+    //                 };
 
-                    use gst_video::prelude::*;
+    //                 use gst_video::prelude::*;
 
-                    let now_caps = gst_video::VideoInfo::builder(
-                        frame.format(),
-                        frame.width(),
-                        frame.height(),
-                    )
-                    .build()
-                    .unwrap()
-                    .to_caps()
-                    .unwrap();
+    //                 let now_caps = gst_video::VideoInfo::builder(
+    //                     frame.format(),
+    //                     frame.width(),
+    //                     frame.height(),
+    //                 )
+    //                 .build()
+    //                 .unwrap()
+    //                 .to_caps()
+    //                 .unwrap();
 
-                    match &caps {
-                        Some(old_caps) => {
-                            if *old_caps != now_caps {
-                                appsrc.set_caps(Some(&now_caps));
-                                caps = Some(now_caps);
-                            }
-                        }
-                        None => {
-                            appsrc.set_caps(Some(&now_caps));
-                            caps = Some(now_caps);
-                        }
-                    }
+    //                 match &caps {
+    //                     Some(old_caps) => {
+    //                         if *old_caps != now_caps {
+    //                             appsrc.set_caps(Some(&now_caps));
+    //                             caps = Some(now_caps);
+    //                         }
+    //                     }
+    //                     None => {
+    //                         appsrc.set_caps(Some(&now_caps));
+    //                         caps = Some(now_caps);
+    //                     }
+    //                 }
 
-                    let _ = appsrc.push_buffer(frame.into_buffer());
-                })
-                .build(),
-        );
+    //                 let _ = appsrc.push_buffer(frame.into_buffer());
+    //             })
+    //             .build(),
+    //     );
 
-        let pipeline = gst::Pipeline::new();
+    //     let pipeline = gst::Pipeline::new();
 
-        pipeline.add_many(&[&appsrc])?;
+    //     pipeline.add_many(&[&appsrc])?;
 
-        let bus = pipeline
-            .bus()
-            .ok_or(anyhow::anyhow!("Pipeline is missing bus"))?;
+    //     let bus = pipeline
+    //         .bus()
+    //         .ok_or(anyhow::anyhow!("Pipeline is missing bus"))?;
 
-        let pipeline_weak = pipeline.downgrade();
-        tokio::spawn(async move {
-            let mut messages = bus.stream();
+    //     let pipeline_weak = pipeline.downgrade();
+    //     tokio::spawn(async move {
+    //         let mut messages = bus.stream();
 
-            while let Some(msg) = messages.next().await {
-                use gst::MessageView;
+    //         while let Some(msg) = messages.next().await {
+    //             use gst::MessageView;
 
-                match msg.view() {
-                    MessageView::Eos(..) => (on_event)(Event::Eos).await,
-                    MessageView::Error(err) => {
-                        error!(
-                            "Error from {:?}: {} ({:?})",
-                            err.src().map(|s| s.path_string()),
-                            err.error(),
-                            err.debug()
-                        );
-                        (on_event)(Event::Error).await;
-                    }
-                    MessageView::StateChanged(state_changed) => {
-                        let Some(pipeline) = pipeline_weak.upgrade() else {
-                            return;
-                        };
+    //             match msg.view() {
+    //                 MessageView::Eos(..) => (on_event)(Event::Eos).await,
+    //                 MessageView::Error(err) => {
+    //                     error!(
+    //                         "Error from {:?}: {} ({:?})",
+    //                         err.src().map(|s| s.path_string()),
+    //                         err.error(),
+    //                         err.debug()
+    //                     );
+    //                     (on_event)(Event::Error).await;
+    //                 }
+    //                 MessageView::StateChanged(state_changed) => {
+    //                     let Some(pipeline) = pipeline_weak.upgrade() else {
+    //                         return;
+    //                     };
 
-                        if state_changed.src() == Some(pipeline.upcast_ref())
-                            && state_changed.old() == gst::State::Paused
-                            && state_changed.current() == gst::State::Playing
-                        {
-                            (on_event)(Event::PipelineIsPlaying).await;
-                        }
-                    }
-                    _ => (),
-                }
-            }
-        });
+    //                     if state_changed.src() == Some(pipeline.upcast_ref())
+    //                         && state_changed.old() == gst::State::Paused
+    //                         && state_changed.current() == gst::State::Playing
+    //                     {
+    //                         (on_event)(Event::PipelineIsPlaying).await;
+    //                     }
+    //                 }
+    //                 _ => (),
+    //             }
+    //         }
+    //     });
 
-        Ok(Self {
-            inner: pipeline,
-            tx_sink: None,
-            appsrc: appsrc.upcast(),
-        })
-    }
+    //     Ok(Self {
+    //         inner: pipeline,
+    //         tx_sink: None,
+    //         appsrc: appsrc.upcast(),
+    //     })
+    // }
 
     fn setup_video_source(pipeline: &gst::Pipeline, src: gst::Element) -> Result<gst::Element> {
         // TODO: needed?
@@ -216,13 +207,10 @@ impl Pipeline {
         Ok(capsfilter)
     }
 
-    #[cfg(not(target_os = "android"))]
     pub fn new_whep<E>(mut on_event: E, source: SourceConfig) -> Result<Self>
     where
         E: FnMut(Event) + Send + Clone + 'static,
     {
-        use crate::sender::transmission::{rtsp::RtspSink, whep::WhepSink};
-
         let pipeline = gst::Pipeline::new();
 
         let source = match source {
@@ -254,95 +242,7 @@ impl Pipeline {
             move || {
                 {
                     let Some(pipeline) = pipeline_weak.upgrade() else {
-                        debug!("Failed to upgrade pipeline before starting");
-                        return;
-                    };
-                    debug!("Starting pipeline...");
-                    if let Err(err) = pipeline.set_state(gst::State::Playing) {
-                        error!("Failed to start pipeline: {err}");
-                    } else {
-                        debug!("Pipeline started");
-                    }
-                }
-
-                for msg in bus.iter_timed(gst::ClockTime::NONE) {
-                    use gst::MessageView;
-                    match msg.view() {
-                        MessageView::Eos(..) => (on_event)(Event::Eos),
-                        MessageView::Error(err) => {
-                            error!(
-                                "Error from {:?}: {} ({:?})",
-                                err.src().map(|s| s.path_string()),
-                                err.error(),
-                                err.debug()
-                            );
-                            (on_event)(Event::Error);
-                        }
-                        MessageView::StateChanged(state_changed) => {
-                            let Some(pipeline) = pipeline_weak.upgrade() else {
-                                debug!(
-                                    "Failed to handle state change bus message because pipeline is missing"
-                                );
-                                return;
-                            };
-
-                            if state_changed.src() == Some(pipeline.upcast_ref())
-                                && state_changed.old() == gst::State::Paused
-                                && state_changed.current() == gst::State::Playing
-                            {
-                                (on_event)(Event::PipelineIsPlaying);
-                            }
-                        }
-                        _ => (),
-                    }
-                }
-
-                debug!("Bus watcher quit");
-            }
-        });
-
-        Ok(p)
-    }
-
-    #[cfg(not(target_os = "android"))]
-    pub fn new_rtsp<E>(mut on_event: E, source: SourceConfig) -> Result<Self>
-    where
-        E: FnMut(Event) + Send + Clone + 'static,
-    {
-        use crate::sender::transmission::rtsp::RtspSink;
-
-        let pipeline = gst::Pipeline::new();
-
-        let source = match source {
-            SourceConfig::AudioVideo { video, audio } => SourceConfig::AudioVideo {
-                video: Self::setup_video_source(&pipeline, video)?,
-                audio: Self::setup_audio_source(&pipeline, audio)?,
-            },
-            SourceConfig::Video(video) => {
-                SourceConfig::Video(Self::setup_video_source(&pipeline, video)?)
-            }
-            SourceConfig::Audio(audio) => {
-                SourceConfig::Audio(Self::setup_audio_source(&pipeline, audio)?)
-            }
-        };
-
-        let rtsp = RtspSink::new(&pipeline, source, 3000)?;
-        let p = Self {
-            inner: pipeline.clone(),
-            tx_sink: Box::new(rtsp),
-        };
-
-        let _ = std::thread::spawn({
-            let bus = pipeline
-                .bus()
-                .ok_or(anyhow::anyhow!("Pipeline without bus"))?;
-            // We keep weak pipeline ref because the thread does not receive a finish signal,
-            // therefore when we can't upgrade the ref, we know to quit
-            let pipeline_weak = pipeline.downgrade();
-            move || {
-                {
-                    let Some(pipeline) = pipeline_weak.upgrade() else {
-                        debug!("Failed to upgrade pipeline before starting");
+                        error!("Failed to upgrade pipeline before starting");
                         return;
                     };
                     debug!("Starting pipeline...");
@@ -396,50 +296,9 @@ impl Pipeline {
         self.tx_sink.playing()
     }
 
-    #[cfg(target_os = "android")]
-    pub fn start(&self) -> Result<()> {
-        use anyhow::bail;
-
-        if let Err(err) = self.inner.set_state(gst::State::Playing) {
-            bail!("{err}")
-        } else {
-            Ok(())
-        }
-    }
-
-    #[cfg(not(target_os = "android"))]
     pub fn shutdown(&mut self) -> Result<()> {
         self.inner.set_state(gst::State::Null)?;
         self.tx_sink.shutdown();
-
-        Ok(())
-    }
-
-    #[cfg(target_os = "android")]
-    pub fn add_hls_sink(&mut self) -> Result<()> {
-        let appsrc_pad = self
-            .appsrc
-            .static_pad("src")
-            .ok_or(anyhow::anyhow!("appsrc is missing src pad"))?;
-        self.tx_sink = Some(Box::new(HlsSink::new(&self.inner, appsrc_pad, 5004)?));
-
-        self.inner.set_state(gst::State::Playing)?; // NOTE: beware this is here
-
-        log::debug!("Added HLS sink");
-
-        Ok(())
-    }
-
-    #[cfg(target_os = "android")]
-    pub fn add_rtp_sink(&mut self, port: u16, receiver_addr: IpAddr) -> Result<()> {
-        let appsrc_pad = self
-            .appsrc
-            .static_pad("src")
-            .ok_or(anyhow::anyhow!("appsrc is missing src pad"))?;
-        let rtp = RtpSink::new(&self.inner, appsrc_pad, port, receiver_addr)?;
-        self.tx_sink = Some(Box::new(rtp));
-
-        debug!("Added RTP sink");
 
         Ok(())
     }

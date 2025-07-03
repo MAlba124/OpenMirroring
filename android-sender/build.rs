@@ -54,13 +54,21 @@ fn main() {
 
     // env::set_current_dir("../android-sender").unwrap();
 
+    // println!(
+    //     "cargo:rustc-link-search=native={}/x86_64",
+    //     gst_android_build_path
+    // );
     println!(
-        "cargo:rustc-link-search=native={}/x86_64",
+        "cargo:rustc-link-search=native={}/arm64-v8a",
         gst_android_build_path
     );
     println!("cargo:rustc-link-search=native={}", gst_libs);
+    // println!(
+    //     "cargo:rustc-link-search=native={}/app/libs/x86_64",
+    //     proj_root.display()
+    // );
     println!(
-        "cargo:rustc-link-search=native={}/app/libs/x86_64",
+        "cargo:rustc-link-search=native={}/app/libs/arm64-v8a",
         proj_root.display()
     );
 
@@ -77,16 +85,23 @@ fn main() {
     cargo_link!("gstaudio-1.0");
     cargo_link!("gstapp-1.0");
     cargo_link!("gstrtp-1.0");
+    cargo_link!("gstwebrtc-1.0");
+    cargo_link!("gstpbutils-1.0");
+    cargo_link!("orc-0.4");
 
     const DEFAULT_CLANG_VERSION: &str = "20";
     let clang_version =
         env::var("NDK_CLANG_VERSION").unwrap_or_else(|_| DEFAULT_CLANG_VERSION.to_owned());
     let linux_x86_64_lib_dir = format!(
+    // let linux_arm64_lib_dir = format!(
         "toolchains/llvm/prebuilt/{}-x86_64/lib/clang/{clang_version}/lib/linux/",
+        // "toolchains/llvm/prebuilt/{}-arm64/lib/clang/{clang_version}/lib/linux/",
         env::consts::OS
     );
     println!("cargo:rustc-link-search={android_ndk_home}/{linux_x86_64_lib_dir}");
-    cargo_link!("clang_rt.builtins-x86_64-android");
+    // println!("cargo:rustc-link-search={android_ndk_home}/{linux_arm64_lib_dir}");
+    // cargo_link!("clang_rt.builtins-x86_64-android");
+    cargo_link!("clang_rt.builtins-aarch64-android");
 
     println!("cargo:rerun-if-changed=build.rs");
     println!("cargo:rerun-if-changed=jni/Android.mk");

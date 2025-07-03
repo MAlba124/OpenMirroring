@@ -19,8 +19,6 @@ use std::net::IpAddr;
 
 use fcast_lib::models::PlayMessage;
 
-#[cfg(target_os = "android")]
-pub mod rtp;
 pub mod rtsp;
 pub mod whep;
 
