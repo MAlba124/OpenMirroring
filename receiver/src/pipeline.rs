@@ -15,7 +15,7 @@
 // You should have received a copy of the GNU General Public License
 // along with OpenMirroring.  If not, see <https://www.gnu.org/licenses/>.
 
-use fcast_lib::models::{PlaybackState, PlaybackUpdateMessage};
+use fcast_lib::models::PlaybackState;
 use futures::StreamExt;
 use gst::prelude::*;
 
@@ -32,6 +32,13 @@ pub enum SetPlaybackUriError {
     InvalidUri,
     #[error("{0}")]
     PipelineStateChange(gst::StateChangeError),
+}
+
+pub struct PipelinePlaybackState {
+    pub time: f64,
+    pub duration: f64,
+    pub state: PlaybackState,
+    pub speed: f64,
 }
 
 pub struct Pipeline {
@@ -110,7 +117,7 @@ impl Pipeline {
         self.inner.query_duration()
     }
 
-    pub fn get_playback_state(&self) -> Result<PlaybackUpdateMessage> {
+    pub fn get_playback_state(&self) -> Result<PipelinePlaybackState> {
         let position: Option<gst::ClockTime> = self.inner.query_position();
         let duration = self.get_duration();
 
@@ -147,19 +154,11 @@ impl Pipeline {
             }
         };
 
-        fn current_time_millis() -> u64 {
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
-                .as_millis() as u64
-        }
-
-        Ok(PlaybackUpdateMessage {
+        Ok(PipelinePlaybackState {
             time: position.unwrap_or_default().seconds_f64(),
             duration: duration.unwrap_or_default().seconds_f64(),
             state,
             speed,
-            generation: current_time_millis(),
         })
     }
 

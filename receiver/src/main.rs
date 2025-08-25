@@ -19,7 +19,7 @@ use anyhow::{Result, bail};
 use clap::Parser;
 use common::runtime;
 use common::video::opengl::SlintOpenGLSink;
-use fcast_lib::models::SetVolumeMessage;
+use fcast_lib::models::{PlaybackUpdateMessage, SetVolumeMessage};
 use fcast_lib::packet::Packet;
 use log::{debug, error, warn};
 use receiver::Event;
@@ -97,7 +97,7 @@ impl Application {
     }
 
     fn notify_updates(&self) -> Result<()> {
-        let update = match self.pipeline.get_playback_state() {
+        let pipeline_playback_state = match self.pipeline.get_playback_state() {
             Ok(s) => s,
             Err(err) => {
                 error!("Failed to get playback state: {err}");
@@ -106,6 +106,7 @@ impl Application {
         };
 
         let progress_str = {
+            let update = &pipeline_playback_state;
             let time_secs = update.time % 60.0;
             let time_mins = (update.time / 60.0) % 60.0;
             let time_hours = update.time / 60.0 / 60.0;
@@ -124,11 +125,12 @@ impl Application {
                 duration_secs as u32,
             )
         };
-        let progress_percent = (update.time / update.duration * 100.0) as f32;
+        let progress_percent =
+            (pipeline_playback_state.time / pipeline_playback_state.duration * 100.0) as f32;
         let playback_state = {
             let is_live = self.pipeline.is_live();
             use fcast_lib::models::PlaybackState;
-            match update.state {
+            match pipeline_playback_state.state {
                 PlaybackState::Playing | PlaybackState::Paused if is_live => GuiPlaybackState::Live,
                 PlaybackState::Playing => GuiPlaybackState::Playing,
                 PlaybackState::Paused => GuiPlaybackState::Paused,
@@ -142,7 +144,21 @@ impl Application {
             ui.set_playback_state(playback_state);
         })?;
 
+        fn current_time_millis() -> u64 {
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_millis() as u64
+        }
+
         if self.updates_tx.receiver_count() > 0 {
+            let update = PlaybackUpdateMessage {
+                generation: current_time_millis(),
+                time: Some(pipeline_playback_state.time),
+                duration: Some(pipeline_playback_state.duration),
+                state: pipeline_playback_state.state,
+                speed: Some(pipeline_playback_state.speed),
+            };
             debug!("Sending update ({update:?})");
             self.updates_tx
                 .send(Arc::new(Packet::from(update).encode()))?;
