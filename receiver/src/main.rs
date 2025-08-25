@@ -226,7 +226,10 @@ impl Application {
                 self.pipeline.set_speed(set_speed_message.speed)?
             }
             Event::Seek(seek_message) => {
-                self.pipeline.seek(seek_message.time)?;
+                if let Err(err) = self.pipeline.seek(seek_message.time) {
+                    error!("Seek error: {err}");
+                    return Ok(false);
+                }
                 self.notify_updates()?;
             }
             Event::SeekPercent(percent) => {
@@ -239,7 +242,10 @@ impl Application {
                     return Ok(false);
                 }
                 let seek_to = duration.seconds_f64() * (percent as f64 / 100.0);
-                self.pipeline.seek(seek_to)?;
+                if let Err(err) = self.pipeline.seek(seek_to) {
+                    error!("Seek error: {err}");
+                    return Ok(false);
+                }
                 self.notify_updates()?;
             }
             Event::SetVolume(set_volume_message) => {
