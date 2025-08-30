@@ -19,6 +19,59 @@ import { Spinner, HorizontalBox, Button, Palette, VerticalBox } from "std-widget
 import { HorizontalRule } from "../../ui-common/horizontal-rule.slint";
 import { SliderBase } from "slider-base.slint";
 
+export enum GuiPlaybackState {
+    Idle,
+    Playing,
+    Paused,
+    Loading,
+    Live,
+}
+
+export global Bridge {
+    in property <string> label;
+    in property <string> progress-label;
+    in property <GuiPlaybackState> playback-state: GuiPlaybackState.Idle;
+    in property <int> connected_devices: 0;
+
+    in-out property <bool> playing: false;
+    in-out property <float> volume: 1.0;
+
+    // out property <bool> is-debugging: false;
+    out property <bool> is-debugging: true;
+
+    callback resume-or-pause();
+    callback seek-to-percent(float);
+    callback toggle-fullscreen();
+    callback set-volume(float);
+    callback force-quit();
+    callback debug-toggled();
+
+    public pure function gui-playback-state-to-string(pbstate: GuiPlaybackState) -> string {
+        if (pbstate == GuiPlaybackState.Idle) {
+            return "Idle";
+        }
+        if (pbstate == GuiPlaybackState.Playing) {
+            return "Playing";
+        }
+        if (pbstate == GuiPlaybackState.Paused) {
+            return "Paused";
+        }
+        if (pbstate == GuiPlaybackState.Loading) {
+            return "Loading";
+        }
+        if (pbstate == GuiPlaybackState.Live) {
+            return "Live";
+        }
+
+        return "Invalid";
+    }
+
+    public function toggle-debug-mode() {
+        is-debugging = !is-debugging;
+        debug-toggled();
+    }
+}
+
 // TODO: animate in and out transitions
 component ErrorAlert {
     in property <string> message;
@@ -180,42 +233,30 @@ component OmSlider {
     }
 }
 
-export enum GuiPlaybackState {
-    Playing,
-    Paused,
-    Loading,
-    Live,
-}
-
 component PlaybackControl {
-    visible: false;
-
     // TODO: speed changer
 
     in property <string> progress-label;
 
     in-out property <GuiPlaybackState> pb-state;
 
+    out property <MouseCursor> suggested-cursor: default;
+
     property <bool> is-scrubbing: false;
     property <bool> is-changing-volume: false;
     property <bool> is-fullscreen: false;
-    property <float> volume: 1.0;
-
-    callback resume-or-pause();
-    // TODO: seeking while paused does not update the video frame with the new location
-    callback seek-to-percent(float);
-    callback toggle-fullscreen();
-    callback set-volume(float);
 
     public function show() {
         root.visible = true;
         tim.counter = 0;
         tim.running = true;
+        suggested-cursor = MouseCursor.default;
     }
 
     public function close() {
         root.visible = false;
         tim.running = false;
+        suggested-cursor = MouseCursor.none;
     }
 
     public function playback-started() {
@@ -258,7 +299,7 @@ component PlaybackControl {
                 }
                 released(position) => {
                     is-scrubbing = false;
-                    seek-to-percent(position);
+                    Bridge.seek-to-percent(position);
                 }
             }
 
@@ -273,13 +314,13 @@ component PlaybackControl {
                     if pb-state == GuiPlaybackState.Playing: pause-btn := IconButton {
                         icon: @image-url("../../assets/icons/video_pause.svg");
                         clicked => {
-                            resume-or-pause();
+                            Bridge.resume-or-pause();
                         }
                     }
                     if pb-state == GuiPlaybackState.Paused: IconButton {
                         icon: @image-url("../../assets/icons/video_play.svg");
                         clicked => {
-                            resume-or-pause();
+                            Bridge.resume-or-pause();
                         }
                     }
                     if pb-state == GuiPlaybackState.Live: Text {
@@ -294,27 +335,29 @@ component PlaybackControl {
                         clicked => {
                             if volume-slider.value > 0 {
                                 volume-slider.value = 0;
-                                set-volume(0);
+                                Bridge.set-volume(0);
                             } else {
                                 // TOOD: probably shouldn't go from 0 to 100%
                                 volume-slider.value = 1;
-                                set-volume(1);
+                                Bridge.set-volume(1);
                             }
                         }
                     }
 
                     volume-slider := OmSlider {
-                        value: 1.0;
+                        // value: 1.0;
+                        value <=> Bridge.volume;
                         step: 0.01;
                         maximum: 1.0;
                         width: 100px;
                         foreground: white;
-                        changed(_) => {
+                        changed(new-volume) => {
                             volume-changed();
+                            Bridge.set-volume(new-volume);
                         }
                         released(new-volume) => {
                             is-changing-volume = false;
-                            set-volume(new-volume);
+                            Bridge.set-volume(new-volume);
                         }
                     }
 
@@ -329,16 +372,13 @@ component PlaybackControl {
                 fullscreen-btn := IconButton {
                     icon: root.is-fullscreen ? @image-url("../../assets/icons/compress.svg") : @image-url("../../assets/icons/expand.svg");
                     clicked => {
-                        toggle-fullscreen();
+                        Bridge.toggle-fullscreen();
                         root.is-fullscreen = !root.is-fullscreen;
                     }
                 }
             }
         }
     }
-
-    // TODO: should be a property or used directly inside the timer, but it's blocked by https://github.com/slint-ui/slint/issues/8541
-    property <bool> playback-is-engaged: fullscreen-btn.is-engaged || volume-btn.is-engaged;
 
     tim := Timer {
         property <int> counter;
@@ -349,7 +389,7 @@ component PlaybackControl {
             // mouse cursor in root root
             // Wait 500ms * 4 before hiding the bar
             if counter >= 4 {
-                if playback-is-engaged {
+                if fullscreen-btn.is-engaged || volume-btn.is-engaged {
                     parent.show();
                 } else {
                     parent.close();
@@ -362,53 +402,60 @@ component PlaybackControl {
 export component MainWindow inherits Window {
     title: "Open Mirroring Receiver";
 
-    in property <string> label;
-    in property <string> progress-label;
-    in property <GuiPlaybackState> playback-state;
-    in property <bool> using-background-underlay;
-
-    in-out property <bool> playing: false;
-
-    property <int> connected_devices: 0;
-
-    callback resume-or-pause();
-    callback seek-to-percent(float);
-    callback toggle-fullscreen();
-    callback set-volume(float);
-
     public function playback-started() {
-        playing = true;
+        Bridge.playing = true;
         playback-control.playback-started();
     }
 
-    // TODO: function playback-paused()?
+    public function device-connected() {
+        Bridge.connected_devices += 1;
+    }
+
+    public function device-disconnected() {
+        Bridge.connected_devices = max(Bridge.connected_devices - 1, 0);
+    }
 
     public function playback-stopped() {
-        playing = false;
+        Bridge.playing = false;
         playback-control.playback-stopped();
     }
 
     public function playback-stopped-with-error(error: string) {
-        playing = false;
+        Bridge.playing = false;
         error-alert.message = error;
         error-alert.show();
         playback-control.playback-stopped();
-    }
-
-    public function device-connected() {
-        connected_devices += 1;
-    }
-
-    public function device-disconnected() {
-        connected_devices = max(connected_devices - 1, 0);
     }
 
     public function update-progress-percent(percent: float) {
         playback-control.update-progress-percent(percent);
     }
 
+    // TODO: debug overlay
+
+    forward-focus: key-handler;
+
+    key-handler := FocusScope {
+        key-pressed(event) => {
+            if (event.modifiers.control && event.text == "q") {
+                Bridge.force-quit();
+                return accept;
+            }
+            if (event.modifiers.control && event.text == "d") {
+                Bridge.toggle-debug-mode();
+                return accept;
+            }
+            return reject;
+        }
+    }
+
+    Rectangle {
+        visible: !Bridge.playing;
+        background: black;
+    }
+
     HorizontalBox {
-        visible: !playing;
+        visible: !Bridge.playing;
 
         alignment: space-around;
         VerticalBox {
@@ -418,39 +465,35 @@ export component MainWindow inherits Window {
                 text: "OpenMirroring";
                 font-weight: 800; // bold
                 horizontal-alignment: center;
-                color: using-background-underlay ? white : black;
+                color: white;
             }
 
-            if connected_devices == 0: Text {
+            if Bridge.connected_devices == 0: Text {
                 font-size: 12pt;
                 text: "Waiting for a connection";
                 horizontal-alignment: center;
-                color: using-background-underlay ? white : black;
+                color: white;
             }
-            if connected_devices == 0: Spinner {
-                indeterminate: true;
-            }
-            if connected_devices > 0: Text {
+            // if Bridge.connected_devices == 0: Spinner {
+            //     indeterminate: true;
+            // }
+            if Bridge.connected_devices > 0: Text {
                 font-size: 12pt;
                 text: "Device is connected";
                 horizontal-alignment: center;
-                color: using-background-underlay ? white : black;
+                color: white;
             }
         }
 
         VerticalBox {
             alignment: center;
             Rectangle {
-                background: (using-background-underlay ? black : white).with-alpha(40%);
-                border-radius: 8px;
-                border-color: (using-background-underlay ? black : white).with-alpha(40%);
-                border-width: 2px;
                 VerticalBox {
                     Text {
                         horizontal-alignment: center;
                         text: "Manual connection information";
                         font-size: 12pt;
-                        color: using-background-underlay ? white : black;
+                        color: white;
                     }
 
                     HorizontalRule {
@@ -461,35 +504,60 @@ export component MainWindow inherits Window {
                     Text {
                         horizontal-alignment: center;
                         text: "IPs";
-                        color: using-background-underlay ? white : black;
+                        color: white;
                     }
 
-                    if !playing && label.is-empty: Spinner {
-                        indeterminate: true;
-                    }
-                    if !playing && !label.is-empty: Text {
+                    // if !Bridge.playing && Bridge.label.is-empty: Spinner {
+                    //     indeterminate: true;
+                    // }
+                    if !Bridge.playing && !Bridge.label.is-empty: Text {
                         horizontal-alignment: center;
-                        text <=> label;
-                        color: using-background-underlay ? white : black;
+                        text <=> Bridge.label;
+                        color: white;
                     }
                     Text {
                         horizontal-alignment: center;
                         text: "Port";
-                        color: using-background-underlay ? white : black;
+                        color: white;
                     }
 
                     Text {
                         horizontal-alignment: center;
                         text: "46899 (TCP)";
-                        color: using-background-underlay ? white : black;
+                        color: white;
                     }
 
                     Text {
                         horizontal-alignment: center;
                         text: "Automatic discovery is available via mDNS";
-                        color: using-background-underlay ? white : black;
+                        color: white;
                     }
                 }
+            }
+        }
+    }
+
+    if (Bridge.is-debugging) : Rectangle {
+        background: white.transparentize(0.25);
+        x: 0;
+        y: 0;
+        width: vl.preferred-width;
+        height: vl.preferred-height;
+        vl := VerticalBox {
+            Text {
+                text: "Connected devices: " + Bridge.connected_devices;
+            }
+            Text {
+                text: "Volume: " + Bridge.volume;
+            }
+            Text {
+                text: "Is playing: " + (Bridge.playing ? "true" : "false");
+            }
+            Text {
+                text: "Playback state: " + Bridge.gui-playback-state-to-string(Bridge.playback-state);
+            }
+            Text {
+                text: "Progress label: " + Bridge.progress-label;
             }
         }
     }
@@ -500,14 +568,14 @@ export component MainWindow inherits Window {
         width: 100%;
         height: 100%;
 
-        visible: playing;
+        visible: Bridge.playing;
 
         mouse-cursor: self.visible && !playback-control.visible ? none : default;
 
         FocusScope {
             key-pressed(event) => {
                 if (event.text == Key.Space) {
-                    resume-or-pause();
+                    Bridge.resume-or-pause();
                     return accept;
                 }
                 // TODO: seeking with arrow keys
@@ -522,26 +590,11 @@ export component MainWindow inherits Window {
         }
 
         playback-control := PlaybackControl {
+            visible: false;
             width: 100%;
             y: parent.height - self.height;
-            progress-label <=> progress-label;
-            pb-state: playback-state;
-
-            resume-or-pause => {
-                resume-or-pause();
-            }
-
-            seek-to-percent(percent) => {
-                seek-to-percent(percent);
-            }
-
-            toggle-fullscreen => {
-                toggle-fullscreen();
-            }
-
-            set-volume(volume) => {
-                set-volume(volume);
-            }
+            progress-label <=> Bridge.progress-label;
+            pb-state: Bridge.playback-state;
         }
     }
 

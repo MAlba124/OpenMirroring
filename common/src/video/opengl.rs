@@ -179,10 +179,10 @@ impl SlintOpenGLSink {
     {
         #[cfg(target_os = "linux")]
         let (gst_gl_context, gst_gl_display) = {
-            if is_on_wayland()? {
-                Self::get_egl_ctx(graphics_api)?
-            } else {
-                Self::get_glx_ctx(graphics_api)?
+            match is_on_wayland() {
+                // NOTE: If error: assume KMS
+                Ok(true) | Err(_) => Self::get_egl_ctx(graphics_api)?,
+                Ok(false) => Self::get_glx_ctx(graphics_api)?
             }
         };
         #[cfg(target_os = "windows")]

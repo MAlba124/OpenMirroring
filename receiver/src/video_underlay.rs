@@ -17,10 +17,63 @@
 
 use std::{num::NonZero, rc::Rc};
 
-use anyhow::{Result, anyhow};
+use anyhow::{Result, anyhow, bail};
 use glow::HasContext;
 
-use super::{get_attrib_location, get_uniform_location};
+unsafe fn compile_shader(
+    gl: &glow::Context,
+    program: &glow::Program,
+    vert_source: &str,
+    frag_source: &str,
+) -> Result<()> {
+    unsafe {
+        let shader_sources = [
+            (glow::VERTEX_SHADER, vert_source),
+            (glow::FRAGMENT_SHADER, frag_source),
+        ];
+
+        let mut shaders = Vec::with_capacity(shader_sources.len());
+
+        for (shader_type, shader_source) in shader_sources.iter() {
+            let shader = gl
+                .create_shader(*shader_type)
+                .map_err(|err| anyhow!("{err}"))?;
+            gl.shader_source(shader, shader_source);
+            gl.compile_shader(shader);
+            if !gl.get_shader_compile_status(shader) {
+                bail!("{}", gl.get_shader_info_log(shader));
+            }
+            gl.attach_shader(*program, shader);
+            shaders.push(shader);
+        }
+
+        gl.link_program(*program);
+        if !gl.get_program_link_status(*program) {
+            bail!("{}", gl.get_program_info_log(*program));
+        }
+
+        for shader in shaders {
+            gl.detach_shader(*program, shader);
+            gl.delete_shader(shader);
+        }
+    }
+
+    Ok(())
+}
+
+macro_rules! get_uniform_location {
+    ($gl:expr, $program:expr, $name:expr) => {
+        $gl.get_uniform_location($program, $name)
+            .ok_or(anyhow!("Failed to get uniform location of `{}`", $name))
+    };
+}
+
+macro_rules! get_attrib_location {
+    ($gl:expr, $program:expr, $name:expr) => {
+        $gl.get_attrib_location($program, $name)
+            .ok_or(anyhow!("Failed to get attribute location of `{}`", $name))
+    };
+}
 
 pub struct VideoUnderlay {
     gl: Rc<glow::Context>,
@@ -37,11 +90,11 @@ impl VideoUnderlay {
         unsafe {
             let program = gl.create_program().map_err(|err| anyhow!("{err}"))?;
 
-            super::compile_shader(
+            compile_shader(
                 &gl,
                 &program,
-                include_str!("../../shaders/video_vertex.glsl"),
-                include_str!("../../shaders/video_fragment.glsl"),
+                include_str!("../shaders/video_vertex.glsl"),
+                include_str!("../shaders/video_fragment.glsl"),
             )?;
 
             let transform_location = get_uniform_location!(gl, program, "transform")?;
@@ -49,11 +102,12 @@ impl VideoUnderlay {
             let position_location = get_attrib_location!(gl, program, "position")?;
             let texture_coords_location = get_attrib_location!(gl, program, "inTextureCoords")?;
 
+            #[rustfmt::skip]
             let vertices: [f32; 16] = [
-                -1.0, -1.0, 0.0, 1.0, //
-                1.0, -1.0, 1.0, 1.0, //
-                1.0, 1.0, 1.0, 0.0, //
-                -1.0, 1.0, 0.0, 0.0, //
+                -1.0, -1.0, 0.0, 1.0,
+                1.0, -1.0, 1.0, 1.0,
+                1.0, 1.0, 1.0, 0.0,
+                -1.0, 1.0, 0.0, 0.0,
             ];
             let indices: [u32; 6] = [0, 1, 2, 2, 3, 0];
 
@@ -136,10 +190,8 @@ impl VideoUnderlay {
                 };
 
                 [
-                    scale_x, 0.0, 0.0, 0.0, //
-                    0.0, scale_y, 0.0, 0.0, //
-                    0.0, 0.0, 1.0, 0.0, //
-                    0.0, 0.0, 0.0, 1.0, //
+                    scale_x, 0.0, 0.0, 0.0, 0.0, scale_y, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0,
+                    0.0, 1.0,
                 ]
             };
 

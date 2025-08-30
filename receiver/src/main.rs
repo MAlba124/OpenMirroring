@@ -16,27 +16,34 @@
 // along with OpenMirroring.  If not, see <https://www.gnu.org/licenses/>.
 
 use anyhow::{Result, bail};
-use clap::Parser;
-use common::runtime;
+// use clap::Parser;
 use common::video::opengl::SlintOpenGLSink;
-use fcast_lib::models::{PlaybackUpdateMessage, SetVolumeMessage};
+use fcast_lib::models::{PlaybackUpdateMessage, SetVolumeMessage, VolumeUpdateMessage};
 use fcast_lib::packet::Packet;
 use log::{debug, error, warn};
-use receiver::Event;
 use receiver::pipeline::Pipeline;
 use receiver::session::{Session, SessionId};
-use receiver::underlays::background::BackgroundUnderlay;
-use receiver::underlays::video::VideoUnderlay;
+use receiver::video_underlay::VideoUnderlay;
+use receiver::{Event, log_if_err};
 use tokio::net::TcpListener;
 use tokio::sync::mpsc::{self, Receiver, Sender};
 use tokio::sync::{broadcast, oneshot};
 
 use std::net::{IpAddr, Ipv4Addr};
 use std::sync::Arc;
+use std::time::{Duration, Instant};
 
 const FCAST_TCP_PORT: u16 = 46899;
+const SENDER_UPDATE_INTERVAL: Duration = Duration::from_secs(1);
 
 slint::include_modules!();
+
+fn current_time_millis() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_millis() as u64
+}
 
 struct Application {
     pipeline: Pipeline,
@@ -44,6 +51,8 @@ struct Application {
     ui_weak: slint::Weak<MainWindow>,
     updates_tx: broadcast::Sender<Arc<Vec<u8>>>,
     mdns: mdns_sd::ServiceDaemon,
+    last_sent_update: Instant,
+    debug_mode: bool,
 }
 
 impl Application {
@@ -93,10 +102,12 @@ impl Application {
             ui_weak,
             updates_tx,
             mdns,
+            last_sent_update: Instant::now() - SENDER_UPDATE_INTERVAL,
+            debug_mode: false,
         })
     }
 
-    fn notify_updates(&self) -> Result<()> {
+    fn notify_updates(&mut self) -> Result<()> {
         let pipeline_playback_state = match self.pipeline.get_playback_state() {
             Ok(s) => s,
             Err(err) => {
@@ -139,19 +150,15 @@ impl Application {
         };
 
         self.ui_weak.upgrade_in_event_loop(move |ui| {
-            ui.set_progress_label(progress_str.into());
+            ui.global::<Bridge>()
+                .set_progress_label(progress_str.into());
             ui.invoke_update_progress_percent(progress_percent);
-            ui.set_playback_state(playback_state);
+            ui.global::<Bridge>().set_playback_state(playback_state);
         })?;
 
-        fn current_time_millis() -> u64 {
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
-                .as_millis() as u64
-        }
-
-        if self.updates_tx.receiver_count() > 0 {
+        if self.updates_tx.receiver_count() > 0
+            && self.last_sent_update.elapsed() >= SENDER_UPDATE_INTERVAL
+        {
             let update = PlaybackUpdateMessage {
                 generation: current_time_millis(),
                 time: Some(pipeline_playback_state.time),
@@ -162,13 +169,14 @@ impl Application {
             debug!("Sending update ({update:?})");
             self.updates_tx
                 .send(Arc::new(Packet::from(update).encode()))?;
+            self.last_sent_update = Instant::now();
         }
 
         Ok(())
     }
 
     /// Returns `true` if the event loop should exit
-    async fn handle_event(&self, event: Event) -> Result<bool> {
+    async fn handle_event(&mut self, event: Event) -> Result<bool> {
         match event {
             Event::SessionFinished => {
                 self.ui_weak.upgrade_in_event_loop(|ui| {
@@ -249,15 +257,29 @@ impl Application {
                 self.notify_updates()?;
             }
             Event::SetVolume(set_volume_message) => {
-                self.pipeline.set_volume(set_volume_message.volume)
+                self.pipeline.set_volume(set_volume_message.volume);
+                self.ui_weak.upgrade_in_event_loop(move |ui| {
+                    ui.global::<Bridge>()
+                        .set_volume(set_volume_message.volume as f32);
+                })?;
+                if self.updates_tx.receiver_count() > 0 {
+                    let update = VolumeUpdateMessage {
+                        generation: current_time_millis(),
+                        volume: set_volume_message.volume,
+                    };
+                    debug!("Sending update ({update:?})");
+                    self.updates_tx
+                        .send(Arc::new(Packet::from(update).encode()))?;
+                    self.last_sent_update = Instant::now();
+                }
             }
             Event::Quit => return Ok(true),
             Event::PipelineEos => {
                 debug!("Pipeline reached EOS");
-                self.pipeline.stop()?;
-                self.ui_weak.upgrade_in_event_loop(|ui| {
-                    ui.invoke_playback_stopped();
-                })?;
+                // self.pipeline.stop()?;
+                // self.ui_weak.upgrade_in_event_loop(|ui| {
+                //     ui.invoke_playback_stopped();
+                // })?;
             }
             Event::PipelineError => {
                 self.pipeline.stop()?;
@@ -266,19 +288,25 @@ impl Application {
                     ui.invoke_playback_stopped_with_error("Error unclear (todo)".into());
                 })?;
             }
+            Event::PipelineStateChanged(state) => match state {
+                gst::State::Paused | gst::State::Playing => self.notify_updates()?,
+                _ => (),
+            },
+            Event::ToggleDebug => self.debug_mode = !self.debug_mode,
         }
 
         Ok(false)
     }
 
     pub async fn run_event_loop(
-        self,
+        mut self,
         mut event_rx: Receiver<Event>,
         fin_tx: oneshot::Sender<()>,
     ) -> Result<()> {
         let dispatch_listener = TcpListener::bind("0.0.0.0:46899").await?;
 
         let mut session_id: SessionId = 0;
+        let mut update_interval = tokio::time::interval(Duration::from_millis(100));
 
         loop {
             tokio::select! {
@@ -291,7 +319,7 @@ impl Application {
                         break;
                     }
                 }
-                _ = tokio::time::sleep(std::time::Duration::from_millis(1000)) => {
+                _ = update_interval.tick() => {
                     if self.pipeline.is_playing() == Some(true) {
                         self.notify_updates()?;
                     }
@@ -318,7 +346,7 @@ impl Application {
                         }
                     });
 
-                    self.ui_weak.upgrade_in_event_loop(|ui| {
+                    self.ui_weak.upgrade_in_event_loop(move |ui| {
                         ui.invoke_device_connected();
                     })?;
 
@@ -344,9 +372,9 @@ impl Application {
 #[derive(clap::Parser)]
 #[command(version)]
 struct CliArgs {
-    /// Disable animated background. Reduces resource usage
-    #[arg(short = 'b', long, default_value_t = false)]
-    no_background: bool,
+    // Disable animated background. Reduces resource usage
+    // #[arg(short = 'b', long, default_value_t = false)]
+    // no_background: bool,
 }
 
 fn main() -> Result<()> {
@@ -354,12 +382,14 @@ fn main() -> Result<()> {
         .filter_module("receiver", common::default_log_level())
         .init();
 
-    let cli_args = CliArgs::parse();
+    // let cli_args = CliArgs::parse();
 
-    slint::BackendSelector::new()
-        .backend_name("winit".into())
-        .require_opengl()
-        .select()?;
+    if std::env::var("SLINT_BACKEND") == Err(std::env::VarError::NotPresent) {
+        slint::BackendSelector::new()
+            .backend_name("winit".into())
+            .require_opengl()
+            .select()?;
+    }
 
     gst::init()?;
 
@@ -381,18 +411,15 @@ fn main() -> Result<()> {
     let slint_appsink = slint_sink.video_sink();
 
     let ui = MainWindow::new()?;
-    slint::set_xdg_app_id("com.github.malba124.OpenMirroring.receiver")?;
-
-    ui.set_using_background_underlay(!cli_args.no_background);
 
     ui.window().set_rendering_notifier({
         let ui_weak = ui.as_weak();
 
-        let mut background_underlay: Option<BackgroundUnderlay> = None;
         let mut video_underlay: Option<VideoUnderlay> = None;
 
         move |state, graphics_api| match state {
             slint::RenderingState::RenderingSetup => {
+                debug!("Got graphics API: {graphics_api:?}");
                 let ui_weak = ui_weak.clone();
                 slint_sink
                     .connect(graphics_api, move || {
@@ -412,10 +439,6 @@ fn main() -> Result<()> {
 
                 let glow_context = std::rc::Rc::new(glow_context);
 
-                if !cli_args.no_background {
-                    background_underlay =
-                        Some(BackgroundUnderlay::new(glow_context.clone()).unwrap());
-                }
                 video_underlay = Some(VideoUnderlay::new(glow_context).unwrap());
             }
             slint::RenderingState::BeforeRendering => {
@@ -427,7 +450,7 @@ fn main() -> Result<()> {
                 // TODO: don't render the video when the frame is from the old source (i.e. playback was
                 //       stopped, then new source was set and for a brief moment the last displayed frame
                 //       of the old source becomes visible.)
-                if ui.get_playing() {
+                if ui.global::<Bridge>().get_playing() {
                     let Some((texture, size)) = slint_sink.fetch_next_frame_as_texture() else {
                         return;
                     };
@@ -437,15 +460,10 @@ fn main() -> Result<()> {
 
                     let win_size = ui.window().size();
                     underlay.render(texture, win_size.width, win_size.height, size[0], size[1]);
-                } else if let Some(underlay) = background_underlay.as_mut() {
-                    let window_size = ui.window().size();
-                    underlay.render(window_size.width as f32, window_size.height as f32);
-                    ui.window().request_redraw();
                 }
             }
             slint::RenderingState::RenderingTeardown => {
                 slint_sink.deactivate_and_pause().unwrap();
-                drop(background_underlay.take());
             }
             _ => (),
         }
@@ -464,48 +482,57 @@ fn main() -> Result<()> {
         }
     });
 
-    {
+    ui.global::<Bridge>().on_resume_or_pause({
         let event_tx = event_tx.clone();
-        ui.on_resume_or_pause(move || {
-            event_tx.blocking_send(Event::ResumeOrPause).unwrap();
-        });
-    }
+        move || {
+            log_if_err!(event_tx.blocking_send(Event::ResumeOrPause));
+        }
+    });
 
-    {
+    ui.global::<Bridge>().on_seek_to_percent({
         let event_tx = event_tx.clone();
-        ui.on_seek_to_percent(move |percent| {
-            event_tx.blocking_send(Event::SeekPercent(percent)).unwrap();
-        });
-    }
+        move |percent| {
+            log_if_err!(event_tx.blocking_send(Event::SeekPercent(percent)));
+        }
+    });
 
-    {
+    ui.global::<Bridge>().on_toggle_fullscreen({
         let ui_weak = ui.as_weak();
-        ui.on_toggle_fullscreen(move || {
+        move || {
             let ui = ui_weak
                 .upgrade()
                 .expect("callbacks always get called from the event loop");
             ui.window().set_fullscreen(!ui.window().is_fullscreen());
-        });
-    }
+        }
+    });
 
-    {
+    ui.global::<Bridge>().on_set_volume({
         let event_tx = event_tx.clone();
-        ui.on_set_volume(move |volume| {
-            event_tx
-                .blocking_send(Event::SetVolume(SetVolumeMessage {
-                    volume: volume as f64,
-                }))
-                .unwrap();
-        });
-    }
+        move |volume| {
+            log_if_err!(event_tx.blocking_send(Event::SetVolume(SetVolumeMessage {
+                volume: volume as f64,
+            })));
+        }
+    });
 
-    ui.set_label(format!("{ips:?}").into());
+    ui.global::<Bridge>().on_force_quit(move || {
+        log_if_err!(slint::quit_event_loop());
+    });
+
+    ui.global::<Bridge>().on_debug_toggled({
+        let event_tx = event_tx.clone();
+        move || {
+            log_if_err!(event_tx.blocking_send(Event::ToggleDebug));
+        }
+    });
+
+    ui.global::<Bridge>().set_label(format!("{ips:?}").into());
 
     ui.run()?;
 
-    runtime().block_on(async move {
-        debug!("Shutting down...");
+    debug!("Shutting down...");
 
+    common::runtime().block_on(async move {
         event_tx.send(Event::Quit).await.unwrap();
         fin_rx.await.unwrap();
     });

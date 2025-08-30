@@ -11,7 +11,7 @@ gst.workspace = true
 fcast-lib = { path = "../fcast-lib" }
 common = { path = "../common", features = ["video"] }
 gethostname = "1.0.1"
-slint.workspace = true
+slint = { workspace = true, features = ["backend-linuxkms"] }
 anyhow.workspace = true
 futures.workspace = true
 tokio-stream.workspace = true

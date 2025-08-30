@@ -28,7 +28,7 @@ pub async fn read_packet(stream: &mut ReadHalf<'_>) -> Result<Packet> {
         body_string = String::from_utf8(body_buf)?;
     }
 
-    Ok(Packet::decode(header, &body_string)?)
+    Packet::decode(header, &body_string)
 }
 
 pub async fn write_packet(stream: &mut WriteHalf<'_>, packet: Packet) -> Result<()> {

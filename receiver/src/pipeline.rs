@@ -24,6 +24,8 @@ use anyhow::{Result, anyhow, bail};
 use log::{debug, error};
 use tokio::sync::mpsc::Sender;
 
+use crate::log_if_err;
+
 #[derive(thiserror::Error, Debug)]
 pub enum SetPlaybackUriError {
     #[error("unsupported resource scheme")]
@@ -34,6 +36,7 @@ pub enum SetPlaybackUriError {
     PipelineStateChange(gst::StateChangeError),
 }
 
+#[derive(Debug)]
 pub struct PipelinePlaybackState {
     pub time: f64,
     pub duration: f64,
@@ -59,10 +62,10 @@ impl Pipeline {
                 return None;
             };
 
-            if let Some(factory) = elem.factory() {
-                if factory.name() == "rtspsrc" {
-                    elem.set_property("latency", 0u32);
-                }
+            if let Some(factory) = elem.factory()
+                && factory.name() == "rtspsrc"
+            {
+                elem.set_property("latency", 0u32);
             }
 
             None
@@ -84,7 +87,16 @@ impl Pipeline {
 
                     match msg.view() {
                         MessageView::Eos(..) => {
-                            event_tx.send(crate::Event::PipelineEos).await.unwrap()
+                            log_if_err!(event_tx.send(crate::Event::PipelineEos).await);
+                        }
+                        MessageView::StateChanged(state_change) => {
+                            log_if_err!(
+                                event_tx
+                                    .send(crate::Event::PipelineStateChanged(
+                                        state_change.current()
+                                    ))
+                                    .await
+                            );
                         }
                         MessageView::Error(err) => {
                             error!(
@@ -93,7 +105,7 @@ impl Pipeline {
                                 err.error(),
                                 err.debug()
                             );
-                            event_tx.send(crate::Event::PipelineError).await.unwrap();
+                            log_if_err!(event_tx.send(crate::Event::PipelineError).await);
                         }
                         _ => (),
                     }

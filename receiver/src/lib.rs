@@ -19,7 +19,7 @@ use fcast_lib::models::{PlayMessage, SeekMessage, SetSpeedMessage, SetVolumeMess
 
 pub mod pipeline;
 pub mod session;
-pub mod underlays;
+pub mod video_underlay;
 
 #[derive(Debug)]
 pub enum Event {
@@ -36,4 +36,15 @@ pub enum Event {
     SessionFinished,
     ResumeOrPause,
     SeekPercent(f32),
+    PipelineStateChanged(gst::State),
+    ToggleDebug,
+}
+
+#[macro_export]
+macro_rules! log_if_err {
+    ($res:expr) => {
+        if let Err(err) = $res {
+            error!("{err}");
+        }
+    };
 }

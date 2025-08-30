@@ -1,20 +1,21 @@
 [workspace]
 resolver = "2"
-members = [ "fcast-lib", "common", "receiver", "sender", "android-sender"]
+# members = [ "fcast-lib", "common", "receiver", "sender", "android-sender"]
+members = [ "fcast-lib", "common", "receiver"]
 
 [workspace.dependencies]
-gst-video = { package = "gstreamer-video", version = "0.23.5" }
-gst-app = { package = "gstreamer-app", version = "0.23.5" }
-gst-gl = { package = "gstreamer-gl", version = "0.23.5", features = ["v1_20"] }
-gst = { package = "gstreamer", version = "0.23.5" }
+gst-video = { package = "gstreamer-video", version = "0.24.1" }
+gst-app = { package = "gstreamer-app", version = "0.24.0" }
+gst-gl = { package = "gstreamer-gl", version = "0.24.1", features = ["v1_20"] }
+gst = { package = "gstreamer", version = "0.24.1" }
 tokio = { version = "1", features = ["net", "io-util", "macros", "sync", "rt-multi-thread", "time"] }
 log = "0.4.22"
 env_logger = "0.11.6"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 rand = "0.9.0"
-slint = "1.12.0"
-slint-build = "1.12.0"
+slint = "1.12.1"
+slint-build = "1.12.1"
 anyhow = "1.0.98"
 futures = "0.3"
 tokio-stream = "0.1.17"
@@ -25,4 +26,3 @@ crossbeam-channel = "0.5.15"
 lto = true
 codegen-units = 1
 strip = true
-# panic = "abort"

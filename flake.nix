@@ -1,6 +1,6 @@
 {
   inputs = {
-    nixpkgs.url = "github:NixOS/nixpkgs/nixos-25.05";
+    nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
     flake-utils.url = "github:numtide/flake-utils";
     rust-overlay = {
       url = "github:oxalica/rust-overlay";
@@ -17,6 +17,15 @@
           pkgs = import nixpkgs {
             inherit system overlays;
           };
+
+          rustTargets = [
+            "aarch64-unknown-linux-gnu"
+            "x86_64-unknown-linux-gnu"
+          ];
+
+          rustToolchain = pkgs.rust-bin.nightly.latest.complete.override {
+            targets = rustTargets;
+          };
         in
         let
           nativeBuildInputs = with pkgs; [
@@ -24,7 +33,7 @@
             clang
             dig
             graphviz
-            rust-bin.stable.latest.complete
+            rustToolchain
             graphviz
             slint-lsp
             heaptrack
@@ -54,6 +63,12 @@
             openssl
             libnice
             fontconfig
+
+            # KMS:
+            seatd
+            libgbm
+            systemdLibs
+            libinput
           ];
         in
         with pkgs;
