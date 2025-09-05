@@ -281,4 +281,8 @@ impl Pipeline {
 
         Ok(())
     }
+
+    pub fn get_connection_speed(&self) -> u64 {
+        self.playbin.property("connection-speed")
+    }
 }

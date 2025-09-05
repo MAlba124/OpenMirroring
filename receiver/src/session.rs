@@ -18,6 +18,7 @@
 use std::sync::Arc;
 
 use anyhow::Result;
+use fcast_lib::models::VersionMessage;
 use futures::stream::unfold;
 use log::{debug, error, trace, warn};
 use tokio::sync::mpsc::Sender;
@@ -72,6 +73,12 @@ impl Session {
 
         tokio::pin!(packets_stream);
         tokio::pin!(updates_stream);
+
+        write_packet(
+            &mut tcp_stream_tx,
+            Packet::Version(VersionMessage { version: 2 }),
+        )
+        .await?;
 
         loop {
             tokio::select! {

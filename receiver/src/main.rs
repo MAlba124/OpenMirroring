@@ -15,11 +15,12 @@
 // You should have received a copy of the GNU General Public License
 // along with OpenMirroring.  If not, see <https://www.gnu.org/licenses/>.
 
-use anyhow::{Result, bail};
+use anyhow::{bail, Context, Result};
 // use clap::Parser;
 use common::video::opengl::SlintOpenGLSink;
 use fcast_lib::models::{PlaybackUpdateMessage, SetVolumeMessage, VolumeUpdateMessage};
 use fcast_lib::packet::Packet;
+use gst::glib::base64_encode;
 use log::{debug, error, warn};
 use receiver::pipeline::Pipeline;
 use receiver::session::{Session, SessionId};
@@ -184,11 +185,16 @@ impl Application {
                 })?;
             }
             Event::Pause => {
-                self.pipeline.pause()?;
-                self.notify_updates()?;
+                self.pipeline.pause().context("failed to pause pipeline")?;
+                self.notify_updates().context("failed to notify about updates")?;
             }
             Event::Play(play_message) => {
-                if let Err(err) = self.pipeline.set_playback_uri(&play_message.url.unwrap()) {
+                let Some(url) = play_message.url else {
+                    error!("Play message does not contain a URL");
+                    return Ok(false);
+                };
+
+                if let Err(err) = self.pipeline.set_playback_uri(&url) {
                     use receiver::pipeline::SetPlaybackUriError;
                     match err {
                         SetPlaybackUriError::PipelineStateChange(state_change_error) => {
@@ -206,10 +212,10 @@ impl Application {
                     self.ui_weak.upgrade_in_event_loop(|ui| {
                         ui.invoke_playback_started();
                     })?;
-                    self.notify_updates()?;
+                    self.notify_updates().context("failed to notify about updates")?;
                 }
             }
-            Event::Resume => self.pipeline.play_or_resume()?,
+            Event::Resume => self.pipeline.play_or_resume().context("failed to play or resume pipeline")?,
             Event::ResumeOrPause => {
                 let Some(playing) = self.pipeline.is_playing() else {
                     warn!("Pipeline is not in a state that can be resumed or paused");
@@ -220,9 +226,9 @@ impl Application {
                 } else {
                     self.pipeline.play_or_resume()
                 } {
-                    error!("Failed to ResumeOrPause: {err}");
+                    error!("Failed to play or resume: {err}");
                 }
-                self.notify_updates()?;
+                self.notify_updates().context("failed to notify about updates")?;
             }
             Event::Stop => {
                 self.pipeline.stop()?;
@@ -231,7 +237,7 @@ impl Application {
                 })?;
             }
             Event::SetSpeed(set_speed_message) => {
-                self.pipeline.set_speed(set_speed_message.speed)?
+                self.pipeline.set_speed(set_speed_message.speed).context("failed to set speed")?
             }
             Event::Seek(seek_message) => {
                 if let Err(err) = self.pipeline.seek(seek_message.time) {
@@ -282,14 +288,14 @@ impl Application {
                 // })?;
             }
             Event::PipelineError => {
-                self.pipeline.stop()?;
+                self.pipeline.stop().context("failed to stop pipeline")?;
                 // TODO: send error message to sessions
                 self.ui_weak.upgrade_in_event_loop(|ui| {
                     ui.invoke_playback_stopped_with_error("Error unclear (todo)".into());
                 })?;
             }
             Event::PipelineStateChanged(state) => match state {
-                gst::State::Paused | gst::State::Playing => self.notify_updates()?,
+                gst::State::Paused | gst::State::Playing => self.notify_updates().context("failed to notify about updates")?,
                 _ => (),
             },
             Event::ToggleDebug => self.debug_mode = !self.debug_mode,
@@ -312,8 +318,11 @@ impl Application {
             tokio::select! {
                 event = event_rx.recv() => {
                     if let Some(event) = event {
-                        if self.handle_event(event).await? {
-                            break;
+                        debug!("Got event: {event:?}");
+                        match self.handle_event(event).await {
+                            Ok(true) => break,
+                            Err(err) => error!("Handle event error: {err}"),
+                            _ => (),
                         }
                     } else {
                         break;
@@ -404,6 +413,38 @@ fn main() -> Result<()> {
         }
     }
 
+    // TODO: fix, base64? format?
+    let device_url = format!(
+        "fcast://r/{}",
+        base64_encode(
+            format!(
+                r#"{{"name":"Test","addresses":[{}],"services":[{{"port":46899,"type":1}}]}}"#,
+                ips.iter()
+                    .map(|addr| format!("\"{}\"", addr))
+                    .collect::<Vec<String>>()
+                    .join(","),
+            )
+            .as_bytes()
+        )
+        .as_str(),
+    );
+
+    let qr_code = qrcode::QrCode::new(device_url)?;
+    let qr_code_dims = qr_code.width() as u32;
+    let qr_code_colors = qr_code.into_colors();
+    let mut qr_code_pixels =
+        slint::SharedPixelBuffer::<slint::Rgb8Pixel>::new(qr_code_dims, qr_code_dims);
+    qr_code_pixels.make_mut_slice().copy_from_slice(
+        &qr_code_colors
+            .into_iter()
+            .map(|px| match px {
+                qrcode::Color::Light => slint::Rgb8Pixel::new(0xFF, 0xFF, 0xFF),
+                qrcode::Color::Dark => slint::Rgb8Pixel::new(0x0, 0x0, 0x0),
+            })
+            .collect::<Vec<slint::Rgb8Pixel>>(),
+    );
+    let qr_code_image = slint::Image::from_rgb8(qr_code_pixels);
+
     let (event_tx, event_rx) = mpsc::channel::<Event>(100);
     let (fin_tx, fin_rx) = oneshot::channel::<()>();
 
@@ -411,6 +452,8 @@ fn main() -> Result<()> {
     let slint_appsink = slint_sink.video_sink();
 
     let ui = MainWindow::new()?;
+
+    ui.global::<Bridge>().set_qr_code(qr_code_image);
 
     ui.window().set_rendering_notifier({
         let ui_weak = ui.as_weak();

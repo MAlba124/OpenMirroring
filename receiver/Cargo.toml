@@ -20,6 +20,7 @@ url = "2.5.4"
 thiserror = "2.0.12"
 clap = { version = "4.5.38", features = ["derive"] }
 mdns-sd.workspace = true
+qrcode = "0.14.1"
 
 [build-dependencies]
 slint-build.workspace = true

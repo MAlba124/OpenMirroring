@@ -36,8 +36,8 @@ export global Bridge {
     in-out property <bool> playing: false;
     in-out property <float> volume: 1.0;
 
-    // out property <bool> is-debugging: false;
-    out property <bool> is-debugging: true;
+    out property <bool> is-debugging: false;
+    in property <image> qr-code;
 
     callback resume-or-pause();
     callback seek-to-percent(float);
@@ -62,7 +62,6 @@ export global Bridge {
         if (pbstate == GuiPlaybackState.Live) {
             return "Live";
         }
-
         return "Invalid";
     }
 
@@ -401,6 +400,8 @@ component PlaybackControl {
 
 export component MainWindow inherits Window {
     title: "Open Mirroring Receiver";
+    // width: 100%;
+    // height: 100%;
 
     public function playback-started() {
         Bridge.playing = true;
@@ -445,24 +446,27 @@ export component MainWindow inherits Window {
                 Bridge.toggle-debug-mode();
                 return accept;
             }
+            if (event.modifiers.control && event.text == "f") {
+                Bridge.toggle-fullscreen();
+                return accept;
+            }
             return reject;
         }
     }
 
     Rectangle {
         visible: !Bridge.playing;
-        background: black;
+        background: @linear-gradient(155deg, #414141 0%, #000000 100%);
     }
 
-    HorizontalBox {
-        visible: !Bridge.playing;
-
-        alignment: space-around;
+    HorizontalLayout {
+        alignment: center;
         VerticalBox {
+            visible: !Bridge.playing;
             alignment: center;
             Text {
                 font-size: 26pt;
-                text: "OpenMirroring";
+                text: "Ready to cast";
                 font-weight: 800; // bold
                 horizontal-alignment: center;
                 color: white;
@@ -474,70 +478,30 @@ export component MainWindow inherits Window {
                 horizontal-alignment: center;
                 color: white;
             }
-            // if Bridge.connected_devices == 0: Spinner {
-            //     indeterminate: true;
-            // }
             if Bridge.connected_devices > 0: Text {
                 font-size: 12pt;
                 text: "Device is connected";
                 horizontal-alignment: center;
                 color: white;
             }
-        }
 
-        VerticalBox {
-            alignment: center;
             Rectangle {
-                VerticalBox {
-                    Text {
-                        horizontal-alignment: center;
-                        text: "Manual connection information";
-                        font-size: 12pt;
-                        color: white;
-                    }
-
-                    HorizontalRule {
-                        color: white.with-alpha(60%);
-                        height: 2px;
-                    }
-
-                    Text {
-                        horizontal-alignment: center;
-                        text: "IPs";
-                        color: white;
-                    }
-
-                    // if !Bridge.playing && Bridge.label.is-empty: Spinner {
-                    //     indeterminate: true;
-                    // }
-                    if !Bridge.playing && !Bridge.label.is-empty: Text {
-                        horizontal-alignment: center;
-                        text <=> Bridge.label;
-                        color: white;
-                    }
-                    Text {
-                        horizontal-alignment: center;
-                        text: "Port";
-                        color: white;
-                    }
-
-                    Text {
-                        horizontal-alignment: center;
-                        text: "46899 (TCP)";
-                        color: white;
-                    }
-
-                    Text {
-                        horizontal-alignment: center;
-                        text: "Automatic discovery is available via mDNS";
-                        color: white;
-                    }
+                width: 350px;
+                height: 350px;
+                border-radius: 8px;
+                clip: true;
+                background: white;
+                Image {
+                    width: 340px;
+                    height: 340px;
+                    source <=> Bridge.qr-code;
+                    image-rendering: pixelated;
                 }
             }
         }
     }
 
-    if (Bridge.is-debugging) : Rectangle {
+    if (Bridge.is-debugging): Rectangle {
         background: white.transparentize(0.25);
         x: 0;
         y: 0;
@@ -547,15 +511,19 @@ export component MainWindow inherits Window {
             Text {
                 text: "Connected devices: " + Bridge.connected_devices;
             }
+
             Text {
                 text: "Volume: " + Bridge.volume;
             }
+
             Text {
                 text: "Is playing: " + (Bridge.playing ? "true" : "false");
             }
+
             Text {
                 text: "Playback state: " + Bridge.gui-playback-state-to-string(Bridge.playback-state);
             }
+
             Text {
                 text: "Progress label: " + Bridge.progress-label;
             }
