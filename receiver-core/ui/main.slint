@@ -35,8 +35,8 @@ export global Bridge {
 
     in-out property <bool> playing: false;
     in-out property <float> volume: 1.0;
+    in-out property <bool> is-debugging: false;
 
-    out property <bool> is-debugging: false;
     in property <image> qr-code;
 
     callback resume-or-pause();
@@ -432,21 +432,19 @@ export component MainWindow inherits Window {
         playback-control.update-progress-percent(percent);
     }
 
-    // TODO: debug overlay
-
     forward-focus: key-handler;
 
     key-handler := FocusScope {
         key-pressed(event) => {
-            if (event.modifiers.control && event.text == "q") {
+            if (event.text == "q") {
                 Bridge.force-quit();
                 return accept;
             }
-            if (event.modifiers.control && event.text == "d") {
+            if (event.text == "d") {
                 Bridge.toggle-debug-mode();
                 return accept;
             }
-            if (event.modifiers.control && event.text == "f") {
+            if (event.text == "f") {
                 Bridge.toggle-fullscreen();
                 return accept;
             }

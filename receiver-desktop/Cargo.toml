@@ -1,0 +1,10 @@
+[package]
+name = "receiver-desktop"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+receiver-core = { path = "../receiver-core", features = ["desktop"] }
+env_logger.workspace = true
+common = { path = "../common" }
+anyhow.workspace = true

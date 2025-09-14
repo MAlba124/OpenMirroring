@@ -73,11 +73,10 @@ impl Pipeline {
 
         pipeline.add(&playbin)?;
 
-        pipeline.set_state(gst::State::Ready)?;
-
         tokio::spawn({
             let bus = pipeline.bus().ok_or(anyhow!("Pipeline without bus"))?;
             let event_tx = event_tx.clone();
+            let playbin_weak = playbin.downgrade();
 
             async move {
                 let mut messages = bus.stream();
@@ -90,13 +89,21 @@ impl Pipeline {
                             log_if_err!(event_tx.send(crate::Event::PipelineEos).await);
                         }
                         MessageView::StateChanged(state_change) => {
-                            log_if_err!(
-                                event_tx
-                                    .send(crate::Event::PipelineStateChanged(
-                                        state_change.current()
-                                    ))
-                                    .await
-                            );
+                            let Some(playbin) = playbin_weak.upgrade() else {
+                                continue;
+                            };
+                            if state_change.src().map(|s| s == &playbin).unwrap_or(false) {
+                                let current = state_change.current();
+                                // if current == gst::State::Playing {
+                                //     let current_url: String = playbin.property("uri");
+                                //     // TODO: get the rest...
+                                // }
+                                log_if_err!(
+                                    event_tx
+                                        .send(crate::Event::PipelineStateChanged(current))
+                                        .await
+                                );
+                            }
                         }
                         MessageView::Error(err) => {
                             error!(
@@ -107,13 +114,18 @@ impl Pipeline {
                             );
                             log_if_err!(event_tx.send(crate::Event::PipelineError).await);
                         }
+                        MessageView::Tag(tag) => {
+                            debug!("Tag bus message: {:?}", tag);
+                        }
                         _ => (),
                     }
                 }
             }
         });
 
-        playbin.set_property("video-sink", &appsink);
+        playbin.set_property("video-sink", appsink);
+
+        pipeline.set_state(gst::State::Ready)?;
 
         Ok(Self {
             inner: pipeline,

@@ -8,14 +8,14 @@ tokio = { workspace = true }
 log = { workspace = true }
 anyhow = { workspace = true }
 slint = { workspace = true }
-gst-gl = { workspace = true, optional = true }
-gst-video = { workspace = true, optional = true, features = [ "v1_24" ] }
-gst-pbutils = { package = "gstreamer-pbutils", version = "0.23.5", features = [ "v1_24" ], optional = true }
-gst = { workspace = true, optional = true, features = [ "v1_24" ] }
-gst-app = { workspace = true, optional = true, features = [ "v1_24" ] }
+gst-gl = { workspace = true, optional = true, features = ["v1_26"] }
+gst-video = { workspace = true, optional = true, features = ["v1_26"] }
+gst-pbutils = { package = "gstreamer-pbutils", version = "0.23.5", features = [ "v1_26" ], optional = true }
+gst = { workspace = true, optional = true, features = [ "v1_26" ] }
+gst-app = { workspace = true, optional = true, features = [ "v1_26" ] } # Can go
 gst-rtsp = { package = "gstreamer-rtsp", version = "0.23.5", optional = true}
 gst-rtsp-server = { package = "gstreamer-rtsp-server", version = "0.23.5", optional = true}
-gst-webrtc = { git = "https://github.com/MAlba124/gst-plugins-rs.git", rev = "9fd4a8ab5817630bc6d6d0cca2fad6478f8c0f5c", package = "gst-plugin-webrtc", features = ["whep"] }
+# gst-webrtc = { git = "https://github.com/MAlba124/gst-plugins-rs.git", rev = "9fd4a8ab5817630bc6d6d0cca2fad6478f8c0f5c", package = "gst-plugin-webrtc", features = ["whep"] }
 memchr = "2.7.5"
 
 gio = { version = "0.20.9", optional = true }
@@ -34,10 +34,14 @@ pnet_datalink = "0.35.0"
 ipnetwork = "0.20.0"
 
 [target.'cfg(target_os = "linux")'.dependencies]
-gst-gl-egl = { package = "gstreamer-gl-egl", version = "0.24.0", optional = true }
-gst-gl-x11 = { package = "gstreamer-gl-x11", version = "0.24.0", optional = true }
+gst-gl-egl = { package = "gstreamer-gl-egl", version = "0.24.0", features = [ "v1_26" ], optional = true }
+gst-gl-x11 = { package = "gstreamer-gl-x11", version = "0.24.0", features = [ "v1_26" ], optional = true }
 glutin_egl_sys = { version = "0.7.1", optional = true }
 glutin_glx_sys = { version = "0.6.1", optional = true }
+
+[target.'cfg(target_os = "android")'.dependencies]
+gst-gl-egl = { package = "gstreamer-gl-egl", version = "0.24.0", features = [ "v1_26" ], optional = true }
+glutin_egl_sys = { version = "0.7.1", optional = true }
 
 [features]
 video = ["gst", "gst-app", "gst-video", "gst-gl", "gst-gl-egl", "gst-gl-x11", "glutin_egl_sys", "glutin_glx_sys",]

@@ -15,17 +15,19 @@
 // You should have received a copy of the GNU General Public License
 // along with OpenMirroring.  If not, see <https://www.gnu.org/licenses/>.
 
-use anyhow::{bail, Context, Result};
+use anyhow::{Context, Result, bail};
+use fcast_lib::models::{
+    PlayMessage, PlaybackUpdateMessage, SeekMessage, SetSpeedMessage, SetVolumeMessage,
+    VolumeUpdateMessage,
+};
 // use clap::Parser;
 use common::video::opengl::SlintOpenGLSink;
-use fcast_lib::models::{PlaybackUpdateMessage, SetVolumeMessage, VolumeUpdateMessage};
 use fcast_lib::packet::Packet;
 use gst::glib::base64_encode;
 use log::{debug, error, warn};
-use receiver::pipeline::Pipeline;
-use receiver::session::{Session, SessionId};
-use receiver::video_underlay::VideoUnderlay;
-use receiver::{Event, log_if_err};
+use pipeline::Pipeline;
+use session::{Session, SessionId};
+use video_underlay::VideoUnderlay;
 use tokio::net::TcpListener;
 use tokio::sync::mpsc::{self, Receiver, Sender};
 use tokio::sync::{broadcast, oneshot};
@@ -33,6 +35,40 @@ use tokio::sync::{broadcast, oneshot};
 use std::net::{IpAddr, Ipv4Addr};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
+
+pub use slint;
+
+pub mod pipeline;
+pub mod session;
+pub mod video_underlay;
+
+#[derive(Debug)]
+pub enum Event {
+    Pause,
+    Play(PlayMessage),
+    Resume,
+    Stop,
+    SetSpeed(SetSpeedMessage),
+    Seek(SeekMessage),
+    SetVolume(SetVolumeMessage),
+    Quit,
+    PipelineEos,
+    PipelineError,
+    SessionFinished,
+    ResumeOrPause,
+    SeekPercent(f32),
+    PipelineStateChanged(gst::State),
+    ToggleDebug,
+}
+
+#[macro_export]
+macro_rules! log_if_err {
+    ($res:expr) => {
+        if let Err(err) = $res {
+            error!("{err}");
+        }
+    };
+}
 
 const FCAST_TCP_PORT: u16 = 46899;
 const SENDER_UPDATE_INTERVAL: Duration = Duration::from_secs(1);
@@ -186,7 +222,8 @@ impl Application {
             }
             Event::Pause => {
                 self.pipeline.pause().context("failed to pause pipeline")?;
-                self.notify_updates().context("failed to notify about updates")?;
+                self.notify_updates()
+                    .context("failed to notify about updates")?;
             }
             Event::Play(play_message) => {
                 let Some(url) = play_message.url else {
@@ -195,7 +232,7 @@ impl Application {
                 };
 
                 if let Err(err) = self.pipeline.set_playback_uri(&url) {
-                    use receiver::pipeline::SetPlaybackUriError;
+                    use pipeline::SetPlaybackUriError;
                     match err {
                         SetPlaybackUriError::PipelineStateChange(state_change_error) => {
                             return Err(state_change_error.into());
@@ -212,10 +249,14 @@ impl Application {
                     self.ui_weak.upgrade_in_event_loop(|ui| {
                         ui.invoke_playback_started();
                     })?;
-                    self.notify_updates().context("failed to notify about updates")?;
+                    self.notify_updates()
+                        .context("failed to notify about updates")?;
                 }
             }
-            Event::Resume => self.pipeline.play_or_resume().context("failed to play or resume pipeline")?,
+            Event::Resume => self
+                .pipeline
+                .play_or_resume()
+                .context("failed to play or resume pipeline")?,
             Event::ResumeOrPause => {
                 let Some(playing) = self.pipeline.is_playing() else {
                     warn!("Pipeline is not in a state that can be resumed or paused");
@@ -228,7 +269,8 @@ impl Application {
                 } {
                     error!("Failed to play or resume: {err}");
                 }
-                self.notify_updates().context("failed to notify about updates")?;
+                self.notify_updates()
+                    .context("failed to notify about updates")?;
             }
             Event::Stop => {
                 self.pipeline.stop()?;
@@ -236,9 +278,10 @@ impl Application {
                     ui.invoke_playback_stopped();
                 })?;
             }
-            Event::SetSpeed(set_speed_message) => {
-                self.pipeline.set_speed(set_speed_message.speed).context("failed to set speed")?
-            }
+            Event::SetSpeed(set_speed_message) => self
+                .pipeline
+                .set_speed(set_speed_message.speed)
+                .context("failed to set speed")?,
             Event::Seek(seek_message) => {
                 if let Err(err) = self.pipeline.seek(seek_message.time) {
                     error!("Seek error: {err}");
@@ -295,7 +338,9 @@ impl Application {
                 })?;
             }
             Event::PipelineStateChanged(state) => match state {
-                gst::State::Paused | gst::State::Playing => self.notify_updates().context("failed to notify about updates")?,
+                gst::State::Paused | gst::State::Playing => self
+                    .notify_updates()
+                    .context("failed to notify about updates")?,
                 _ => (),
             },
             Event::ToggleDebug => self.debug_mode = !self.debug_mode,
@@ -329,9 +374,9 @@ impl Application {
                     }
                 }
                 _ = update_interval.tick() => {
-                    if self.pipeline.is_playing() == Some(true) {
+                    // if self.pipeline.is_playing() == Some(true) {
                         self.notify_updates()?;
-                    }
+                    // }
                 }
                 session = dispatch_listener.accept() => {
                     let (stream, _) = session?;
@@ -386,20 +431,10 @@ struct CliArgs {
     // no_background: bool,
 }
 
-fn main() -> Result<()> {
-    env_logger::Builder::from_default_env()
-        .filter_module("receiver", common::default_log_level())
-        .init();
-
-    // let cli_args = CliArgs::parse();
-
-    if std::env::var("SLINT_BACKEND") == Err(std::env::VarError::NotPresent) {
-        slint::BackendSelector::new()
-            .backend_name("winit".into())
-            .require_opengl()
-            .select()?;
-    }
-
+/// Run the main app.
+///
+/// Slint and friends are assumed to be initialized by the platform specific target.
+pub fn run() -> Result<()> {
     gst::init()?;
 
     let mut ips: Vec<Ipv4Addr> = Vec::new();
@@ -454,6 +489,9 @@ fn main() -> Result<()> {
     let ui = MainWindow::new()?;
 
     ui.global::<Bridge>().set_qr_code(qr_code_image);
+
+    #[cfg(debug_assertions)]
+    ui.global::<Bridge>().set_is_debugging(true);
 
     ui.window().set_rendering_notifier({
         let ui_weak = ui.as_weak();

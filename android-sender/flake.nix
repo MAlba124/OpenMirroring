@@ -58,8 +58,9 @@
             shellHook = ''
                 export ANDROID_HOME="$HOME/Android/Sdk";
                 export ANDROID_NDK_ROOT="$HOME/Android/Sdk/ndk/29.0.13113456";
-                # export GSTREAMER_ROOT_ANDROID="$(pwd)/gst-android-1.0-1.24.12";
-                export GSTREAMER_ROOT_ANDROID="$(pwd)/gst-android-1.0-1.26.1";
+                # export GSTREAMER_ROOT_ANDROID="$(pwd)/gst-android-1.0-1.26.1";
+                # export GSTREAMER_ROOT_ANDROID="$(pwd)/gst-android-1.0-1.26.5";
+                export GSTREAMER_ROOT_ANDROID="/home/merb/sub/Programming/OpenMirroring/receiver-android/gst-android-1.0-1.26.5";
                 export PKG_CONFIG_ALLOW_CROSS=1
 
                 # Add more when targeting other archs

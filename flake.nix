@@ -61,6 +61,7 @@
             openssl
             libnice
             fontconfig
+            freetype
 
             # KMS:
             seatd

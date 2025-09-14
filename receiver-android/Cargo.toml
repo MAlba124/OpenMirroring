@@ -1,0 +1,29 @@
+[package]
+name = "receiver-android"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+receiver-core = { path = "../receiver-core", features = ["android"] }
+env_logger.workspace = true
+common = { path = "../common" }
+anyhow.workspace = true
+android_logger = "0.15.1"
+log-panics = { version = "2.1.0", features = ["with-backtrace"]}
+log.workspace = true
+
+[lib]
+name = "openmirroringreceiver"
+crate-type = ["cdylib"]
+
+[package.metadata.android]
+package = "com.foo.bar" # TODO
+build_targets = ["aarch64-linux-android", "armv7-linux-androideabi", "x86_64-linux-android", "i686-linux-android"]
+
+# See https://developer.android.com/guide/topics/manifest/uses-sdk-element
+#
+# Defaults to a `min_sdk_version` of 23 and `target_sdk_version` of 30 (or lower if the detected NDK doesn't support this).
+# TODO
+[package.metadata.android.sdk]
+min_sdk_version = 34
+target_sdk_version = 35

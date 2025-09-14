@@ -15,7 +15,7 @@
 // You should have received a copy of the GNU General Public License
 // along with OpenMirroring.  If not, see <https://www.gnu.org/licenses/>.
 
-use anyhow::{Result, bail};
+use anyhow::Result;
 use std::{
     num::NonZero,
     sync::{Arc, Mutex},
@@ -33,13 +33,14 @@ pub struct SlintOpenGLSink {
     gst_gl_context: Option<gst_gl::GLContext>,
 }
 
+#[cfg(target_os = "linux")]
 fn is_on_wayland() -> Result<bool> {
     if std::env::var("WAYLAND_DISPLAY").is_ok() {
         Ok(true)
     } else if std::env::var("DISPLAY").is_ok() {
         Ok(false)
     } else {
-        bail!("Unsupported platform")
+        anyhow::bail!("Unsupported platform")
     }
 }
 
@@ -76,7 +77,7 @@ impl SlintOpenGLSink {
         self.glsink.clone().upcast()
     }
 
-    #[cfg(target_os = "linux")]
+    #[cfg(any(target_os = "linux", target_os = "android"))]
     fn get_egl_ctx(
         graphics_api: &slint::GraphicsAPI<'_>,
     ) -> Result<(gst_gl::GLContext, gst_gl::GLDisplay)> {
@@ -185,6 +186,8 @@ impl SlintOpenGLSink {
                 Ok(false) => Self::get_glx_ctx(graphics_api)?
             }
         };
+        #[cfg(target_os = "android")]
+        let (gst_gl_context, gst_gl_display) = Self::get_egl_ctx(graphics_api)?;
         #[cfg(target_os = "windows")]
         let (gst_gl_context, gst_gl_display) = Self::get_wgl_ctx()?;
 

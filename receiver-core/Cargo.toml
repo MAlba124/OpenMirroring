@@ -1,13 +1,12 @@
 [package]
-name = "receiver"
+name = "receiver-core"
 version = "0.1.0"
 edition = "2024"
 
 [dependencies]
 tokio.workspace = true
 log.workspace = true
-env_logger.workspace = true
-gst.workspace = true
+gst = { workspace = true, features = [ "v1_26" ] }
 fcast-lib = { path = "../fcast-lib" }
 common = { path = "../common", features = ["video"] }
 gethostname = "1.0.1"
@@ -24,3 +23,8 @@ qrcode = "0.14.1"
 
 [build-dependencies]
 slint-build.workspace = true
+
+[features]
+desktop = ["slint/backend-linuxkms"]
+android = ["slint/backend-android-activity-06"]
+default = []
