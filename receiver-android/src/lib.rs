@@ -8,6 +8,11 @@ fn android_main(app: slint::android::AndroidApp) {
         android_logger::Config::default().with_max_level(log::LevelFilter::Debug),
     );
 
+    receiver_core::slint::BackendSelector::new()
+        .require_wgpu_26(receiver_core::slint::wgpu_26::WGPUConfiguration::default())
+        .select()
+        .unwrap();
+
     slint::android::init(app).unwrap();
 
     #[cfg(debug_assertions)]

@@ -92,7 +92,7 @@ fn main() {
     let clang_version =
         env::var("NDK_CLANG_VERSION").unwrap_or_else(|_| DEFAULT_CLANG_VERSION.to_owned());
     let linux_x86_64_lib_dir = format!(
-    // let linux_arm64_lib_dir = format!(
+        // let linux_arm64_lib_dir = format!(
         "toolchains/llvm/prebuilt/{}-x86_64/lib/clang/{clang_version}/lib/linux/",
         // "toolchains/llvm/prebuilt/{}-arm64/lib/clang/{clang_version}/lib/linux/",
         env::consts::OS

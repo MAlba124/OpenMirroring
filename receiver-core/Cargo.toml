@@ -8,18 +8,20 @@ tokio.workspace = true
 log.workspace = true
 gst = { workspace = true, features = [ "v1_26" ] }
 fcast-lib = { path = "../fcast-lib" }
-common = { path = "../common", features = ["video"] }
+common.path = "../common"
 gethostname = "1.0.1"
-slint = { workspace = true, features = ["backend-linuxkms"] }
+# slint = { workspace = true, features = ["backend-linuxkms"] }
+slint = { workspace = true, features = ["unstable-wgpu-26"] }
 anyhow.workspace = true
 futures.workspace = true
 tokio-stream.workspace = true
-glow = "0.16.0"
 url = "2.5.4"
 thiserror = "2.0.12"
 clap = { version = "4.5.38", features = ["derive"] }
 mdns-sd.workspace = true
 qrcode = "0.14.1"
+gst-app.workspace = true
+gst-video.workspace = true
 
 [build-dependencies]
 slint-build.workspace = true

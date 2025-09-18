@@ -6,7 +6,7 @@ fn main() -> anyhow::Result<()> {
 
     if std::env::var("SLINT_BACKEND") == Err(std::env::VarError::NotPresent) {
         receiver_core::slint::BackendSelector::new()
-            .require_opengl()
+            .require_wgpu_26(receiver_core::slint::wgpu_26::WGPUConfiguration::default())
             .select()?;
     }
 

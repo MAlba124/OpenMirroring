@@ -35,7 +35,7 @@ CORE := coreelements coretracers adder app audioconvert audiomixer audiorate aud
 CODECS := subparse ogg theora vorbis opus adaptivedemux2 alaw amrnb amrwbdec apetag audioparsers auparse avi dv flac flv flxdec icydemux id3demux isomp4 jpeg lame matroska mpg123 mulaw multipart png speex taglib vpx wavenc wavpack wavparse xingmux y4menc adpcmdec adpcmenc assrender bz2 codecalpha codectimestamper dash dvbsubenc dvbsuboverlay dvdspu hls id3tag ivfparse midi mxf openh264 opusparse pcapparse pnm rfbsrc siren smoothstreaming subenc transcode videoparsersbad y4mdec jpegformat gdp openjpeg spandsp sbc zbar rsvg svtav1 x265 androidmedia cdg claxon dav1d rsclosedcaption ffv1 fmp4 mp4 gif hsv lewton rav1e json rspng regex textwrap textahead
 # NET := tcp rtsp rtp rtpmanager soup udp dtls netsim rist rtmp2 rtpmanagerbad rtponvif sctp sdpelem srtp srt webrtc nice rtspclientsink aws hlssink3 hlsmultivariantsink mpegtslive ndi quinn rsonvif raptorq rsrelationmeta reqwest rsrtp rsrtsp webrtchttp rswebrtc
 NET := tcp rtsp rtp rtpmanager soup udp dtls netsim rist rtmp2 rtpmanagerbad rtponvif sctp sdpelem srtp srt webrtc nice rtspclientsink aws hlssink3 hlsmultivariantsink mpegtslive ndi quinn rsonvif raptorq reqwest rsrtp rsrtsp webrtchttp rswebrtc
-GSTREAMER_PLUGINS         := $(CORE) $(CODECS) $(GSTREAMER_PLUGINS_PLAYBACK) $(NET) $(GSTREAMER_PLUGINS_SYS)
+GSTREAMER_PLUGINS         := $(CORE) $(CODECS) $(GSTREAMER_PLUGINS_PLAYBACK) $(NET)
 
 # GSTREAMER_EXTRA_DEPS      := gstreamer-video-1.0 glib-2.0 gstreamer-app-1.0 gstreamer-base-1.0 gstreamer-webrtc-1.0
 GSTREAMER_EXTRA_DEPS      := gstreamer-video-1.0 gstreamer-gl-1.0 gstreamer-app-1.0 gstreamer-base-1.0 gstreamer-webrtc-1.0

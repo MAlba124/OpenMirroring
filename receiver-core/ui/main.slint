@@ -38,6 +38,7 @@ export global Bridge {
     in-out property <bool> is-debugging: false;
 
     in property <image> qr-code;
+    in property <image> video-frame;
 
     callback resume-or-pause();
     callback seek-to-percent(float);
@@ -449,6 +450,19 @@ export component MainWindow inherits Window {
                 return accept;
             }
             return reject;
+        }
+    }
+
+    Rectangle {
+        width: 100%;
+        height: 100%;
+        visible: Bridge.playing;
+        background: black;
+        Image {
+            source <=> Bridge.video-frame;
+            image-fit: contain;
+            width: 100%;
+            height: 100%;
         }
     }
 

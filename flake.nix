@@ -62,6 +62,7 @@
             libnice
             fontconfig
             freetype
+            vulkan-loader
 
             # KMS:
             seatd

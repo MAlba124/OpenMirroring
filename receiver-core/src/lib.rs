@@ -21,13 +21,14 @@ use fcast_lib::models::{
     VolumeUpdateMessage,
 };
 // use clap::Parser;
-use common::video::opengl::SlintOpenGLSink;
 use fcast_lib::packet::Packet;
 use gst::glib::base64_encode;
+use gst::glib::object::Cast;
+use gst::prelude::{ElementExt, GstBinExtManual};
 use log::{debug, error, warn};
 use pipeline::Pipeline;
 use session::{Session, SessionId};
-use video_underlay::VideoUnderlay;
+use slint::wgpu_26::wgpu;
 use tokio::net::TcpListener;
 use tokio::sync::mpsc::{self, Receiver, Sender};
 use tokio::sync::{broadcast, oneshot};
@@ -40,7 +41,6 @@ pub use slint;
 
 pub mod pipeline;
 pub mod session;
-pub mod video_underlay;
 
 #[derive(Debug)]
 pub enum Event {
@@ -80,6 +80,181 @@ fn current_time_millis() -> u64 {
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap()
         .as_millis() as u64
+}
+
+pub struct WgpuSink {
+    appsink: gst_app::AppSink,
+    pub sinkbin: gst::Bin,
+}
+
+impl WgpuSink {
+    const TEXTURE_USAGE: wgpu::TextureUsages = wgpu::TextureUsages::COPY_DST
+        .union(wgpu::TextureUsages::TEXTURE_BINDING.union(wgpu::TextureUsages::RENDER_ATTACHMENT));
+
+    fn create_texture(
+        device: &wgpu::Device,
+        size: wgpu::Extent3d,
+        format: wgpu::TextureFormat,
+    ) -> wgpu::Texture {
+        device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("video frame texture"),
+            size,
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format,
+            usage: Self::TEXTURE_USAGE,
+            view_formats: &[],
+        })
+    }
+
+    pub fn new() -> Result<Self> {
+        let appsink = gst_app::AppSink::builder()
+            .drop(true)
+            .caps(
+                &gst_video::VideoCapsBuilder::new()
+                    .format_list([
+                        gst_video::VideoFormat::Rgba,
+                        gst_video::VideoFormat::Bgra,
+                        // gst_video::VideoFormat::Nv12, // TODO: support this (and more) yuv format for less copies and processing upstream
+                    ])
+                    .pixel_aspect_ratio(gst::Fraction::new(1, 1))
+                    .build(),
+            )
+            .enable_last_sample(false)
+            .max_buffers(1u32)
+            .build();
+
+        let videoconvert = gst::ElementFactory::make("videoconvert").build()?;
+        let sinkbin = gst::Bin::new();
+
+        sinkbin.add_many([&videoconvert, appsink.upcast_ref()])?;
+        gst::Element::link_many([&videoconvert, appsink.upcast_ref()])?;
+
+        let videoconvert_pad = videoconvert
+            .static_pad("sink")
+            .ok_or(anyhow::anyhow!("Could not get sink pad from videoconvert"))?;
+        let ghost = gst::GhostPad::with_target(&videoconvert_pad)?;
+        sinkbin.add_pad(&ghost)?;
+
+        Ok(Self { appsink, sinkbin })
+    }
+
+    pub fn connect(
+        &mut self,
+        ui_weak: slint::Weak<MainWindow>,
+        device: wgpu::Device,
+        queue: wgpu::Queue,
+    ) -> Result<()> {
+        let texture_back = Arc::new(std::sync::Mutex::new(None::<wgpu::Texture>));
+        self.appsink.set_callbacks(
+            gst_app::AppSinkCallbacks::builder()
+                .new_sample(move |appsink| {
+                    let sample = appsink
+                        .pull_sample()
+                        .map_err(|_| gst::FlowError::Flushing)?;
+
+                    let Some(buffer) = sample.buffer() else {
+                        error!("Could not get buffer from pulled sample");
+                        return Err(gst::FlowError::Error);
+                    };
+
+                    let Some(info) = sample
+                        .caps()
+                        .and_then(|caps| gst_video::VideoInfo::from_caps(caps).ok())
+                    else {
+                        error!("Got invalid caps");
+                        return Err(gst::FlowError::NotNegotiated);
+                    };
+
+                    let readable = buffer.map_readable().map_err(|_| gst::FlowError::Error)?;
+                    let frame = readable.as_slice();
+
+                    let pixel_format = match info.format() {
+                        gst_video::VideoFormat::Rgba => wgpu::TextureFormat::Rgba8Unorm,
+                        gst_video::VideoFormat::Bgra => wgpu::TextureFormat::Bgra8Unorm,
+                        _ => {
+                            error!("Got unsupportedformat: {:?}", info.format());
+                            return Err(gst::FlowError::NotNegotiated);
+                        }
+                    };
+
+                    let expected_size = info.width() as usize * info.height() as usize * 4;
+                    if expected_size != frame.len() {
+                        error!(
+                            "Frame is not correct size: expected {expected_size}, got {}",
+                            frame.len()
+                        );
+                        return Err(gst::FlowError::Error);
+                    }
+
+                    let frame_size = wgpu::Extent3d {
+                        width: info.width(),
+                        height: info.height(),
+                        depth_or_array_layers: 1,
+                    };
+
+                    let texture_usage = wgpu::TextureUsages::COPY_DST
+                        | wgpu::TextureUsages::TEXTURE_BINDING
+                        | wgpu::TextureUsages::RENDER_ATTACHMENT;
+
+                    let texture = {
+                        let maybe_texture = texture_back.lock().unwrap().take();
+                        if let Some(texture) = maybe_texture {
+                            if texture.format() != wgpu::TextureFormat::Rgba8Unorm
+                                || texture.width() != info.width()
+                                || texture.height() != info.height()
+                                || texture.dimension() != wgpu::TextureDimension::D2
+                                || texture.usage() != texture_usage
+                            {
+                                Self::create_texture(&device, frame_size, pixel_format)
+                            } else {
+                                texture
+                            }
+                        } else {
+                            Self::create_texture(&device, frame_size, pixel_format)
+                        }
+                    };
+
+                    queue.write_texture(
+                        texture.as_image_copy(),
+                        frame,
+                        wgpu::TexelCopyBufferLayout {
+                            offset: 0,
+                            bytes_per_row: Some(info.width() * 4),
+                            rows_per_image: Some(info.height()),
+                        },
+                        frame_size,
+                    );
+
+                    let texture_back = Arc::clone(&texture_back);
+
+                    ui_weak
+                        .upgrade_in_event_loop(move |ui| {
+                            match slint::Image::try_from(texture) {
+                                Ok(frame) => {
+                                    let mut texture_back = texture_back.lock().unwrap();
+                                    *texture_back = ui
+                                        .global::<Bridge>()
+                                        .get_video_frame()
+                                        .to_wgpu_26_texture();
+
+                                    ui.global::<Bridge>().set_video_frame(frame)
+                                }
+                                Err(err) => {
+                                    error!("Failed to create image from texture: {err}")
+                                }
+                            };
+                        })
+                        .map_err(|_| gst::FlowError::Error)?;
+
+                    Ok(gst::FlowSuccess::Ok)
+                })
+                .build(),
+        );
+
+        Ok(())
+    }
 }
 
 struct Application {
@@ -483,8 +658,8 @@ pub fn run() -> Result<()> {
     let (event_tx, event_rx) = mpsc::channel::<Event>(100);
     let (fin_tx, fin_rx) = oneshot::channel::<()>();
 
-    let mut slint_sink = SlintOpenGLSink::new()?;
-    let slint_appsink = slint_sink.video_sink();
+    let mut slint_sink = WgpuSink::new()?;
+    let slint_appsink = slint_sink.sinkbin.clone().upcast::<gst::Element>();
 
     let ui = MainWindow::new()?;
 
@@ -496,57 +671,19 @@ pub fn run() -> Result<()> {
     ui.window().set_rendering_notifier({
         let ui_weak = ui.as_weak();
 
-        let mut video_underlay: Option<VideoUnderlay> = None;
-
-        move |state, graphics_api| match state {
-            slint::RenderingState::RenderingSetup => {
+        move |state, graphics_api| {
+            if let slint::RenderingState::RenderingSetup = state {
                 debug!("Got graphics API: {graphics_api:?}");
                 let ui_weak = ui_weak.clone();
-                slint_sink
-                    .connect(graphics_api, move || {
-                        ui_weak
-                            .upgrade_in_event_loop(move |ui| {
-                                ui.window().request_redraw();
-                            })
-                            .ok();
-                    })
-                    .unwrap();
-                let glow_context = match graphics_api {
-                    slint::GraphicsAPI::NativeOpenGL { get_proc_address } => unsafe {
-                        glow::Context::from_loader_function_cstr(|s| get_proc_address(s))
-                    },
-                    _ => unreachable!(),
-                };
-
-                let glow_context = std::rc::Rc::new(glow_context);
-
-                video_underlay = Some(VideoUnderlay::new(glow_context).unwrap());
-            }
-            slint::RenderingState::BeforeRendering => {
-                let Some(ui) = ui_weak.upgrade() else {
-                    error!("Failed to upgrade ui");
-                    return;
-                };
-
-                // TODO: don't render the video when the frame is from the old source (i.e. playback was
-                //       stopped, then new source was set and for a brief moment the last displayed frame
-                //       of the old source becomes visible.)
-                if ui.global::<Bridge>().get_playing() {
-                    let Some((texture, size)) = slint_sink.fetch_next_frame_as_texture() else {
-                        return;
-                    };
-                    let Some(underlay) = video_underlay.as_mut() else {
-                        return;
-                    };
-
-                    let win_size = ui.window().size();
-                    underlay.render(texture, win_size.width, win_size.height, size[0], size[1]);
+                match graphics_api {
+                    slint::GraphicsAPI::WGPU26 { device, queue, .. } => {
+                        slint_sink
+                            .connect(ui_weak, device.clone(), queue.clone())
+                            .unwrap(); // TODO: gracefully handle error (show in UI maybe?)
+                    }
+                    _ => panic!("Unsupported graphics api ({graphics_api:?})"),
                 }
             }
-            slint::RenderingState::RenderingTeardown => {
-                slint_sink.deactivate_and_pause().unwrap();
-            }
-            _ => (),
         }
     })?;
 

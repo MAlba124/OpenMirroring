@@ -4,12 +4,8 @@ resolver = "2"
 members = [ "fcast-lib", "common", "receiver-core", "receiver-desktop", "receiver-android", "receiver-ios"]
 
 [workspace.dependencies]
-# gst-video = { package = "gstreamer-video", version = "0.24.1" }
 gst-video = { package = "gstreamer-video", version = "0.24.0", features = ["v1_26"] }
 gst-app = { package = "gstreamer-app", version = "0.24.0", features = ["v1_26"] }
-# gst-gl = { package = "gstreamer-gl", version = "0.24.1" }
-gst-gl = { package = "gstreamer-gl", version = "0.24.0", features = ["v1_26"] }
-# gst = { package = "gstreamer", version = "0.24.1" }
 gst = { package = "gstreamer", version = "0.24.0", features = ["v1_26"] }
 tokio = { version = "1", features = ["net", "io-util", "macros", "sync", "rt-multi-thread", "time"] }
 log = "0.4.22"
@@ -29,3 +25,6 @@ crossbeam-channel = "0.5.15"
 lto = true
 codegen-units = 1
 strip = true
+
+[profile.dev.package."*"]
+opt-level = 3
