@@ -21,7 +21,9 @@ pub fn get_all_ip_addresses() -> Vec<IpAddr> {
 pub fn get_default_ipv4_addr() -> Ipv4Addr {
     let addrs = get_all_ip_addresses();
     for addr in addrs {
-        if let IpAddr::V4(v4) = addr && !v4.is_loopback() {
+        if let IpAddr::V4(v4) = addr
+            && !v4.is_loopback()
+        {
             return v4;
         }
     }

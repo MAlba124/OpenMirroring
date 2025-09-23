@@ -17,7 +17,7 @@ The current platform support matrix looks like this:
 |            |Linux (Wayland)  |Linux (X11)  |Windows       |MacOS     |
 |------------|-----------------|-------------|--------------|----------|
 |OMSender    |Yes              |Yes          |~~Yes~~ No^1  |No^1      |
-|OMReceiver  |Yes              |Yes          |Yes           |Untested  |
+|OMReceiver  |Yes              |Yes          |Yes           |Yes       |
 
 1: Support is planned
 

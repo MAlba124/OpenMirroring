@@ -7,10 +7,9 @@ edition = "2024"
 tokio.workspace = true
 log.workspace = true
 gst = { workspace = true, features = [ "v1_26" ] }
-fcast-lib = { path = "../fcast-lib" }
+fcast-protocol.workspace = true
 common.path = "../common"
 gethostname = "1.0.1"
-# slint = { workspace = true, features = ["backend-linuxkms"] }
 slint = { workspace = true, features = ["unstable-wgpu-26"] }
 anyhow.workspace = true
 futures.workspace = true

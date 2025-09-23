@@ -1013,7 +1013,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "crossbeam-channel",
- "fcast-lib",
+ "fcast-protocol",
  "futures",
  "gio",
  "gstreamer 0.24.2",
@@ -1027,6 +1027,7 @@ dependencies = [
  "mdns-sd",
  "memchr",
  "pnet_datalink",
+ "serde_json",
  "slint",
  "tokio",
  "tokio-stream",
@@ -1614,14 +1615,15 @@ dependencies = [
 ]
 
 [[package]]
-name = "fcast-lib"
-version = "0.1.0"
+name = "fcast-protocol"
+version = "0.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "335d9bf9cf23159cb954fc423f82ee8a047e0e45f7766ce2a226f0ac2e0b95d2"
 dependencies = [
- "anyhow",
  "serde",
  "serde_json",
  "serde_repr",
- "tokio",
+ "thiserror 2.0.16",
 ]
 
 [[package]]
@@ -4933,7 +4935,7 @@ dependencies = [
  "anyhow",
  "clap",
  "common",
- "fcast-lib",
+ "fcast-protocol",
  "futures",
  "gethostname",
  "gstreamer 0.24.2",

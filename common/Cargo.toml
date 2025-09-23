@@ -22,7 +22,8 @@ futures = { workspace = true, optional = true }
 tokio-stream = { workspace = true, optional = true }
 mdns-sd = { workspace = true, optional = true }
 
-fcast-lib = { path = "../fcast-lib", optional = true }
+fcast-protocol.workspace = true
+serde_json.workspace = true
 crossbeam-channel = { version = "0.5.15", optional = true }
 
 [target.'cfg(target_os = "windows")'.dependencies]
@@ -33,5 +34,4 @@ pnet_datalink = "0.35.0"
 ipnetwork = "0.20.0"
 
 [features]
-sender = ["gst", "gst-video", "gio", "gst-pbutils", "crossbeam-channel", "gst-app", "futures",
-        "fcast-lib", "tokio-stream", "mdns-sd", "gst-rtsp", "gst-rtsp-server",]
+sender = ["gst", "gst-video", "gio", "gst-pbutils", "crossbeam-channel", "gst-app", "futures", "tokio-stream", "mdns-sd", "gst-rtsp", "gst-rtsp-server"]

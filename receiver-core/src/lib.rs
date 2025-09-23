@@ -16,12 +16,12 @@
 // along with OpenMirroring.  If not, see <https://www.gnu.org/licenses/>.
 
 use anyhow::{Context, Result, bail};
-use fcast_lib::models::{
-    PlayMessage, PlaybackUpdateMessage, SeekMessage, SetSpeedMessage, SetVolumeMessage,
-    VolumeUpdateMessage,
+use common::Packet;
+use fcast_protocol::{
+    SeekMessage, SetSpeedMessage, SetVolumeMessage, VolumeUpdateMessage,
+    v2::{PlayMessage, PlaybackUpdateMessage},
+    v3::PlaybackState,
 };
-// use clap::Parser;
-use fcast_lib::packet::Packet;
 use gst::glib::base64_encode;
 use gst::glib::object::Cast;
 use gst::prelude::{ElementExt, GstBinExtManual};
@@ -352,7 +352,7 @@ impl Application {
             (pipeline_playback_state.time / pipeline_playback_state.duration * 100.0) as f32;
         let playback_state = {
             let is_live = self.pipeline.is_live();
-            use fcast_lib::models::PlaybackState;
+            // use fcast_lib::models::PlaybackState;
             match pipeline_playback_state.state {
                 PlaybackState::Playing | PlaybackState::Paused if is_live => GuiPlaybackState::Live,
                 PlaybackState::Playing => GuiPlaybackState::Playing,
@@ -372,11 +372,11 @@ impl Application {
             && self.last_sent_update.elapsed() >= SENDER_UPDATE_INTERVAL
         {
             let update = PlaybackUpdateMessage {
-                generation: current_time_millis(),
-                time: Some(pipeline_playback_state.time),
-                duration: Some(pipeline_playback_state.duration),
-                state: pipeline_playback_state.state,
-                speed: Some(pipeline_playback_state.speed),
+                generation_time: current_time_millis(),
+                time: pipeline_playback_state.time,
+                duration: pipeline_playback_state.duration,
+                state: pipeline_playback_state.state as u8,
+                speed: pipeline_playback_state.speed,
             };
             debug!("Sending update ({update:?})");
             self.updates_tx
@@ -488,7 +488,7 @@ impl Application {
                 })?;
                 if self.updates_tx.receiver_count() > 0 {
                     let update = VolumeUpdateMessage {
-                        generation: current_time_millis(),
+                        generation_time: current_time_millis(),
                         volume: set_volume_message.volume,
                     };
                     debug!("Sending update ({update:?})");

@@ -15,7 +15,7 @@
 // You should have received a copy of the GNU General Public License
 // along with OpenMirroring.  If not, see <https://www.gnu.org/licenses/>.
 
-use fcast_lib::models::PlaybackState;
+use fcast_protocol::v3::PlaybackState;
 use futures::StreamExt;
 use gst::prelude::*;
 

@@ -17,17 +17,15 @@
 
 use std::sync::Arc;
 
+use crate::Event;
 use anyhow::Result;
-use fcast_lib::models::VersionMessage;
+use common::{Packet, read_packet, write_packet};
+use fcast_protocol::VersionMessage;
 use futures::stream::unfold;
 use log::{debug, error, trace, warn};
 use tokio::sync::mpsc::Sender;
 use tokio::{io::AsyncWriteExt, net::TcpStream, sync::broadcast::Receiver};
 use tokio_stream::StreamExt;
-
-use crate::Event;
-use fcast_lib::packet::Packet;
-use fcast_lib::{read_packet, write_packet};
 
 pub type SessionId = u64;
 
