@@ -8,7 +8,7 @@ env_logger.workspace = true
 log.workspace = true
 gst.workspace = true
 common = { path = "../common", features = ["sender"] }
-fcast-lib = { path = "../fcast-lib" }
+fcast-protocol.workspace = true
 slint.workspace = true
 anyhow.workspace = true
 crossbeam-channel.workspace = true

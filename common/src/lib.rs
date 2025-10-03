@@ -7,8 +7,8 @@ use tokio::{
 
 pub mod net;
 
-// #[cfg(feature = "sender")]
-// pub mod sender;
+#[cfg(feature = "sender")]
+pub mod sender;
 
 pub const HEADER_BUFFER_SIZE: usize = 5;
 pub const MAX_BODY_SIZE: u32 = 32000 - 1;
@@ -67,7 +67,7 @@ impl Header {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub enum Packet {
     None,
     Play(PlayMessage),

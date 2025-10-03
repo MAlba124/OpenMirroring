@@ -45,6 +45,7 @@
             xorg.libXcursor
             xorg.libXi
             xorg.libXrandr
+            xorg.libxcb
             pipewire
             alsa-lib
             libclang

@@ -15,9 +15,9 @@
 // You should have received a copy of the GNU General Public License
 // along with OpenMirroring.  If not, see <https://www.gnu.org/licenses/>.
 
-use super::transmission::{self, TransmissionSink};
+use super::transmission::TransmissionSink;
 use anyhow::Result;
-use fcast_lib::models::PlayMessage;
+use fcast_protocol::v2::PlayMessage;
 #[cfg(target_os = "android")]
 use futures::StreamExt;
 use gst::prelude::*;
@@ -27,12 +27,6 @@ use log::error;
 use std::future::Future;
 use std::net::IpAddr;
 use std::str::FromStr;
-use crate::sender::transmission::whep::WhepSink;
-
-pub use transmission::init;
-
-// sender  : whipsink
-// receiver: Whepsrc
 
 pub enum Event {
     PipelineIsPlaying,
@@ -207,7 +201,7 @@ impl Pipeline {
         Ok(capsfilter)
     }
 
-    pub fn new_whep<E>(mut on_event: E, source: SourceConfig) -> Result<Self>
+    pub fn new_rtsp<E>(mut on_event: E, source: SourceConfig) -> Result<Self>
     where
         E: FnMut(Event) + Send + Clone + 'static,
     {
@@ -226,10 +220,10 @@ impl Pipeline {
             }
         };
 
-        let whep = WhepSink::new(&pipeline, source)?;
+        let sink = crate::sender::transmission::rtsp::RtspSink::new(&pipeline, source, 5554)?;
         let p = Self {
             inner: pipeline.clone(),
-            tx_sink: Box::new(whep),
+            tx_sink: Box::new(sink),
         };
 
         let _ = std::thread::spawn({

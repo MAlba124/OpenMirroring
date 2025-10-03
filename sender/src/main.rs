@@ -17,12 +17,11 @@
 
 use anyhow::{Context, Result, bail};
 use common::sender::session::{Session, SessionEvent};
-use fcast_lib::packet::Packet;
+use common::Packet;
 use log::{debug, error, trace};
 use std::cell::Cell;
 use std::ffi::CString;
 use std::ffi::{CStr, NulError};
-use std::os::fd::AsRawFd;
 use std::rc::Rc;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -351,7 +350,7 @@ enum Event {
         audio_idx: Option<usize>,
     },
     StopCast,
-    Packet(fcast_lib::packet::Packet),
+    Packet(Packet),
     ReceiverAvailable {
         name: String,
         addresses: Vec<SocketAddr>,
@@ -436,14 +435,14 @@ impl Application {
                             let new_proxy = match Screencast::new().await {
                                 Ok(proxy) => proxy,
                                 Err(err) => {
-                                    error!("Failed to create Screencast proxy");
+                                    error!("Failed to create Screencast proxy: {err}");
                                     continue;
                                 }
                             };
                             let new_session = match new_proxy.create_session().await {
                                 Ok(session) => session,
                                 Err(err) => {
-                                    error!("Failed to create screencast session");
+                                    error!("Failed to create screencast session: {err}");
                                     continue;
                                 }
                             };
@@ -806,7 +805,7 @@ impl Application {
                     // debug!("Adding RTSP pipeline");
                     debug!("Adding WHEP pipeline");
                     // self.pipeline = Some(pipeline::Pipeline::new_rtsp(
-                    self.pipeline = Some(pipeline::Pipeline::new_whep(
+                    self.pipeline = Some(pipeline::Pipeline::new_rtsp(
                         {
                             let event_tx = self.event_tx.clone();
                             let pipeline_has_finished = Arc::new(AtomicBool::new(false));
@@ -1130,7 +1129,6 @@ fn main() -> Result<()> {
         .init();
 
     gst::init()?;
-    common::sender::pipeline::init()?;
 
     let runtime = Runtime::new()?;
 

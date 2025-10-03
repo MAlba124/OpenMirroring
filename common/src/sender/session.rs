@@ -20,8 +20,8 @@ use std::net::SocketAddr;
 use std::thread::JoinHandle;
 
 use anyhow::{Result, bail};
-use fcast_lib::models::PlayMessage;
-use fcast_lib::{packet::Packet, read_packet, write_packet};
+use crate::{Packet, read_packet, write_packet};
+use fcast_protocol::v2::PlayMessage;
 use log::{debug, error, warn};
 use tokio::io::AsyncWriteExt;
 use tokio::net::TcpStream;
@@ -161,7 +161,7 @@ where
 }
 
 pub enum SessionEvent {
-    Packet(fcast_lib::packet::Packet),
+    Packet(Packet),
     Connected,
 }
 
@@ -209,7 +209,7 @@ impl Session {
 
         if let Some(stream) = self.stream.as_mut() {
             use std::io::Read;
-            let mut header_buf = [0u8; fcast_lib::HEADER_BUFFER_SIZE];
+            let mut header_buf = [0u8; crate::HEADER_BUFFER_SIZE];
             if let Err(err) = stream.read_exact(&mut header_buf) {
                 if err.kind() != std::io::ErrorKind::WouldBlock {
                     return Err(err.into());
@@ -217,16 +217,16 @@ impl Session {
                 return Ok(None);
             }
 
-            let header = fcast_lib::models::Header::decode(header_buf);
+            let header = crate::Header::decode(header_buf);
 
             let mut body_string = String::new();
 
             if header.size > 0 {
-                if header.size > fcast_lib::MAX_BODY_SIZE {
+                if header.size > crate::MAX_BODY_SIZE {
                     bail!(
                         "Body size ({}) exceeds MAX_BODY_SIZE ({})",
                         header.size,
-                        fcast_lib::MAX_BODY_SIZE
+                        crate::MAX_BODY_SIZE
                     );
                 }
                 let mut body_buf = vec![0; header.size as usize];
@@ -239,14 +239,14 @@ impl Session {
                 body_string = String::from_utf8(body_buf)?;
             }
 
-            let packet = fcast_lib::packet::Packet::decode(header, &body_string)?;
+            let packet = Packet::decode(header, &body_string)?;
             return Ok(Some(SessionEvent::Packet(packet)));
         }
 
         Ok(None)
     }
 
-    pub fn send_packet(&mut self, packet: fcast_lib::packet::Packet) -> Result<()> {
+    pub fn send_packet(&mut self, packet: Packet) -> Result<()> {
         if let Some(stream) = self.stream.as_mut() {
             use std::io::Write;
             stream.write_all(&packet.encode())?;

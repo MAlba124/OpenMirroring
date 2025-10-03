@@ -20,7 +20,9 @@ use crate::sender::pipeline::SourceConfig;
 use super::TransmissionSink;
 
 use gst::glib;
+use gst::prelude::*;
 use gst_rtsp_server::{RTSPMediaFactory, RTSPMountPoints, RTSPServer, prelude::*};
+use fcast_protocol::v2::PlayMessage;
 
 pub struct RtspSink {
     server: RTSPServer,
@@ -108,8 +110,8 @@ impl RtspSink {
 }
 
 impl TransmissionSink for RtspSink {
-    fn get_play_msg(&self, addr: std::net::IpAddr) -> Option<fcast_lib::models::PlayMessage> {
-        Some(fcast_lib::models::PlayMessage {
+    fn get_play_msg(&self, addr: std::net::IpAddr) -> Option<PlayMessage> {
+        Some(PlayMessage {
             container: "application/x-rtsp".to_owned(),
             url: Some(format!(
                 "rtsp://{}:{}/",

@@ -17,21 +17,15 @@
 
 use std::net::IpAddr;
 
-use fcast_lib::models::PlayMessage;
+use fcast_protocol::v2::PlayMessage;
 
 pub mod rtsp;
-pub mod whep;
 
 fn addr_to_url_string(addr: IpAddr) -> String {
     match addr {
         IpAddr::V4(ipv4_addr) => ipv4_addr.to_string(),
         IpAddr::V6(ipv6_addr) => format!("[{ipv6_addr}]"),
     }
-}
-
-pub fn init() -> anyhow::Result<()> {
-    gst_webrtc::plugin_register_static()?;
-    Ok(())
 }
 
 pub trait TransmissionSink: Send {
