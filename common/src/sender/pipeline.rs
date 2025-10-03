@@ -171,18 +171,12 @@ impl Pipeline {
         let videoflip = gst::ElementFactory::make("videoflip")
             .property_from_str("video-direction", "auto")
             .build()?;
-        let videorate = gst::ElementFactory::make("videorate")
-            .property("skip-to-first", true)
-            .build()?;
         let capsfilter = gst::ElementFactory::make("capsfilter")
-            .property("caps", gst::Caps::from_str("video/x-raw,framerate=30/1")?)
+            .property("caps", gst::Caps::from_str("video/x-raw")?)
             .build()?;
 
-        // pipeline.add_many([&src, &videorate, &capsfilter])?;
-        // gst::Element::link_many([&src, &videorate, &capsfilter])?;
-
-        pipeline.add_many([&src, &videoflip, &videorate, &capsfilter])?;
-        gst::Element::link_many([&src, &videoflip, &videorate, &capsfilter])?;
+        pipeline.add_many([&src, &videoflip, &capsfilter])?;
+        gst::Element::link_many([&src, &videoflip, &capsfilter])?;
 
         Ok(capsfilter)
     }

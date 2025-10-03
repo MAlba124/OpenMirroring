@@ -54,8 +54,8 @@ impl RtspSink {
                 video.link(&video_sink)?;
                 audio.link(&audio_sink)?;
                 factory.set_launch(
-                    "( intervideosrc ! queue ! videoconvert ! videoscale \
-                       ! video/x-raw,width=(int)[16,8192,2],height=(int)[16,8192,2] \
+                    "( intervideosrc timeout=5000000000 ! queue ! videoconvert ! videoscale ! videorate \
+                       ! video/x-raw,width=(int)[16,8192,2],height=(int)[16,8192,2],framerate=30/1 \
                        ! queue ! x264enc tune=zerolatency speed-preset=ultrafast b-adapt=false key-int-max=2250 \
                        ! video/x-h264,profile=baseline ! rtph264pay config-interval=-1 name=pay0 \
                        interaudiosrc ! queue ! audioconvert ! audioresample ! audio/x-raw,rate=48000 \
@@ -67,8 +67,8 @@ impl RtspSink {
                 pipeline.add(&video_sink)?;
                 video.link(&video_sink)?;
                 factory.set_launch(
-                    "( intervideosrc ! queue ! videoconvert ! videoscale \
-                       ! video/x-raw,width=(int)[16,8192,2],height=(int)[16,8192,2] \
+                    "( intervideosrc timeout=5000000000 ! queue ! videoconvert ! videoscale ! videorate \
+                       ! video/x-raw,width=(int)[16,8192,2],height=(int)[16,8192,2],framerate=30/1 \
                        ! queue ! x264enc tune=zerolatency speed-preset=ultrafast b-adapt=false key-int-max=2250 \
                        ! video/x-h264,profile=baseline ! rtph264pay config-interval=-1 name=pay0 )"
                 );

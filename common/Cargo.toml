@@ -11,7 +11,7 @@ slint = { workspace = true }
 gst-video = { workspace = true, optional = true }
 gst-pbutils = { package = "gstreamer-pbutils", version = "0.24.2", optional = true }
 gst = { workspace = true, optional = true }
-gst-app = { workspace = true, optional = true } # Can go maybe?
+gst-app = { workspace = true, optional = true }
 gst-rtsp = { package = "gstreamer-rtsp", version = "0.24.2", optional = true}
 gst-rtsp-server = { package = "gstreamer-rtsp-server", version = "0.24.2", optional = true}
 memchr = "2.7.5"

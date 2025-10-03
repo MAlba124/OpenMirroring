@@ -802,9 +802,7 @@ impl Application {
                         continue;
                     }
 
-                    // debug!("Adding RTSP pipeline");
-                    debug!("Adding WHEP pipeline");
-                    // self.pipeline = Some(pipeline::Pipeline::new_rtsp(
+                    debug!("Adding RTSP pipeline");
                     self.pipeline = Some(pipeline::Pipeline::new_rtsp(
                         {
                             let event_tx = self.event_tx.clone();
