@@ -19,8 +19,8 @@ use std::future::Future;
 use std::net::SocketAddr;
 use std::thread::JoinHandle;
 
-use anyhow::{Result, bail};
 use crate::{Packet, read_packet, write_packet};
+use anyhow::{Result, bail};
 use fcast_protocol::v2::PlayMessage;
 use log::{debug, error, warn};
 use tokio::io::AsyncWriteExt;
@@ -183,10 +183,10 @@ impl Session {
     }
 
     pub fn disconnect(&mut self) -> Result<()> {
-        if let Some(jh) = self.connect_jh.take() {
-            if jh.is_finished() {
-                let _ = jh.join();
-            }
+        if let Some(jh) = self.connect_jh.take()
+            && jh.is_finished()
+        {
+            let _ = jh.join();
         }
 
         if let Some(stream) = self.stream.take() {
@@ -197,14 +197,14 @@ impl Session {
     }
 
     pub fn poll_event(&mut self) -> Result<Option<SessionEvent>> {
-        if let Some(jh) = self.connect_jh.as_mut() {
-            if jh.is_finished() {
-                let jh = self.connect_jh.take().unwrap();
-                let stream = jh.join().unwrap()?;
-                stream.set_nonblocking(true)?;
-                self.stream = Some(stream);
-                return Ok(Some(SessionEvent::Connected));
-            }
+        if let Some(jh) = self.connect_jh.as_mut()
+            && jh.is_finished()
+        {
+            let jh = self.connect_jh.take().unwrap();
+            let stream = jh.join().unwrap()?;
+            stream.set_nonblocking(true)?;
+            self.stream = Some(stream);
+            return Ok(Some(SessionEvent::Connected));
         }
 
         if let Some(stream) = self.stream.as_mut() {

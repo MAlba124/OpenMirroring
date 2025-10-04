@@ -15,6 +15,7 @@ gst-app = { workspace = true, optional = true }
 gst-rtsp = { package = "gstreamer-rtsp", version = "0.24.2", optional = true}
 gst-rtsp-server = { package = "gstreamer-rtsp-server", version = "0.24.2", optional = true}
 memchr = "2.7.5"
+parking_lot = { version = "0.12.5", optional = true }
 
 gio = { version = "0.20.9", optional = true }
 futures = { workspace = true, optional = true }
@@ -33,4 +34,4 @@ pnet_datalink = "0.35.0"
 ipnetwork = "0.20.0"
 
 [features]
-sender = ["gst", "gst-video", "gio", "gst-pbutils", "crossbeam-channel", "gst-app", "futures", "tokio-stream", "mdns-sd", "gst-rtsp", "gst-rtsp-server"]
+sender = ["dep:gst", "dep:gst-video", "dep:gio", "dep:gst-pbutils", "dep:crossbeam-channel", "dep:gst-app", "dep:futures", "dep:tokio-stream", "dep:mdns-sd", "dep:gst-rtsp", "dep:gst-rtsp-server", "dep:parking_lot"]
