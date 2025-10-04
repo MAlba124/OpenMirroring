@@ -16,8 +16,8 @@
 // along with OpenMirroring.  If not, see <https://www.gnu.org/licenses/>.
 
 use anyhow::{Context, Result, bail};
-use common::sender::session::{Session, SessionEvent};
 use common::Packet;
+use common::sender::session::{Session, SessionEvent};
 use log::{debug, error, trace};
 use std::cell::Cell;
 use std::ffi::CString;
@@ -58,11 +58,13 @@ pub enum AudioSource {
 }
 
 impl AudioSource {
-    #[cfg(target_os = "linux")]
     pub fn display_name(&self) -> String {
+        #[cfg(target_os = "linux")]
         match self {
             AudioSource::Pipewire { name, .. } => name.clone(),
         }
+        #[cfg(target_os = "macos")]
+        "n/a".to_string()
     }
 }
 
@@ -166,15 +168,21 @@ enum VideoSource {
         y_offset: i16,
         name: String,
     },
+    #[cfg(target_os = "macos")]
+    DefaultAvf,
 }
 
 impl VideoSource {
-    #[cfg(target_os = "linux")]
     pub fn display_name(&self) -> String {
         match self {
+            #[cfg(target_os = "linux")]
             VideoSource::PipeWire { .. } => "PipeWire Video Source".to_owned(),
+            #[cfg(target_os = "linux")]
             VideoSource::XWindow { name, .. } => name.clone(),
+            #[cfg(target_os = "linux")]
             VideoSource::XDisplay { name, .. } => name.clone(),
+            #[cfg(target_os = "macos")]
+            VideoSource::DefaultAvf => "Default".to_string(),
         }
     }
 }
@@ -515,6 +523,30 @@ impl Application {
             });
         }
 
+        #[cfg(target_os = "macos")]
+        {
+            let event_tx = event_tx.clone();
+            tokio::spawn(async move {
+                loop {
+                    let Some(event) = video_source_fetcher_rx.recv().await else {
+                        error!("Failed to receive new video source fetcher event");
+                        break;
+                    };
+
+                    match event {
+                        FetchEvent::Fetch => {
+                            event_tx
+                                .send(Event::VideosAvailable(vec![VideoSource::DefaultAvf]))
+                                .unwrap();
+                        }
+                        FetchEvent::Quit => break,
+                    }
+                }
+
+                debug!("Video source fetch loop quit");
+            });
+        }
+
         #[cfg(target_os = "linux")]
         {
             let event_tx = event_tx.clone();
@@ -532,6 +564,26 @@ impl Application {
                                 Err(err) => error!("Failed to get default pulse device: {err}"),
                             };
                         }
+                        FetchEvent::Quit => break,
+                    }
+                }
+
+                debug!("Audio source fetch loop quit");
+            });
+        }
+
+        #[cfg(target_os = "macos")]
+        {
+            let event_tx = event_tx.clone();
+            tokio::spawn(async move {
+                loop {
+                    let Some(event) = audio_source_fetcher_rx.recv().await else {
+                        error!("Failed to receive new video source fetcher event");
+                        break;
+                    };
+
+                    match event {
+                        FetchEvent::Fetch => (),
                         FetchEvent::Quit => break,
                     }
                 }
@@ -587,7 +639,8 @@ impl Application {
     fn send_packet_to_receiver(&mut self, packet: Packet) -> Result<()> {
         if let Err(err) = self.session.send_packet(packet) {
             error!("Failed to send packet to receiver: {err}");
-            self.disconnect_receiver()?;
+            self.disconnect_receiver()
+                .context("Failed to disconnect from receiver")?;
         }
 
         Ok(())
@@ -764,6 +817,13 @@ impl Application {
                                     .property("use-damage", false)
                                     .build()?,
                             ),
+                            #[cfg(target_os = "macos")]
+                            VideoSource::DefaultAvf => Some(
+                                gst::ElementFactory::make("avfvideosrc")
+                                    .property("capture-screen", true)
+                                    .property("capture-screen-cursor", true)
+                                    .build()?,
+                            ),
                         }
                     }
                     None => None,
@@ -778,6 +838,7 @@ impl Application {
                             );
                             return Ok(false);
                         };
+                        #[cfg(target_os = "linux")]
                         match audio_src {
                             #[cfg(target_os = "linux")]
                             AudioSource::Pipewire { id, .. } => Some(
@@ -786,6 +847,8 @@ impl Application {
                                     .build()?,
                             ),
                         }
+                        #[cfg(target_os = "macos")]
+                        None
                     }
                     None => None,
                 };
