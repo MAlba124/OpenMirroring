@@ -20,13 +20,10 @@ use anyhow::Result;
 use fcast_protocol::v2::PlayMessage;
 #[cfg(target_os = "android")]
 use futures::StreamExt;
-use gst::prelude::*;
-use log::debug;
-use log::error;
+use gst::glib;
 #[cfg(target_os = "android")]
 use std::future::Future;
 use std::net::IpAddr;
-use std::str::FromStr;
 
 pub enum Event {
     PipelineIsPlaying,
@@ -34,17 +31,76 @@ pub enum Event {
     Error,
 }
 
-pub enum SourceConfig {
-    AudioVideo {
-        video: gst::Element,
-        audio: gst::Element,
-    },
-    Video(gst::Element),
-    Audio(gst::Element),
+#[derive(Clone, Debug)]
+pub enum AudioSource {
+    #[cfg(target_os = "linux")]
+    Pipewire { name: String, id: u32 },
 }
 
+impl AudioSource {
+    pub fn display_name(&self) -> String {
+        #[cfg(target_os = "linux")]
+        match self {
+            AudioSource::Pipewire { name, .. } => name.clone(),
+        }
+        #[cfg(target_os = "macos")]
+        "n/a".to_string()
+    }
+}
+
+#[derive(Clone, Debug)]
+pub enum VideoSource {
+    #[cfg(target_os = "linux")]
+    PipeWire {
+        node_id: u32,
+        #[allow(dead_code)]
+        fd: i32, // TODO: does not work, why not?
+    },
+    #[cfg(target_os = "linux")]
+    XWindow { id: u32, name: String },
+    #[cfg(target_os = "linux")]
+    XDisplay {
+        id: u32,
+        width: u16,
+        height: u16,
+        x_offset: i16,
+        y_offset: i16,
+        name: String,
+    },
+    #[cfg(target_os = "macos")]
+    DefaultAvf,
+}
+
+impl VideoSource {
+    pub fn display_name(&self) -> String {
+        match self {
+            #[cfg(target_os = "linux")]
+            VideoSource::PipeWire { .. } => "PipeWire Video Source".to_owned(),
+            #[cfg(target_os = "linux")]
+            VideoSource::XWindow { name, .. } => name.clone(),
+            #[cfg(target_os = "linux")]
+            VideoSource::XDisplay { name, .. } => name.clone(),
+            #[cfg(target_os = "macos")]
+            VideoSource::DefaultAvf => "Default".to_string(),
+        }
+    }
+}
+
+#[derive(Clone, Debug)]
+pub enum SourceConfig {
+    AudioVideo {
+        video: VideoSource,
+        audio: AudioSource,
+    },
+    Video(VideoSource),
+    Audio(AudioSource),
+}
+
+#[derive(Clone, Debug, glib::Boxed)]
+#[boxed_type(name = "SourceConfigBoxed")]
+pub struct SourceConfigBoxed(pub SourceConfig);
+
 pub struct Pipeline {
-    inner: gst::Pipeline,
     tx_sink: Box<dyn TransmissionSink>,
 }
 
@@ -166,116 +222,14 @@ impl Pipeline {
     //     })
     // }
 
-    fn setup_video_source(pipeline: &gst::Pipeline, src: gst::Element) -> Result<gst::Element> {
-        // TODO: needed?
-        let videoflip = gst::ElementFactory::make("videoflip")
-            .property_from_str("video-direction", "auto")
-            .build()?;
-        let capsfilter = gst::ElementFactory::make("capsfilter")
-            .property("caps", gst::Caps::from_str("video/x-raw")?)
-            .build()?;
-
-        pipeline.add_many([&src, &videoflip, &capsfilter])?;
-        gst::Element::link_many([&src, &videoflip, &capsfilter])?;
-
-        Ok(capsfilter)
-    }
-
-    fn setup_audio_source(pipeline: &gst::Pipeline, src: gst::Element) -> Result<gst::Element> {
-        let capsfilter = gst::ElementFactory::make("capsfilter")
-            .property(
-                "caps",
-                gst::Caps::from_str("audio/x-raw,channels=2,rate=48000")?,
-            )
-            .build()?;
-
-        pipeline.add_many([&src, &capsfilter])?;
-        gst::Element::link_many([&src, &capsfilter])?;
-
-        Ok(capsfilter)
-    }
-
     pub fn new_rtsp<E>(mut on_event: E, source: SourceConfig) -> Result<Self>
     where
         E: FnMut(Event) + Send + Clone + 'static,
     {
-        let pipeline = gst::Pipeline::new();
-
-        let source = match source {
-            SourceConfig::AudioVideo { video, audio } => SourceConfig::AudioVideo {
-                video: Self::setup_video_source(&pipeline, video)?,
-                audio: Self::setup_audio_source(&pipeline, audio)?,
-            },
-            SourceConfig::Video(video) => {
-                SourceConfig::Video(Self::setup_video_source(&pipeline, video)?)
-            }
-            SourceConfig::Audio(audio) => {
-                SourceConfig::Audio(Self::setup_audio_source(&pipeline, audio)?)
-            }
-        };
-
-        let sink = crate::sender::transmission::rtsp::RtspSink::new(&pipeline, source, 5554)?;
+        let sink = crate::sender::transmission::rtsp::RtspSink::new(source, 5554)?;
         let p = Self {
-            inner: pipeline.clone(),
             tx_sink: Box::new(sink),
         };
-
-        let _ = std::thread::spawn({
-            let bus = pipeline
-                .bus()
-                .ok_or(anyhow::anyhow!("Pipeline without bus"))?;
-            // We keep weak pipeline ref because the thread does not receive a finish signal,
-            // therefore when we can't upgrade the ref, we know to quit
-            let pipeline_weak = pipeline.downgrade();
-            move || {
-                {
-                    let Some(pipeline) = pipeline_weak.upgrade() else {
-                        error!("Failed to upgrade pipeline before starting");
-                        return;
-                    };
-                    debug!("Starting pipeline...");
-                    if let Err(err) = pipeline.set_state(gst::State::Playing) {
-                        error!("Failed to start pipeline: {err}");
-                    } else {
-                        debug!("Pipeline started");
-                    }
-                }
-
-                for msg in bus.iter_timed(gst::ClockTime::NONE) {
-                    use gst::MessageView;
-                    match msg.view() {
-                        MessageView::Eos(..) => (on_event)(Event::Eos),
-                        MessageView::Error(err) => {
-                            error!(
-                                "Error from {:?}: {} ({:?})",
-                                err.src().map(|s| s.path_string()),
-                                err.error(),
-                                err.debug()
-                            );
-                            (on_event)(Event::Error);
-                        }
-                        MessageView::StateChanged(state_changed) => {
-                            let Some(pipeline) = pipeline_weak.upgrade() else {
-                                debug!(
-                                    "Failed to handle state change bus message because pipeline is missing"
-                                );
-                                return;
-                            };
-
-                            if state_changed.src() == Some(pipeline.upcast_ref())
-                                && state_changed.old() == gst::State::Paused
-                                && state_changed.current() == gst::State::Playing
-                            {
-                                (on_event)(Event::PipelineIsPlaying);
-                            }
-                        }
-                        _ => (),
-                    }
-                }
-
-                debug!("Bus watcher quit");
-            }
-        });
 
         Ok(p)
     }
@@ -285,7 +239,6 @@ impl Pipeline {
     }
 
     pub fn shutdown(&mut self) -> Result<()> {
-        self.inner.set_state(gst::State::Null)?;
         self.tx_sink.shutdown();
 
         Ok(())

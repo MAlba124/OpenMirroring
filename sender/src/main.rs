@@ -17,6 +17,8 @@
 
 use anyhow::{Context, Result, bail};
 use common::Packet;
+#[cfg(target_os = "linux")]
+use common::sender::pipeline::{AudioSource, VideoSource};
 use common::sender::session::{Session, SessionEvent};
 use log::{debug, error, trace};
 use std::cell::Cell;
@@ -50,23 +52,6 @@ use common::sender::pipeline::{self, SourceConfig};
 slint::include_modules!();
 
 pub type ProducerId = String;
-
-#[derive(Debug)]
-pub enum AudioSource {
-    #[cfg(target_os = "linux")]
-    Pipewire { name: String, id: u32 },
-}
-
-impl AudioSource {
-    pub fn display_name(&self) -> String {
-        #[cfg(target_os = "linux")]
-        match self {
-            AudioSource::Pipewire { name, .. } => name.clone(),
-        }
-        #[cfg(target_os = "macos")]
-        "n/a".to_string()
-    }
-}
 
 #[cfg(target_os = "linux")]
 pub fn get_audio_devices() -> anyhow::Result<Vec<AudioSource>> {
@@ -147,44 +132,6 @@ pub fn get_audio_devices() -> anyhow::Result<Vec<AudioSource>> {
     }
 
     Ok(pw_sources.take())
-}
-
-#[derive(Debug)]
-enum VideoSource {
-    #[cfg(target_os = "linux")]
-    PipeWire {
-        node_id: u32,
-        #[allow(dead_code)]
-        fd: i32, // TODO: does not work, why not?
-    },
-    #[cfg(target_os = "linux")]
-    XWindow { id: u32, name: String },
-    #[cfg(target_os = "linux")]
-    XDisplay {
-        id: u32,
-        width: u16,
-        height: u16,
-        x_offset: i16,
-        y_offset: i16,
-        name: String,
-    },
-    #[cfg(target_os = "macos")]
-    DefaultAvf,
-}
-
-impl VideoSource {
-    pub fn display_name(&self) -> String {
-        match self {
-            #[cfg(target_os = "linux")]
-            VideoSource::PipeWire { .. } => "PipeWire Video Source".to_owned(),
-            #[cfg(target_os = "linux")]
-            VideoSource::XWindow { name, .. } => name.clone(),
-            #[cfg(target_os = "linux")]
-            VideoSource::XDisplay { name, .. } => name.clone(),
-            #[cfg(target_os = "macos")]
-            VideoSource::DefaultAvf => "Default".to_string(),
-        }
-    }
 }
 
 #[cfg(target_os = "linux")]
@@ -785,46 +732,7 @@ impl Application {
                             );
                             return Ok(false);
                         };
-                        match video_src {
-                            #[cfg(target_os = "linux")]
-                            VideoSource::PipeWire { node_id, .. } => Some(
-                                gst::ElementFactory::make("pipewiresrc")
-                                    .property("path", node_id.to_string())
-                                    .build()?,
-                            ),
-                            #[cfg(target_os = "linux")]
-                            VideoSource::XWindow { id, .. } => Some(
-                                gst::ElementFactory::make("ximagesrc")
-                                    .property("xid", *id as u64)
-                                    .property("use-damage", false)
-                                    .build()?,
-                            ),
-                            #[cfg(target_os = "linux")]
-                            VideoSource::XDisplay {
-                                id,
-                                width,
-                                height,
-                                x_offset,
-                                y_offset,
-                                ..
-                            } => Some(
-                                gst::ElementFactory::make("ximagesrc")
-                                    .property("xid", *id as u64)
-                                    .property("startx", *x_offset as u32)
-                                    .property("starty", *y_offset as u32)
-                                    .property("endx", (*x_offset as u32) + (*width as u32) - 1)
-                                    .property("endy", (*y_offset as u32) + (*height as u32) - 1)
-                                    .property("use-damage", false)
-                                    .build()?,
-                            ),
-                            #[cfg(target_os = "macos")]
-                            VideoSource::DefaultAvf => Some(
-                                gst::ElementFactory::make("avfvideosrc")
-                                    .property("capture-screen", true)
-                                    .property("capture-screen-cursor", true)
-                                    .build()?,
-                            ),
-                        }
+                        Some(video_src.clone())
                     }
                     None => None,
                 };
@@ -838,17 +746,13 @@ impl Application {
                             );
                             return Ok(false);
                         };
-                        #[cfg(target_os = "linux")]
-                        match audio_src {
-                            #[cfg(target_os = "linux")]
-                            AudioSource::Pipewire { id, .. } => Some(
-                                gst::ElementFactory::make("pipewiresrc")
-                                    .property("path", id.to_string())
-                                    .build()?,
-                            ),
+                        if cfg!(target_os = "linux") {
+                            Some(audio_src.clone())
+                        } else if cfg!(target_os = "macos") {
+                            None
+                        } else {
+                            unimplemented!();
                         }
-                        #[cfg(target_os = "macos")]
-                        None
                     }
                     None => None,
                 };

@@ -19,6 +19,7 @@
 // https://gitlab.freedesktop.org/gstreamer/gstreamer-rs/-/blob/main/examples/src/bin/rtsp-server-subclass.rs?ref_type=heads
 
 use crate::sender::pipeline::SourceConfig;
+use crate::sender::pipeline::SourceConfigBoxed;
 
 use super::TransmissionSink;
 
@@ -48,13 +49,224 @@ mod media_factory {
     mod imp {
         use log::debug;
         use parking_lot::Mutex;
-        use std::{str::FromStr, sync::LazyLock};
+        use std::sync::LazyLock;
+
+        use crate::sender::pipeline::{AudioSource, SourceConfigBoxed, VideoSource};
 
         use super::*;
 
+        fn create_video_src(src: &VideoSource) -> anyhow::Result<gst::Element> {
+            match src {
+                #[cfg(target_os = "linux")]
+                VideoSource::PipeWire { node_id, .. } => {
+                    Ok(gst::ElementFactory::make("pipewiresrc")
+                        .property("path", node_id.to_string())
+                        .build()?)
+                }
+                #[cfg(target_os = "linux")]
+                VideoSource::XWindow { id, .. } => Ok(gst::ElementFactory::make("ximagesrc")
+                    .property("xid", *id as u64)
+                    .property("use-damage", false)
+                    .build()?),
+                #[cfg(target_os = "linux")]
+                VideoSource::XDisplay {
+                    id,
+                    width,
+                    height,
+                    x_offset,
+                    y_offset,
+                    ..
+                } => Ok(gst::ElementFactory::make("ximagesrc")
+                    .property("xid", *id as u64)
+                    .property("startx", *x_offset as u32)
+                    .property("starty", *y_offset as u32)
+                    .property("endx", (*x_offset as u32) + (*width as u32) - 1)
+                    .property("endy", (*y_offset as u32) + (*height as u32) - 1)
+                    .property("use-damage", false)
+                    .build()?),
+                #[cfg(target_os = "macos")]
+                VideoSource::DefaultAvf => Ok(gst::ElementFactory::make("avfvideosrc")
+                    .property("capture-screen", true)
+                    .property("capture-screen-cursor", true)
+                    .build()?),
+            }
+        }
+
+        fn create_audio_src(src: &AudioSource) -> anyhow::Result<gst::Element> {
+            #[cfg(target_os = "linux")]
+            match src {
+                #[cfg(target_os = "linux")]
+                AudioSource::Pipewire { id, .. } => Ok(gst::ElementFactory::make("pipewiresrc")
+                    .property("path", id.to_string())
+                    .build()?),
+            }
+            #[cfg(target_os = "macos")]
+            unreachable!();
+        }
+
+        fn create_video_encode_elements(n_payloaders: usize) -> anyhow::Result<Vec<gst::Element>> {
+            // if let Some(enc) = gst::ElementFactory::find("vavp8enc") {
+            //     debug!("Using vavp8enc");
+            //     let enc = enc.create()
+            //         .property("target-usage", 6u32)
+            //         .build()?;
+            //     let pay = gst::ElementFactory::make("rtpvp8pay")
+            //         .name(format!("pay{n_payloaders}"))
+            //         .build()?;
+            //     Ok(vec![enc, pay])
+            // } else if let Some(enc) = gst::ElementFactory::find("vp8enc") {
+            //     // TODO: These settings are not so good (taken from https://github.com/GStreamer/gst-plugins-rs/blob/main/net/webrtc/src/webrtcsink/imp.rs)
+            //     let enc = enc.create()
+            //         .property("deadline", 1i64)
+            //         .property("target-bitrate", 12 * 1000 * 1000)
+            //         .property_from_str("end-usage", "cbr")
+            //         .property("cpu-used", -16i32)
+            //         .property("keyframe-max-dist", 1000i32)
+            //         .property_from_str("keyframe-mode", "disabled")
+            //         .property("buffer-initial-size", 100i32)
+            //         .property("buffer-optimal-size", 120i32)
+            //         .property("buffer-size", 150i32)
+            //         .property("max-intra-bitrate", 250i32)
+            //         .property_from_str("error-resilient", "default")
+            //         .property("lag-in-frames", 0i32)
+            //         .build()?;
+            //     let pay = gst::ElementFactory::make("rtpvp8pay")
+            //         .name(format!("pay{n_payloaders}"))
+            //         .build()?;
+            //     Ok(vec![enc, pay])
+            // } else if let Some(enc) = gst::ElementFactory::find("vah264enc") {
+            //     enc.set_property("bitrate", start_bitrate / 1000);
+            //     enc.set_property("keyframe-period", 2560u32);
+            //     enc.set_property_from_str("rate-control", "cbr");
+            //     Ok(elems)
+            // } else if let Some(enc) = gst::ElementFactory::find("x264enc") {
+            if let Some(enc) = gst::ElementFactory::find("x264enc") {
+                let enc = enc
+                    .create()
+                    .property_from_str("tune", "zerolatency")
+                    .property_from_str("speed-preset", "ultrafast")
+                    .property("b-adapt", false)
+                    .property("key-int-max", 2560u32)
+                    .property("vbv-buf-capacity", 120u32)
+                    .build()?;
+                let enc_capsfilter = gst::ElementFactory::make("capsfilter")
+                    .property(
+                        "caps",
+                        gst::Caps::builder("video/x-h264")
+                            .field("profile", "constrained-baseline")
+                            .build(),
+                    )
+                    .build()?;
+                let pay = gst::ElementFactory::make("rtph264pay")
+                    .property("config-interval", -1i32)
+                    .name(format!("pay{n_payloaders}"))
+                    .build()?;
+                Ok(vec![enc, enc_capsfilter, pay])
+            } else {
+                anyhow::bail!("No encoder available")
+            }
+        }
+
         #[derive(Default)]
         pub struct Factory {
-            source_config: Mutex<SourceConfigVariant>,
+            source_config: Mutex<Option<SourceConfigBoxed>>,
+        }
+
+        impl Factory {
+            fn try_create_element(&self) -> anyhow::Result<gst::Element> {
+                let bin = gst::Bin::default();
+
+                let Some(ref src_config) = *self.source_config.lock() else {
+                    anyhow::bail!("Missing source config");
+                };
+
+                let (video_src, audio_src) = match &src_config.0 {
+                    SourceConfig::AudioVideo { video, audio } => (
+                        Some(create_video_src(video)?),
+                        Some(create_audio_src(audio)?),
+                    ),
+                    SourceConfig::Video(video) => (Some(create_video_src(video)?), None),
+                    SourceConfig::Audio(audio) => (None, Some(create_audio_src(audio)?)),
+                };
+
+                assert!(video_src.is_some() || audio_src.is_some());
+
+                let mut n_payloaders = 0;
+
+                if let Some(video_src) = video_src {
+                    debug!("Adding video source");
+                    let convert_queue = gst::ElementFactory::make("queue").build()?;
+                    let convert = gst::ElementFactory::make("videoconvert").build()?;
+                    let scale = gst::ElementFactory::make("videoscale").build()?;
+                    let flip = gst::ElementFactory::make("videoflip")
+                        .property_from_str("video-direction", "auto")
+                        .build()?;
+                    let rate = gst::ElementFactory::make("videorate").build()?;
+                    let capsfilter = gst::ElementFactory::make("capsfilter")
+                        .property(
+                            "caps",
+                            gst::Caps::builder("video/x-raw")
+                                .field("width", gst::IntRange::with_step(32i32, 4096, 2))
+                                .field("height", gst::IntRange::with_step(32i32, 4096, 2))
+                                .field("framerate", gst::Fraction::new(30, 1))
+                                .build(),
+                        )
+                        .build()?;
+                    let enc_queue = gst::ElementFactory::make("queue").build()?;
+                    let mut elems = vec![
+                        video_src,
+                        convert_queue,
+                        convert,
+                        scale,
+                        flip,
+                        rate,
+                        capsfilter,
+                        enc_queue,
+                    ];
+                    let enc_elems = create_video_encode_elements(n_payloaders)?;
+                    n_payloaders += 1;
+                    elems.extend_from_slice(&enc_elems);
+                    bin.add_many(&elems)?;
+                    gst::Element::link_many(&elems)?;
+                }
+
+                if let Some(audio_src) = audio_src {
+                    debug!("Adding audio source");
+                    let convert_queue = gst::ElementFactory::make("queue").build()?;
+                    let convert = gst::ElementFactory::make("audioconvert").build()?;
+                    let resample = gst::ElementFactory::make("audioresample").build()?;
+                    let capsfilter = gst::ElementFactory::make("capsfilter")
+                        .property(
+                            "caps",
+                            gst::Caps::builder("audio/x-raw")
+                                .field("rate", 48000i32)
+                                .field("channels", 2)
+                                .build(),
+                        )
+                        .build()?;
+                    let enc_queue = gst::ElementFactory::make("queue").build()?;
+                    let enc = gst::ElementFactory::make("opusenc")
+                        .property("bitrate", 128_000i32)
+                        .build()?;
+                    let pay = gst::ElementFactory::make("rtpopuspay")
+                        .name(format!("pay{n_payloaders}"))
+                        .build()?;
+                    let elems = [
+                        audio_src,
+                        convert_queue,
+                        convert,
+                        resample,
+                        capsfilter,
+                        enc_queue,
+                        enc,
+                        pay,
+                    ];
+                    bin.add_many(&elems)?;
+                    gst::Element::link_many(&elems)?;
+                }
+
+                Ok(bin.upcast())
+            }
         }
 
         #[glib::object_subclass]
@@ -68,13 +280,9 @@ mod media_factory {
             fn properties() -> &'static [glib::ParamSpec] {
                 static PROPERTIES: LazyLock<Vec<glib::ParamSpec>> = LazyLock::new(|| {
                     vec![
-                        glib::ParamSpecEnum::builder_with_default(
-                            "source-config",
-                            SourceConfigVariant::AudioVideo,
-                        )
-                        .nick("Source config")
-                        .mutable_ready()
-                        .build(),
+                        glib::ParamSpecBoxed::builder::<SourceConfigBoxed>("source-config")
+                            .mutable_ready()
+                            .build(),
                     ]
                 });
 
@@ -86,7 +294,7 @@ mod media_factory {
                     "source-config" => {
                         let mut source_config = self.source_config.lock();
                         let new_source_config = value.get().expect("type checked upstream");
-                        *source_config = new_source_config;
+                        *source_config = Some(new_source_config);
                     }
                     _ => unimplemented!(),
                 }
@@ -95,97 +303,13 @@ mod media_factory {
 
         impl RTSPMediaFactoryImpl for Factory {
             fn create_element(&self, _url: &gst_rtsp::RTSPUrl) -> Option<gst::Element> {
-                let bin = gst::Bin::default();
-
-                let src_config = *self.source_config.lock();
-
-                let mut n_payloaders = 0;
-
-                if src_config == SourceConfigVariant::Video
-                    || src_config == SourceConfigVariant::AudioVideo
-                {
-                    debug!("Adding video source");
-                    let src = gst::ElementFactory::make("intervideosrc")
-                        .property("timeout", 5000000000u64)
-                        .build()
-                        .unwrap();
-                    let convert_queue = gst::ElementFactory::make("queue").build().unwrap();
-                    let convert = gst::ElementFactory::make("videoconvert").build().unwrap();
-                    let scale = gst::ElementFactory::make("videoscale").build().unwrap();
-                    let rate = gst::ElementFactory::make("videorate").build().unwrap();
-                    let capsfilter = gst::ElementFactory::make("capsfilter")
-                        .property("caps", gst::Caps::from_str("video/x-raw,width=(int)[16,8192,2],height=(int)[16,8192,2],framerate=30/1").ok()?)
-                        .build()
-                        .unwrap();
-                    let enc_queue = gst::ElementFactory::make("queue").build().unwrap();
-                    let enc = gst::ElementFactory::make("x264enc")
-                        .property_from_str("tune", "zerolatency")
-                        .property_from_str("speed-preset", "ultrafast")
-                        .property("b-adapt", false)
-                        .property("key-int-max", 2250u32)
-                        .build()
-                        .unwrap();
-                    let enc_capsfilter = gst::ElementFactory::make("capsfilter")
-                        .property(
-                            "caps",
-                            gst::Caps::from_str("video/x-h264,profile=baseline").ok()?,
-                        )
-                        .build()
-                        .unwrap();
-                    let pay = gst::ElementFactory::make("rtph264pay")
-                        .property("config-interval", -1i32)
-                        .name(format!("pay{n_payloaders}"))
-                        .build()
-                        .unwrap();
-                    n_payloaders += 1;
-                    let elems = [
-                        src,
-                        convert_queue,
-                        convert,
-                        scale,
-                        rate,
-                        capsfilter,
-                        enc_queue,
-                        enc,
-                        enc_capsfilter,
-                        pay,
-                    ];
-                    bin.add_many(&elems).unwrap();
-                    gst::Element::link_many(&elems).unwrap();
+                match self.try_create_element() {
+                    Ok(elem) => Some(elem),
+                    Err(err) => {
+                        log::error!("Failed to create source element: {err}");
+                        return None;
+                    }
                 }
-                if src_config == SourceConfigVariant::Audio
-                    || src_config == SourceConfigVariant::AudioVideo
-                {
-                    debug!("Adding audio source");
-                    let src = gst::ElementFactory::make("interaudiosrc").build().unwrap();
-                    let convert_queue = gst::ElementFactory::make("queue").build().unwrap();
-                    let convert = gst::ElementFactory::make("audioconvert").build().unwrap();
-                    let resample = gst::ElementFactory::make("audioresample").build().unwrap();
-                    let capsfilter = gst::ElementFactory::make("capsfilter")
-                        .property("caps", gst::Caps::from_str("audio/x-raw,rate=48000").ok()?)
-                        .build()
-                        .unwrap();
-                    let enc_queue = gst::ElementFactory::make("queue").build().unwrap();
-                    let enc = gst::ElementFactory::make("opusenc").build().unwrap();
-                    let pay = gst::ElementFactory::make("rtpopuspay")
-                        .name(format!("pay{n_payloaders}"))
-                        .build()
-                        .unwrap();
-                    let elems = [
-                        src,
-                        convert_queue,
-                        convert,
-                        resample,
-                        capsfilter,
-                        enc_queue,
-                        enc,
-                        pay,
-                    ];
-                    bin.add_many(&elems).unwrap();
-                    gst::Element::link_many(&elems).unwrap();
-                }
-
-                Some(bin.upcast())
             }
         }
     }
@@ -208,11 +332,7 @@ pub struct RtspSink {
 }
 
 impl RtspSink {
-    pub fn new(
-        pipeline: &gst::Pipeline,
-        source_config: SourceConfig,
-        port: u16,
-    ) -> anyhow::Result<Self> {
+    pub fn new(source_config: SourceConfig, port: u16) -> anyhow::Result<Self> {
         let server = RTSPServer::new();
 
         server.set_service(&format!("{port}"));
@@ -222,37 +342,8 @@ impl RtspSink {
 
         let factory = media_factory::Factory::default();
         factory.set_shared(true);
-
-        match source_config {
-            SourceConfig::AudioVideo { video, audio } => {
-                let video_sink = gst::ElementFactory::make("intervideosink").build()?;
-                let audio_sink = gst::ElementFactory::make("interaudiosink").build()?;
-                pipeline.add_many([&video_sink, &audio_sink])?;
-                video.link(&video_sink)?;
-                audio.link(&audio_sink)?;
-                factory.set_property("source-config", SourceConfigVariant::AudioVideo);
-            }
-            SourceConfig::Video(video) => {
-                let video_sink = gst::ElementFactory::make("intervideosink").build()?;
-                pipeline.add(&video_sink)?;
-                video.link(&video_sink)?;
-                factory.set_property("source-config", SourceConfigVariant::Video);
-                // factory.set_launch(
-                //     "( intervideosrc timeout=5000000000 ! queue ! videoconvert ! videoscale ! videorate \
-                //        ! video/x-raw,width=(int)[16,4096,2],height=(int)[16,4096,2],framerate=30/1 \
-                //        ! queue ! vah264enc target-usage=6 ! h264parse \
-                //        ! rtph264pay config-interval=-1 name=pay0 )"
-                // );
-            }
-            SourceConfig::Audio(audio) => {
-                let audio_sink = gst::ElementFactory::make("interaudiosink").build()?;
-                pipeline.add(&audio_sink)?;
-                audio.link(&audio_sink)?;
-                factory.set_property("source-config", SourceConfigVariant::Audio);
-            }
-        }
-
         factory.set_latency(0);
+        factory.set_property("source-config", SourceConfigBoxed(source_config));
 
         mounts.add_factory("/", factory);
 
@@ -266,8 +357,6 @@ impl RtspSink {
                 log::debug!("Main loop runner thread finished");
             });
         }
-
-        // pipeline.debug_to_dot_file(gst::DebugGraphDetails::all(), "rtsp-pipeline");
 
         Ok(Self {
             server,
