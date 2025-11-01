@@ -21,6 +21,8 @@ use std::{
     sync::{Arc, Mutex},
 };
 
+use gst::prelude::*;
+use gst_video::prelude::*;
 use gst_gl::prelude::*;
 use log::error;
 
@@ -170,6 +172,36 @@ impl SlintOpenGLSink {
         }
     }
 
+    #[cfg(target_os = "macos")]
+    fn get_macos_gl_ctx() -> Result<(gst_gl::GLContext, gst_gl::GLDisplay)> {
+        use anyhow::bail;
+
+        let platform = gst_gl::GLPlatform::CGL;
+        let (gl_api, _, _) = gst_gl::GLContext::current_gl_api(platform);
+        let gl_ctx = gst_gl::GLContext::current_gl_context(platform);
+
+        if gl_ctx == 0 {
+            // gst::error!(CAT, imp = self, "Failed to get handle from GdkGLContext");
+            bail!("");
+        }
+
+        let gst_display = gst_gl::GLDisplay::new();
+        unsafe {
+            let wrapped_context =
+                gst_gl::GLContext::new_wrapped(&gst_display, gl_ctx, platform, gl_api);
+
+            let wrapped_context = match wrapped_context {
+                None => {
+                    // gst::error!(CAT, imp = self, "Failed to create wrapped GL context");
+                    bail!("");
+                }
+                Some(wrapped_context) => wrapped_context,
+            };
+
+            Ok((wrapped_context, gst_display))
+        }
+    }
+
     pub fn connect<F>(
         &mut self,
         graphics_api: &slint::GraphicsAPI<'_>,
@@ -190,6 +222,8 @@ impl SlintOpenGLSink {
         let (gst_gl_context, gst_gl_display) = Self::get_egl_ctx(graphics_api)?;
         #[cfg(target_os = "windows")]
         let (gst_gl_context, gst_gl_display) = Self::get_wgl_ctx()?;
+        #[cfg(target_os = "macos")]
+        let (gst_gl_context, gst_gl_display) = Self::get_macos_gl_ctx()?;
 
         gst_gl_context
             .activate(true)
