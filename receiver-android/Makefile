@@ -1,4 +1,5 @@
-RTARGET = aarch64-linux-android
+# RTARGET = aarch64-linux-android
+RTARGET = x86_64-linux-android
 OUT = app/src/main/jniLibs
 
 .PHONY: default
@@ -14,4 +15,4 @@ build:
 
 .PHONY: build-release
 build-release:
-	cargo ndk --target $(RTARGET) -o $(OUT) build -r
+	cargo ndk --target $(RTARGET) -o $(OUT) build --release

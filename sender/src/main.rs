@@ -387,6 +387,8 @@ impl Application {
 
                     match (event, &winsys) {
                         (FetchEvent::Fetch, WindowingSystem::Wayland) => {
+                            use std::os::fd::AsRawFd;
+
                             let new_proxy = match Screencast::new().await {
                                 Ok(proxy) => proxy,
                                 Err(err) => {
@@ -436,17 +438,17 @@ impl Application {
                                 continue;
                             };
 
-                            // let fd = new_proxy
-                            //     .open_pipe_wire_remote(&new_session)
-                            //     .await
-                            //     .unwrap()
-                            //     .as_raw_fd();
+                            let fd = new_proxy
+                                .open_pipe_wire_remote(&new_session)
+                                .await
+                                .unwrap()
+                                .as_raw_fd();
 
                             event_tx
                                 .send(Event::VideosAvailable(vec![VideoSource::PipeWire {
                                     node_id: stream.pipe_wire_node_id(),
-                                    // fd,
-                                    fd: 0,
+                                    fd,
+                                    // fd: 0,
                                 }]))
                                 .unwrap();
 

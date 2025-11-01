@@ -10,6 +10,7 @@ gst = { workspace = true, features = [ "v1_26" ] }
 fcast-protocol.workspace = true
 common.path = "../common"
 gethostname = "1.0.1"
+# slint = { workspace = true, features = ["unstable-wgpu-26", "renderer-femtovg-wgpu"] }
 slint = { workspace = true, features = ["unstable-wgpu-26"] }
 anyhow.workspace = true
 futures.workspace = true
@@ -22,10 +23,14 @@ qrcode = "0.14.1"
 gst-app.workspace = true
 gst-video.workspace = true
 
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2-app-kit = "0.3.2"
+
 [build-dependencies]
 slint-build.workspace = true
 
 [features]
-desktop = ["slint/backend-linuxkms"]
-android = ["slint/backend-android-activity-06"]
+# desktop = ["slint/backend-linuxkms"]
+desktop = []
+android = ["slint/backend-android-activity-06", "slint/renderer-skia"]
 default = []

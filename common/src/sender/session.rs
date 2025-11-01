@@ -20,7 +20,7 @@ use std::net::SocketAddr;
 use std::thread::JoinHandle;
 
 use crate::{Packet, read_packet, write_packet};
-use anyhow::{Result, bail};
+use anyhow::{bail, Context, Result};
 use fcast_protocol::v2::PlayMessage;
 use log::{debug, error, warn};
 use tokio::io::AsyncWriteExt;
@@ -173,6 +173,7 @@ pub struct Session {
 
 impl Session {
     pub fn connect(&mut self, addr: SocketAddr) {
+        debug!("Trying to connect to {addr:?}");
         self.connect_jh = Some(std::thread::spawn(move || {
             std::net::TcpStream::connect(addr)
         }));
@@ -202,7 +203,7 @@ impl Session {
         {
             let jh = self.connect_jh.take().unwrap();
             let stream = jh.join().unwrap()?;
-            stream.set_nonblocking(true)?;
+            stream.set_nonblocking(true).context("Failed to set stream nonblocking")?;
             self.stream = Some(stream);
             return Ok(Some(SessionEvent::Connected));
         }
@@ -212,6 +213,7 @@ impl Session {
             let mut header_buf = [0u8; crate::HEADER_BUFFER_SIZE];
             if let Err(err) = stream.read_exact(&mut header_buf) {
                 if err.kind() != std::io::ErrorKind::WouldBlock {
+                    error!("Failed to read exact: {err}");
                     return Err(err.into());
                 }
                 return Ok(None);
@@ -230,16 +232,16 @@ impl Session {
                     );
                 }
                 let mut body_buf = vec![0; header.size as usize];
-                stream.set_nonblocking(false)?;
+                stream.set_nonblocking(false).context("Failed to set stream blocking")?;
                 if let Err(err) = stream.read_exact(&mut body_buf) {
-                    stream.set_nonblocking(true)?;
+                    stream.set_nonblocking(true).context("Failed to set stream nonblocking")?;
                     return Err(err.into());
                 }
-                stream.set_nonblocking(true)?;
-                body_string = String::from_utf8(body_buf)?;
+                stream.set_nonblocking(true).context("Failed to set stream nonblocking")?;
+                body_string = String::from_utf8(body_buf).context("Failed to convert body to UTF-8 string")?;
             }
 
-            let packet = Packet::decode(header, &body_string)?;
+            let packet = Packet::decode(header, &body_string).context("Failed to decode packet")?;
             return Ok(Some(SessionEvent::Packet(packet)));
         }
 

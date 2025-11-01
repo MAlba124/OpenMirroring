@@ -58,9 +58,13 @@ mod media_factory {
         fn create_video_src(src: &VideoSource) -> anyhow::Result<gst::Element> {
             match src {
                 #[cfg(target_os = "linux")]
-                VideoSource::PipeWire { node_id, .. } => {
+                VideoSource::PipeWire { node_id, fd } => {
                     Ok(gst::ElementFactory::make("pipewiresrc")
+                        .property("client-name", "OpenMirroring Sender")
+                        .property("fd", fd)
                         .property("path", node_id.to_string())
+                        .property("do-timestamp", true)
+                        // .property("target-object", node_id.to_string())
                         .build()?)
                 }
                 #[cfg(target_os = "linux")]

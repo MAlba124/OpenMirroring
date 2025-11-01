@@ -11,7 +11,7 @@ fn android_main(app: slint::android::AndroidApp) {
     receiver_core::slint::BackendSelector::new()
         .require_wgpu_26(receiver_core::slint::wgpu_26::WGPUConfiguration::default())
         .select()
-        .unwrap();
+        .expect("Failed to select wgpu 26 backend");
 
     slint::android::init(app).unwrap();
 

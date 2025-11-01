@@ -57,7 +57,8 @@ fn main() {
     //     gst_android_build_path
     // );
     println!(
-        "cargo:rustc-link-search=native={}/arm64-v8a",
+        // "cargo:rustc-link-search=native={}/arm64-v8a",
+        "cargo:rustc-link-search=native={}/x86_64",
         gst_android_build_path
     );
     println!("cargo:rustc-link-search=native={}", gst_libs);
@@ -66,7 +67,8 @@ fn main() {
     //     proj_root.display()
     // );
     println!(
-        "cargo:rustc-link-search=native={}/app/libs/arm64-v8a",
+        // "cargo:rustc-link-search=native={}/app/libs/arm64-v8a",
+        "cargo:rustc-link-search=native={}/app/libs/x86_64",
         proj_root.display()
     );
 
@@ -99,8 +101,8 @@ fn main() {
     );
     println!("cargo:rustc-link-search={android_ndk_home}/{linux_x86_64_lib_dir}");
     // println!("cargo:rustc-link-search={android_ndk_home}/{linux_arm64_lib_dir}");
-    // cargo_link!("clang_rt.builtins-x86_64-android");
-    cargo_link!("clang_rt.builtins-aarch64-android");
+    cargo_link!("clang_rt.builtins-x86_64-android");
+    // cargo_link!("clang_rt.builtins-aarch64-android");
 
     println!("cargo:rerun-if-changed=build.rs");
     println!("cargo:rerun-if-changed=jni/Android.mk");
