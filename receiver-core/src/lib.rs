@@ -36,6 +36,7 @@ use std::time::{Duration, Instant};
 
 pub use slint;
 
+pub mod fcastwhepsrcbin;
 pub mod pipeline;
 pub mod session;
 pub mod video;
@@ -224,10 +225,13 @@ impl Application {
                     .context("failed to notify about updates")?;
             }
             Event::Play(play_message) => {
-                let Some(url) = play_message.url else {
+                let Some(mut url) = play_message.url else {
                     error!("Play message does not contain a URL");
                     return Ok(false);
                 };
+                if play_message.container == "application/x-whep" {
+                    url = url.replace("http://", "fcastwhep://");
+                }
 
                 if let Err(err) = self.pipeline.set_playback_uri(&url) {
                     use pipeline::SetPlaybackUriError;
@@ -435,6 +439,8 @@ struct CliArgs {
 pub fn run() -> Result<()> {
     gst::init()?;
 
+    fcastwhepsrcbin::plugin_init()?;
+
     let mut ips: Vec<Ipv4Addr> = Vec::new();
     for ip in common::net::get_all_ip_addresses() {
         match ip {
@@ -499,11 +505,15 @@ pub fn run() -> Result<()> {
                 debug!("Got graphics API: {graphics_api:?}");
                 let ui_weak = ui_weak.clone();
 
-                slint_sink.connect(graphics_api, move || {
-                    ui_weak.upgrade_in_event_loop(move |ui| {
-                        ui.window().request_redraw();
-                    }).unwrap();
-                }).unwrap();
+                slint_sink
+                    .connect(graphics_api, move || {
+                        ui_weak
+                            .upgrade_in_event_loop(move |ui| {
+                                ui.window().request_redraw();
+                            })
+                            .unwrap();
+                    })
+                    .unwrap();
             } else if let slint::RenderingState::BeforeRendering = state {
                 let Some(ui) = ui_weak.upgrade() else {
                     error!("Failed to upgrade ui");
@@ -518,7 +528,11 @@ pub fn run() -> Result<()> {
                         return;
                     };
                     let frame = unsafe {
-                        slint::BorrowedOpenGLTextureBuilder::new_gl_2d_rgba_texture(texture_id, size.into()).build()
+                        slint::BorrowedOpenGLTextureBuilder::new_gl_2d_rgba_texture(
+                            texture_id,
+                            size.into(),
+                        )
+                        .build()
                     };
                     ui.global::<Bridge>().set_video_frame(frame);
                 }

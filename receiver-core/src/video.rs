@@ -22,7 +22,6 @@ use std::{
 };
 
 use gst::prelude::*;
-use gst_video::prelude::*;
 use gst_gl::prelude::*;
 use log::error;
 
@@ -215,7 +214,7 @@ impl SlintOpenGLSink {
             match is_on_wayland() {
                 // NOTE: If error: assume KMS
                 Ok(true) | Err(_) => Self::get_egl_ctx(graphics_api)?,
-                Ok(false) => Self::get_glx_ctx(graphics_api)?
+                Ok(false) => Self::get_glx_ctx(graphics_api)?,
             }
         };
         #[cfg(target_os = "android")]
